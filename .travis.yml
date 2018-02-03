@@ -1,4 +1,6 @@
+after_success: coveralls
 dist: trusty
-sudo: required
+install: pip install coveralls
 language: python
 python: "3.6"
+script: python setup.py test
