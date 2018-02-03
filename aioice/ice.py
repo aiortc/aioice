@@ -195,7 +195,7 @@ class Component:
             response.add_fingerprint()
             self.protocol.send(response, addr)
 
-    async def check(self):
+    async def connect(self):
         for candidate in self.remote_candidates:
             request = stun.Message(message_method=stun.Method.BINDING,
                                    message_class=stun.Class.REQUEST,
@@ -250,13 +250,26 @@ class Connection:
         self.__component = Component(1, self)
 
     async def get_local_candidates(self):
+        """
+        Gather local candidates.
+        """
         return await self.__component.get_local_candidates()
 
+
     def set_remote_candidates(self, candidates):
+        """
+        Set remote candidates.
+        """
         self.__component.set_remote_candidates(candidates)
 
-    async def check(self):
+    async def connect(self):
         """
         Perform ICE handshake.
         """
-        await self.__component.check()
+        await self.__component.connect()
+
+    def close(self):
+        """
+        Close the connection.
+        """
+        self.__component.close()

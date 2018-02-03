@@ -27,3 +27,36 @@ What is ``aioice``?
 ``aioice`` is a library for Interactive Connectivity Establishment (RFC 5245)
 in Python. It is built on top of ```asyncio```, Python's standard asynchronous
 I/O framework.
+
+.. code:: python
+
+    #!/usr/bin/env python
+
+    import asyncio
+    import aioice
+
+    async def connect_using_ice(uri):
+        connection = aioice.Connect(ice_controlling=True)
+
+        # gather local candidates
+        local_candidates = await connection.get_local_candidates()
+
+        # send your information to the remote party using your signaling method
+        send_local_info(
+            local_candidates,
+            connection.local_username,
+            connection.local_password)
+
+        # receive remote information using your signaling method
+        remote_candidates, remote_username, remote_password = get_remote_info()
+
+        # perform ICE handshake
+        connection.remote_username = remote_username
+        connection.remote_password = remote_password
+        connection.set_remote_candidates(remote_candidates)
+        await connection.connect()
+
+        # close connection
+        connection.close()
+
+    asyncio.get_event_loop().run_until_complete(connect_using_ice())
