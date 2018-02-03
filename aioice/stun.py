@@ -190,10 +190,6 @@ class Transaction:
         self.__protocol = protocol
         self.__tries = 0
 
-    @property
-    def request(self):
-        return self.__request
-
     def message_received(self, message, addr):
         logger.debug('client < %s' % repr(message))
         self.__timeout_handle.cancel()
