@@ -22,6 +22,14 @@ class StunTest(unittest.TestCase):
         self.assertEqual(address, IPv4Address('192.0.2.1'))
         self.assertEqual(port, 32853)
 
+    def test_unpack_xor_address_ipv4_truncated(self):
+        transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_xor_address(
+                unhexlify('0001a147e112a6'),
+                transaction_id)
+        self.assertEqual(str(cm.exception), 'STUN address has invalid length for IPv4')
+
     def test_unpack_xor_address_ipv6(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         address, port = stun.unpack_xor_address(
@@ -30,6 +38,30 @@ class StunTest(unittest.TestCase):
         self.assertEqual(address, IPv6Address('2001:db8:1234:5678:11:2233:4455:6677'))
         self.assertEqual(port, 32853)
 
+    def test_unpack_xor_address_ipv6_truncated(self):
+        transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_xor_address(
+                unhexlify('0002a1470113a9faa5d3f179bc25f4b5bed2b9'),
+                transaction_id)
+        self.assertEqual(str(cm.exception), 'STUN address has invalid length for IPv6')
+
+    def test_unpack_xor_address_too_short(self):
+        transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_xor_address(
+                unhexlify('0001'),
+                transaction_id)
+        self.assertEqual(str(cm.exception), 'STUN address length is less than 4 bytes')
+
+    def test_unpack_xor_address_unknown_protocol(self):
+        transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_xor_address(
+                unhexlify('0003a147e112a643'),
+                transaction_id)
+        self.assertEqual(str(cm.exception), 'STUN address has unknown protocol')
+
     def test_pack_xor_address_ipv4(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         data = stun.pack_xor_address(
@@ -37,14 +69,16 @@ class StunTest(unittest.TestCase):
             transaction_id)
         self.assertEqual(data, unhexlify('0001a147e112a643'))
 
-    def test_pack_xor_ipv6address(self):
+    def test_pack_xor_address_ipv6(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         data = stun.pack_xor_address(
             (IPv6Address('2001:db8:1234:5678:11:2233:4455:6677'), 32853),
             transaction_id)
         self.assertEqual(data, unhexlify('0002a1470113a9faa5d3f179bc25f4b5bed2b9d9'))
 
-    def test_parse_binding_request(self):
+
+class ParseMessageTest(unittest.TestCase):
+    def test_binding_request(self):
         data = read_message('binding_request.bin')
 
         message = stun.parse_message(data)
@@ -55,7 +89,7 @@ class StunTest(unittest.TestCase):
 
         self.assertEqual(bytes(message), data)
 
-    def test_parse_binding_request_ice_controlled(self):
+    def test_binding_request_ice_controlled(self):
         data = read_message('binding_request_ice_controlled.bin')
 
         message = stun.parse_message(data)
@@ -73,7 +107,7 @@ class StunTest(unittest.TestCase):
 
         self.assertEqual(bytes(message), data)
 
-    def test_parse_binding_request_ice_controlling(self):
+    def test_binding_request_ice_controlling(self):
         data = read_message('binding_request_ice_controlling.bin')
 
         message = stun.parse_message(data)
@@ -89,7 +123,7 @@ class StunTest(unittest.TestCase):
             ('FINGERPRINT', 1347006354),
         ]))
 
-    def test_parse_binding_response(self):
+    def test_binding_response(self):
         data = read_message('binding_response.bin')
 
         message = stun.parse_message(data)
@@ -105,3 +139,14 @@ class StunTest(unittest.TestCase):
         ]))
 
         self.assertEqual(bytes(message), data)
+
+    def test_message_body_length_mismatch(self):
+        data = read_message('binding_response.bin') + b'123'
+        with self.assertRaises(ValueError) as cm:
+            stun.parse_message(data)
+        self.assertEqual(str(cm.exception), 'STUN message length does not match')
+
+    def test_message_shorter_than_header(self):
+        with self.assertRaises(ValueError) as cm:
+            stun.parse_message(b'123')
+        self.assertEqual(str(cm.exception), 'STUN message length is less than 20 bytes')

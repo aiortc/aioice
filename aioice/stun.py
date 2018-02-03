@@ -74,7 +74,7 @@ def unpack_address(data):
             raise ValueError('STUN address has invalid length for IPv6')
         return (IPv6Address(address), port)
     else:
-        raise ValueError('STUN address protocol is unsupported')
+        raise ValueError('STUN address has unknown protocol')
 
 
 def unpack_xor_address(data, transaction_id):
