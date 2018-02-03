@@ -1,6 +1,6 @@
 after_success: coveralls
 dist: trusty
-install: pip install coveralls
+install: pip install coveralls netifaces
 language: python
 python: "3.6"
 script: python setup.py test
