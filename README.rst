@@ -1,6 +1,20 @@
 aioice
 ======
 
+|pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel|
+
+.. |pypi-v| image:: https://img.shields.io/pypi/v/aioice.svg
+    :target: https://pypi.python.org/pypi/aioice
+
+.. |pypi-pyversions| image:: https://img.shields.io/pypi/pyversions/aioice.svg
+    :target: https://pypi.python.org/pypi/aioice
+
+.. |pypi-l| image:: https://img.shields.io/pypi/l/aioice.svg
+    :target: https://pypi.python.org/pypi/aioice
+
+.. |pypi-wheel| image:: https://img.shields.io/pypi/wheel/aioice.svg
+    :target: https://pypi.python.org/pypi/aioice
+
 What is ``aioice``?
 -------------------
 
