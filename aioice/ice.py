@@ -188,19 +188,20 @@ class Component:
             candidates.append(protocol.local_candidate)
 
             # query STUN server for server-reflexive candidate
-            request = stun.Message(message_method=stun.Method.BINDING,
-                                   message_class=stun.Class.REQUEST,
-                                   transaction_id=random_string(12).encode('ascii'))
-            response = await protocol.request(request, self.__connection.stun_server)
+            if self.__connection.stun_server:
+                request = stun.Message(message_method=stun.Method.BINDING,
+                                       message_class=stun.Class.REQUEST,
+                                       transaction_id=random_string(12).encode('ascii'))
+                response = await protocol.request(request, self.__connection.stun_server)
 
-            candidates.append(Candidate(
-                foundation=candidate_foundation('srflx', 'udp', address),
-                component=self.__component,
-                transport='udp',
-                priority=candidate_priority(self.__component, 'srflx'),
-                host=response.attributes['XOR-MAPPED-ADDRESS'][0],
-                port=response.attributes['XOR-MAPPED-ADDRESS'][1],
-                type='srflx'))
+                candidates.append(Candidate(
+                    foundation=candidate_foundation('srflx', 'udp', address),
+                    component=self.__component,
+                    transport='udp',
+                    priority=candidate_priority(self.__component, 'srflx'),
+                    host=str(response.attributes['XOR-MAPPED-ADDRESS'][0]),
+                    port=response.attributes['XOR-MAPPED-ADDRESS'][1],
+                    type='srflx'))
 
         self.local_candidates = candidates
         return candidates
@@ -212,6 +213,17 @@ class Component:
         if (message.message_method == stun.Method.BINDING and
            message.message_class == stun.Class.REQUEST and
            message.attributes['USERNAME'] == self.__incoming_username()):
+
+            # check for role conflict
+            ice_controlling = self.__connection.ice_controlling
+            if (ice_controlling and
+               ('ICE-CONTROLLING' in message.attributes or 'USE-CANDIDATE' in message.attributes)):
+                print("Role conflict, expected to be controlling")
+                return
+            elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
+                print("Role conflict, expected to be controlled")
+                return
+
             response = stun.Message(
                 message_method=stun.Method.BINDING,
                 message_class=stun.Class.RESPONSE,
@@ -266,7 +278,7 @@ class Connection:
         self.local_password = random_string(22)
         self.remote_user = None
         self.remote_password = None
-        self.stun_server = stun_server or ('stun.l.google.com', 19302)
+        self.stun_server = stun_server
         self.tie_breaker = secrets.token_bytes(8)
 
         # get host addresses
