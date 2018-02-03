@@ -13,7 +13,13 @@ def read_message(name):
         return fp.read()
 
 
-class StunTest(unittest.TestCase):
+class AttributeTest(unittest.TestCase):
+    def test_unpack_error_code(self):
+        data = unhexlify('00000457526f6c6520436f6e666c696374')
+        code, reason = stun.unpack_error_code(data)
+        self.assertEqual(code, 487)
+        self.assertEqual(reason, 'Role Conflict')
+
     def test_unpack_xor_address_ipv4(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         address, port = stun.unpack_xor_address(
@@ -62,6 +68,10 @@ class StunTest(unittest.TestCase):
                 transaction_id)
         self.assertEqual(str(cm.exception), 'STUN address has unknown protocol')
 
+    def test_pack_error_code(self):
+        data = stun.pack_error_code((487, 'Role Conflict'))
+        self.assertEqual(data, unhexlify('00000457526f6c6520436f6e666c696374'))
+
     def test_pack_xor_address_ipv4(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         data = stun.pack_xor_address(
@@ -77,7 +87,7 @@ class StunTest(unittest.TestCase):
         self.assertEqual(data, unhexlify('0002a1470113a9faa5d3f179bc25f4b5bed2b9d9'))
 
 
-class ParseMessageTest(unittest.TestCase):
+class MessageTest(unittest.TestCase):
     def test_binding_request(self):
         data = read_message('binding_request.bin')
 

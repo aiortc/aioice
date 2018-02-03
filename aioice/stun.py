@@ -44,6 +44,10 @@ def pack_bytes(value):
     return value
 
 
+def pack_error_code(value):
+    return pack('!HBB', 0, value[0] // 100, value[0] % 100) + value[1].encode('utf8')
+
+
 def pack_none(value):
     return b''
 
@@ -85,6 +89,14 @@ def unpack_bytes(data):
     return data
 
 
+def unpack_error_code(data):
+    if len(data) < 4:
+        raise ValueError('STUN error code is less than 4 bytes')
+    reserved, code_high, code_low = unpack('!HBB', data[0:4])
+    reason = data[4:].decode('utf8')
+    return (code_high * 100 + code_low, reason)
+
+
 def unpack_none(data):
     return None
 
@@ -104,6 +116,7 @@ ATTRIBUTES = [
     (0x0005, 'CHANGED-ADDRESS', pack_address, unpack_address),
     (0x0006, 'USERNAME', pack_string, unpack_string),
     (0x0008, 'MESSAGE-INTEGRITY', pack_bytes, unpack_bytes),
+    (0x0009, 'ERROR-CODE', pack_error_code, unpack_error_code),
     (0x0012, 'XOR-PEER-ADDRESS', pack_xor_address, unpack_xor_address),
     (0x0014, 'REALM', pack_string, unpack_string),
     (0x0015, 'NONCE', pack_bytes, unpack_bytes),
