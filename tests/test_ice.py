@@ -46,5 +46,5 @@ class IceTest(unittest.TestCase):
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
         # close
-        conn_a.close()
-        conn_b.close()
+        run(conn_a.close())
+        run(conn_b.close())

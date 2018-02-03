@@ -57,6 +57,6 @@ I/O framework.
         await connection.connect()
 
         # close connection
-        connection.close()
+        await connection.close()
 
     asyncio.get_event_loop().run_until_complete(connect_using_ice())

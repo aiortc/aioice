@@ -158,7 +158,7 @@ class Component:
         self.__component = component
         self.__protocols = []
 
-    def close(self):
+    async def close(self):
         for protocol in self.__protocols:
             protocol.transport.close()
         self.__protocols = []
@@ -306,8 +306,8 @@ class Connection:
         """
         await self.__component.connect()
 
-    def close(self):
+    async def close(self):
         """
         Close the connection.
         """
-        self.__component.close()
+        await self.__component.close()
