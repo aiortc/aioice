@@ -19,6 +19,12 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(code, 487)
         self.assertEqual(reason, 'Role Conflict')
 
+    def test_unpack_error_code_too_short(self):
+        data = unhexlify('000004')
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_error_code(data)
+        self.assertEqual(str(cm.exception), 'STUN error code is less than 4 bytes')
+
     def test_unpack_xor_address_ipv4(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         address, port = stun.unpack_xor_address(
