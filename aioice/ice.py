@@ -255,7 +255,6 @@ class Connection:
         """
         return await self.__component.get_local_candidates()
 
-
     def set_remote_candidates(self, candidates):
         """
         Set remote candidates.
