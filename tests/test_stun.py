@@ -1,4 +1,3 @@
-import ipaddress
 import os
 import unittest
 from binascii import unhexlify
