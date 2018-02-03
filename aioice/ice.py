@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import secrets
 import socket
 import string
@@ -7,6 +8,11 @@ from ipaddress import IPv4Address
 import netifaces
 
 from . import stun
+
+
+def compute_foundation(candidate_type, candidate_transport, base_address):
+    key = '%s|%s|%s' % (type, candidate_transport, base_address)
+    return hashlib.md5(key.encode('ascii')).hexdigest()
 
 
 def compute_priority(candidate_component, candidate_type, local_pref=65535):
@@ -95,7 +101,7 @@ class StunProtocol:
            message.transaction_id in self.transactions):
             transaction = self.transactions[message.transaction_id]
             transaction.message_received(message, addr)
-        self.receiver.stun_message_received(message, addr)
+        self.receiver.stun_message_received(message, addr, self)
 
     def error_received(self, exc):
         print('Error received:', exc)
@@ -129,52 +135,54 @@ class Component:
     """
     An ICE component.
     """
-    def __init__(self, component, connection):
+    def __init__(self, component, addresses, connection):
+        self.__addresses = addresses
         self.__connection = connection
         self.__component = component
-        self.protocol = None
-        self.transport = None
+        self.__protocols = []
 
     def close(self):
-        if self.protocol is not None:
-            self.transport.close()
-            self.transport = None
-            self.protocol = None
+        for protocol in self.__protocols:
+            protocol.transport.close()
+        self.__protocols = []
 
     async def get_local_candidates(self):
-        protocol = await self.__get_protocol()
-
-        request = stun.Message(message_method=stun.Method.BINDING,
-                               message_class=stun.Class.REQUEST,
-                               transaction_id=random_string(12).encode('ascii'))
-        response = await protocol.request(request, self.__connection.stun_server)
-
         candidates = []
 
-        port = self.transport.get_extra_info('socket').getsockname()[1]
+        loop = asyncio.get_event_loop()
+        for address in self.__addresses:
+            # create transport
+            _, protocol = await loop.create_datagram_endpoint(
+                lambda: StunProtocol(self),
+                local_addr=(address, 0))
+            port = protocol.transport.get_extra_info('socket').getsockname()[1]
+            self.__protocols.append(protocol)
 
-        for interface in netifaces.interfaces():
-            for address in netifaces.ifaddresses(interface)[socket.AF_INET]:
-                if address['addr'] == '127.0.0.1':
-                    continue
+            # add host candidate
+            protocol.local_candidate = Candidate(
+                foundation=compute_foundation('host', 'udp', address),
+                component=self.__component,
+                transport='udp',
+                priority=compute_priority(self.__component, 'host'),
+                host=address,
+                port=port,
+                type='host')
+            candidates.append(protocol.local_candidate)
 
-                candidates.append(Candidate(
-                    foundation=random_string(10),
-                    component=self.__component,
-                    transport='udp',
-                    priority=compute_priority(self.__component, 'host'),
-                    host=address['addr'],
-                    port=port,
-                    type='host'))
+            # query STUN server for server-reflexive candidate
+            request = stun.Message(message_method=stun.Method.BINDING,
+                                   message_class=stun.Class.REQUEST,
+                                   transaction_id=random_string(12).encode('ascii'))
+            response = await protocol.request(request, self.__connection.stun_server)
 
-        candidates.append(Candidate(
-            foundation=random_string(10),
-            component=self.__component,
-            transport='udp',
-            priority=compute_priority(self.__component, 'srflx'),
-            host=response.attributes['XOR-MAPPED-ADDRESS'][0],
-            port=response.attributes['XOR-MAPPED-ADDRESS'][1],
-            type='srflx'))
+            candidates.append(Candidate(
+                foundation=compute_foundation('srflx', 'udp', address),
+                component=self.__component,
+                transport='udp',
+                priority=compute_priority(self.__component, 'srflx'),
+                host=response.attributes['XOR-MAPPED-ADDRESS'][0],
+                port=response.attributes['XOR-MAPPED-ADDRESS'][1],
+                type='srflx'))
 
         self.local_candidates = candidates
         return candidates
@@ -182,7 +190,7 @@ class Component:
     def set_remote_candidates(self, candidates):
         self.remote_candidates = candidates
 
-    def stun_message_received(self, message, addr):
+    def stun_message_received(self, message, addr, protocol):
         if (message.message_method == stun.Method.BINDING and
            message.message_class == stun.Class.REQUEST and
            message.attributes['USERNAME'] == self.__incoming_username()):
@@ -193,32 +201,25 @@ class Component:
             response.attributes['XOR-MAPPED-ADDRESS'] = (IPv4Address(addr[0]), addr[1])
             response.add_message_integrity(self.__connection.local_password.encode('utf8'))
             response.add_fingerprint()
-            self.protocol.send(response, addr)
+            protocol.send(response, addr)
 
     async def connect(self):
-        for candidate in self.remote_candidates:
-            request = stun.Message(message_method=stun.Method.BINDING,
-                                   message_class=stun.Class.REQUEST,
-                                   transaction_id=random_string(12).encode('ascii'))
-            request.attributes['USERNAME'] = self.__outgoing_username()
-            request.attributes['PRIORITY'] = self.__pair_priority(self.local_candidates[-1],
-                                                                  candidate)
-            if self.__connection.ice_controlling:
-                request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
-                request.attributes['USE-CANDIDATE'] = None
-            else:
-                request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
-            request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
-            request.add_fingerprint()
-            await self.protocol.request(request, (candidate.host, candidate.port))
-
-    async def __get_protocol(self):
-        if self.protocol is None:
-            loop = asyncio.get_event_loop()
-            self.transport, self.protocol = await loop.create_datagram_endpoint(
-                lambda: StunProtocol(self),
-                family=socket.AF_INET)
-        return self.protocol
+        for protocol in self.__protocols:
+            for remote_candidate in self.remote_candidates:
+                request = stun.Message(message_method=stun.Method.BINDING,
+                                       message_class=stun.Class.REQUEST,
+                                       transaction_id=random_string(12).encode('ascii'))
+                request.attributes['USERNAME'] = self.__outgoing_username()
+                request.attributes['PRIORITY'] = self.__pair_priority(protocol.local_candidate,
+                                                                      remote_candidate)
+                if self.__connection.ice_controlling:
+                    request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
+                    request.attributes['USE-CANDIDATE'] = None
+                else:
+                    request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
+                request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
+                request.add_fingerprint()
+                await protocol.request(request, (remote_candidate.host, remote_candidate.port))
 
     def __pair_priority(self, local, remote):
         # see RFC 5245 - 5.7.2. Computing Pair Priority and Ordering Pairs
@@ -247,7 +248,14 @@ class Connection:
         self.stun_server = stun_server or ('stun.l.google.com', 19302)
         self.tie_breaker = secrets.token_bytes(8)
 
-        self.__component = Component(1, self)
+        # get host addresses
+        addresses = []
+        for interface in netifaces.interfaces():
+            for address in netifaces.ifaddresses(interface)[socket.AF_INET]:
+                if address['addr'] != '127.0.0.1':
+                    addresses.append(address['addr'])
+
+        self.__component = Component(1, addresses, self)
 
     async def get_local_candidates(self):
         """
