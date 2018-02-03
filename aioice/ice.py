@@ -201,7 +201,8 @@ class Component:
                                    message_class=stun.Class.REQUEST,
                                    transaction_id=random_string(12).encode('ascii'))
             request.attributes['USERNAME'] = self.__outgoing_username()
-            request.attributes['PRIORITY'] = self.__pair_priority(self.local_candidates[-1], candidate)
+            request.attributes['PRIORITY'] = self.__pair_priority(self.local_candidates[-1],
+                                                                  candidate)
             if self.__connection.ice_controlling:
                 request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
                 request.attributes['USE-CANDIDATE'] = None

@@ -1,6 +1,8 @@
 after_success: coveralls
 dist: trusty
-install: pip install coveralls netifaces
+install: pip install coveralls flake8 netifaces
 language: python
 python: "3.6"
-script: python setup.py test
+script:
+  - flake8 aioice
+  - coverage run setup.py test

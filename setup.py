@@ -29,4 +29,5 @@ setuptools.setup(
         'Programming Language :: Python :: 3.6',
     ],
     packages=['aioice'],
+    install_requires=['netifaces'],
 )
