@@ -262,10 +262,10 @@ class Component:
             await protocol.request(request, (remote_candidate.host, remote_candidate.port))
 
     def __incoming_username(self):
-        return '%s:%s' % (self.__connection.local_user, self.__connection.remote_user)
+        return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
 
     def __outgoing_username(self):
-        return '%s:%s' % (self.__connection.remote_user, self.__connection.local_user)
+        return '%s:%s' % (self.__connection.remote_username, self.__connection.local_username)
 
 
 class Connection:
@@ -274,9 +274,9 @@ class Connection:
     """
     def __init__(self, ice_controlling, stun_server=None):
         self.ice_controlling = ice_controlling
-        self.local_user = random_string(4)
+        self.local_username = random_string(4)
         self.local_password = random_string(22)
-        self.remote_user = None
+        self.remote_username = None
         self.remote_password = None
         self.stun_server = stun_server
         self.tie_breaker = secrets.token_bytes(8)
