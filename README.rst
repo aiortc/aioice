@@ -1,7 +1,7 @@
 aioice
 ======
 
-|pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel|
+|pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel| |travis| |coveralls|
 
 .. |pypi-v| image:: https://img.shields.io/pypi/v/aioice.svg
     :target: https://pypi.python.org/pypi/aioice
@@ -14,6 +14,12 @@ aioice
 
 .. |pypi-wheel| image:: https://img.shields.io/pypi/wheel/aioice.svg
     :target: https://pypi.python.org/pypi/aioice
+
+.. |travis| image:: https://img.shields.io/travis/jlaine/aioice.svg
+    :target: https://travis-ci.org/jlaine/aioice
+
+.. |coveralls| image:: https://img.shields.io/coveralls/jlaine/aioice.svg
+    :target: https://coveralls.io/github/jlaine/aioice
 
 What is ``aioice``?
 -------------------
