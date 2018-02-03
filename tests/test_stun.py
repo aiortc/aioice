@@ -2,7 +2,6 @@ import os
 import unittest
 from binascii import unhexlify
 from collections import OrderedDict
-from ipaddress import IPv4Address, IPv6Address
 
 from aioice import stun
 
@@ -25,7 +24,7 @@ class AttributeTest(unittest.TestCase):
         address, port = stun.unpack_xor_address(
             unhexlify('0001a147e112a643'),
             transaction_id)
-        self.assertEqual(address, IPv4Address('192.0.2.1'))
+        self.assertEqual(address, '192.0.2.1')
         self.assertEqual(port, 32853)
 
     def test_unpack_xor_address_ipv4_truncated(self):
@@ -41,7 +40,7 @@ class AttributeTest(unittest.TestCase):
         address, port = stun.unpack_xor_address(
             unhexlify('0002a1470113a9faa5d3f179bc25f4b5bed2b9d9'),
             transaction_id)
-        self.assertEqual(address, IPv6Address('2001:db8:1234:5678:11:2233:4455:6677'))
+        self.assertEqual(address, '2001:db8:1234:5678:11:2233:4455:6677')
         self.assertEqual(port, 32853)
 
     def test_unpack_xor_address_ipv6_truncated(self):
@@ -75,16 +74,24 @@ class AttributeTest(unittest.TestCase):
     def test_pack_xor_address_ipv4(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         data = stun.pack_xor_address(
-            (IPv4Address('192.0.2.1'), 32853),
+            ('192.0.2.1', 32853),
             transaction_id)
         self.assertEqual(data, unhexlify('0001a147e112a643'))
 
     def test_pack_xor_address_ipv6(self):
         transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
         data = stun.pack_xor_address(
-            (IPv6Address('2001:db8:1234:5678:11:2233:4455:6677'), 32853),
+            ('2001:db8:1234:5678:11:2233:4455:6677', 32853),
             transaction_id)
         self.assertEqual(data, unhexlify('0002a1470113a9faa5d3f179bc25f4b5bed2b9d9'))
+
+    def test_pack_xor_address_unknown_protocol(self):
+        transaction_id = unhexlify('b7e7a701bc34d686fa87dfae')
+        with self.assertRaises(ValueError) as cm:
+            stun.pack_xor_address(
+                ('foo', 32853),
+                transaction_id)
+        self.assertEqual(str(cm.exception), "'foo' does not appear to be an IPv4 or IPv6 address")
 
 
 class MessageTest(unittest.TestCase):
@@ -141,10 +148,10 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(message.message_class, stun.Class.RESPONSE)
         self.assertEqual(message.transaction_id, b'Nvfx3lU7FUBF')
         self.assertEqual(message.attributes, OrderedDict([
-            ('XOR-MAPPED-ADDRESS', (IPv4Address('80.200.136.90'), 53054)),
-            ('MAPPED-ADDRESS', (IPv4Address('80.200.136.90'), 53054)),
-            ('RESPONSE-ORIGIN', (IPv4Address('52.17.36.97'), 3478)),
-            ('OTHER-ADDRESS', (IPv4Address('52.17.36.97'), 3479)),
+            ('XOR-MAPPED-ADDRESS', ('80.200.136.90', 53054)),
+            ('MAPPED-ADDRESS', ('80.200.136.90', 53054)),
+            ('RESPONSE-ORIGIN', ('52.17.36.97', 3478)),
+            ('OTHER-ADDRESS', ('52.17.36.97', 3479)),
             ('SOFTWARE', "Citrix-3.2.4.5 'Marshal West'"),
         ]))
 

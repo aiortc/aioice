@@ -3,7 +3,6 @@ import hashlib
 import secrets
 import socket
 import string
-from ipaddress import IPv4Address
 
 import netifaces
 
@@ -199,7 +198,7 @@ class Component:
                     component=self.__component,
                     transport='udp',
                     priority=candidate_priority(self.__component, 'srflx'),
-                    host=str(response.attributes['XOR-MAPPED-ADDRESS'][0]),
+                    host=response.attributes['XOR-MAPPED-ADDRESS'][0],
                     port=response.attributes['XOR-MAPPED-ADDRESS'][1],
                     type='srflx'))
 
@@ -216,8 +215,7 @@ class Component:
 
             # check for role conflict
             ice_controlling = self.__connection.ice_controlling
-            if (ice_controlling and
-               ('ICE-CONTROLLING' in message.attributes or 'USE-CANDIDATE' in message.attributes)):
+            if ice_controlling and 'ICE-CONTROLLING' in message.attributes:
                 print("Role conflict, expected to be controlling")
                 return
             elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
@@ -228,7 +226,7 @@ class Component:
                 message_method=stun.Method.BINDING,
                 message_class=stun.Class.RESPONSE,
                 transaction_id=message.transaction_id)
-            response.attributes['XOR-MAPPED-ADDRESS'] = (IPv4Address(addr[0]), addr[1])
+            response.attributes['XOR-MAPPED-ADDRESS'] = addr
             response.add_message_integrity(self.__connection.local_password.encode('utf8'))
             response.add_fingerprint()
             protocol.send(response, addr)

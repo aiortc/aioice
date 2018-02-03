@@ -4,9 +4,9 @@ import asyncio
 import binascii
 import enum
 import hmac
+import ipaddress
 import logging
 from collections import OrderedDict
-from ipaddress import IPv4Address, IPv6Address
 from struct import pack, unpack
 
 COOKIE = 0x2112a442
@@ -31,13 +31,12 @@ def xor_address(data, transaction_id):
 
 
 def pack_address(value, **kwargs):
-    if isinstance(value[0], IPv4Address):
+    ip_address = ipaddress.ip_address(value[0])
+    if isinstance(ip_address, ipaddress.IPv4Address):
         protocol = IPV4_PROTOCOL
-    elif isinstance(value[0], IPv6Address):
-        protocol = IPV6_PROTOCOL
     else:
-        raise ValueError('Value must be an IPv4Address or IPv6Address')
-    return pack('!BBH', 0, protocol, value[1]) + value[0].packed
+        protocol = IPV6_PROTOCOL
+    return pack('!BBH', 0, protocol, value[1]) + ip_address.packed
 
 
 def pack_bytes(value):
@@ -72,11 +71,11 @@ def unpack_address(data):
     if protocol == IPV4_PROTOCOL:
         if len(address) != 4:
             raise ValueError('STUN address has invalid length for IPv4')
-        return (IPv4Address(address), port)
+        return (str(ipaddress.IPv4Address(address)), port)
     elif protocol == IPV6_PROTOCOL:
         if len(address) != 16:
             raise ValueError('STUN address has invalid length for IPv6')
-        return (IPv6Address(address), port)
+        return (str(ipaddress.IPv6Address(address)), port)
     else:
         raise ValueError('STUN address has unknown protocol')
 
