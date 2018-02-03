@@ -10,14 +10,17 @@ import netifaces
 from . import stun
 
 
-def compute_foundation(candidate_type, candidate_transport, base_address):
+def candidate_foundation(candidate_type, candidate_transport, base_address):
+    """
+    See RFC 5245 - 4.1.1.3. Computing Foundations
+    """
     key = '%s|%s|%s' % (type, candidate_transport, base_address)
     return hashlib.md5(key.encode('ascii')).hexdigest()
 
 
-def compute_priority(candidate_component, candidate_type, local_pref=65535):
+def candidate_priority(candidate_component, candidate_type, local_pref=65535):
     """
-    Compute the priority of a candidate using RFC 5245's recommended formula.
+    See RFC 5245 - 4.1.2.1. Recommended Formula
     """
     if candidate_type == 'host':
         type_pref = 126
@@ -31,6 +34,15 @@ def compute_priority(candidate_component, candidate_type, local_pref=65535):
     return (1 << 24) * type_pref + \
            (1 << 8) * local_pref + \
            (256 - candidate_component)
+
+
+def candidate_pair_priority(local, remote, ice_controlling):
+    """
+    See RFC 5245 - 5.7.2. Computing Pair Priority and Ordering Pairs
+    """
+    G = ice_controlling and local.priority or remote.priority
+    D = ice_controlling and remote.priority or local.priority
+    return (1 << 32) * min(G, D) + 2 * max(G, D) + (G > D and 1 or 0)
 
 
 def random_string(length):
@@ -66,6 +78,12 @@ class Candidate:
             self.port,
             self.type,
             self.generation)
+
+
+class CandidatePair:
+    def __init__(self, protocol, remote_candidate):
+        self.protocol = protocol
+        self.remote_candidate = remote_candidate
 
 
 def parse_candidate(value):
@@ -160,10 +178,10 @@ class Component:
 
             # add host candidate
             protocol.local_candidate = Candidate(
-                foundation=compute_foundation('host', 'udp', address),
+                foundation=candidate_foundation('host', 'udp', address),
                 component=self.__component,
                 transport='udp',
-                priority=compute_priority(self.__component, 'host'),
+                priority=candidate_priority(self.__component, 'host'),
                 host=address,
                 port=port,
                 type='host')
@@ -176,10 +194,10 @@ class Component:
             response = await protocol.request(request, self.__connection.stun_server)
 
             candidates.append(Candidate(
-                foundation=compute_foundation('srflx', 'udp', address),
+                foundation=candidate_foundation('srflx', 'udp', address),
                 component=self.__component,
                 transport='udp',
-                priority=compute_priority(self.__component, 'srflx'),
+                priority=candidate_priority(self.__component, 'srflx'),
                 host=response.attributes['XOR-MAPPED-ADDRESS'][0],
                 port=response.attributes['XOR-MAPPED-ADDRESS'][1],
                 type='srflx'))
@@ -204,29 +222,32 @@ class Component:
             protocol.send(response, addr)
 
     async def connect(self):
-        for protocol in self.__protocols:
-            for remote_candidate in self.remote_candidates:
-                request = stun.Message(message_method=stun.Method.BINDING,
-                                       message_class=stun.Class.REQUEST,
-                                       transaction_id=random_string(12).encode('ascii'))
-                request.attributes['USERNAME'] = self.__outgoing_username()
-                request.attributes['PRIORITY'] = self.__pair_priority(protocol.local_candidate,
-                                                                      remote_candidate)
-                if self.__connection.ice_controlling:
-                    request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
-                    request.attributes['USE-CANDIDATE'] = None
-                else:
-                    request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
-                request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
-                request.add_fingerprint()
-                await protocol.request(request, (remote_candidate.host, remote_candidate.port))
+        # create candidate pairs
+        candidate_pairs = []
+        for remote_candidate in self.remote_candidates:
+            for protocol in self.__protocols:
+                pair = CandidatePair(protocol, remote_candidate)
+                pair.priority = candidate_pair_priority(protocol.local_candidate,
+                                                        remote_candidate,
+                                                        self.__connection.ice_controlling)
+                candidate_pairs.append(pair)
+        candidate_pairs.sort(key=lambda x: -x.priority)
 
-    def __pair_priority(self, local, remote):
-        # see RFC 5245 - 5.7.2. Computing Pair Priority and Ordering Pairs
-        ice_controlling = self.__connection.ice_controlling
-        G = ice_controlling and local.priority or remote.priority
-        D = ice_controlling and remote.priority or local.priority
-        return (1 << 32) * min(G, D) + 2 * max(G, D) + (G > D and 1 or 0)
+        # perform checks
+        for pair in candidate_pairs:
+            request = stun.Message(message_method=stun.Method.BINDING,
+                                   message_class=stun.Class.REQUEST,
+                                   transaction_id=random_string(12).encode('ascii'))
+            request.attributes['USERNAME'] = self.__outgoing_username()
+            request.attributes['PRIORITY'] = candidate_priority(self.__component, 'prflx')
+            if self.__connection.ice_controlling:
+                request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
+                request.attributes['USE-CANDIDATE'] = None
+            else:
+                request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
+            request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
+            request.add_fingerprint()
+            await protocol.request(request, (remote_candidate.host, remote_candidate.port))
 
     def __incoming_username(self):
         return '%s:%s' % (self.__connection.local_user, self.__connection.remote_user)
