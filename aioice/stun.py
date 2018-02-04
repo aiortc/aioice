@@ -9,6 +9,7 @@ from collections import OrderedDict
 from struct import pack, unpack
 
 COOKIE = 0x2112a442
+FINGERPRINT_LENGTH = 8
 FINGERPRINT_XOR = 0x5354554e
 HEADER_LENGTH = 20
 IPV4_PROTOCOL = 1
@@ -16,6 +17,10 @@ IPV6_PROTOCOL = 2
 
 RETRY_INTERVAL = 0.5
 RETRY_MAX = 7
+
+
+def set_body_length(data, length):
+    return data[0:2] + pack('!H', length) + data[4:]
 
 
 def xor_address(data, transaction_id):
@@ -155,14 +160,13 @@ class Message(object):
 
     def add_fingerprint(self):
         data = bytes(self)
-        # increase length by 8
-        data = data[0:2] + pack('!H', len(data) - HEADER_LENGTH + 8) + data[4:]
+        data = set_body_length(data, len(data) - HEADER_LENGTH + FINGERPRINT_LENGTH)
         self.attributes['FINGERPRINT'] = binascii.crc32(data) ^ FINGERPRINT_XOR
 
     def add_message_integrity(self, key):
         data = bytes(self)
         # increase length by 24
-        data = data[0:2] + pack('!H', len(data) - HEADER_LENGTH + 24) + data[4:]
+        data = set_body_length(data, len(data) - HEADER_LENGTH + 24)
         self.attributes['MESSAGE-INTEGRITY'] = hmac.new(key, data, 'sha1').digest()
 
     def __bytes__(self):
@@ -242,6 +246,13 @@ def parse_message(data):
                 attributes[attr_name] = attr_unpack(v, transaction_id=transaction_id)
             else:
                 attributes[attr_name] = attr_unpack(v)
+
+            if attr_name == 'FINGERPRINT':
+                check_data = set_body_length(data[0:pos],
+                                             pos - HEADER_LENGTH + FINGERPRINT_LENGTH)
+                if attributes[attr_name] != binascii.crc32(check_data) ^ FINGERPRINT_XOR:
+                    raise ValueError('STUN message fingerprint does not match')
+
         pos += 4 + attr_len + pad_len
     return Message(
         message_method=message_type & 0x3eef,

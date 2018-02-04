@@ -130,6 +130,13 @@ class MessageTest(unittest.TestCase):
 
         self.assertEqual(bytes(message), data)
 
+    def test_binding_request_ice_controlled_bad_fingerprint(self):
+        data = read_message('binding_request_ice_controlled.bin')[0:-1] + b'z'
+
+        with self.assertRaises(ValueError) as cm:
+            stun.parse_message(data)
+        self.assertEqual(str(cm.exception), 'STUN message fingerprint does not match')
+
     def test_binding_request_ice_controlling(self):
         data = read_message('binding_request_ice_controlling.bin')
 
