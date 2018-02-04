@@ -49,6 +49,26 @@ def random_string(length):
     return ''.join(secrets.choice(allchar) for x in range(length))
 
 
+async def server_reflexive_candidate(protocol, stun_server):
+    """
+    Query STUN server to obtain a server-reflexive candidate.
+    """
+    request = stun.Message(message_method=stun.Method.BINDING,
+                           message_class=stun.Class.REQUEST,
+                           transaction_id=random_string(12).encode('ascii'))
+    response = await protocol.request(request, stun_server)
+
+    local_candidate = protocol.local_candidate
+    return Candidate(
+        foundation=candidate_foundation('srflx', 'udp', local_candidate.host),
+        component=local_candidate.component,
+        transport=local_candidate.transport,
+        priority=candidate_priority(local_candidate.component, 'srflx'),
+        host=response.attributes['XOR-MAPPED-ADDRESS'][0],
+        port=response.attributes['XOR-MAPPED-ADDRESS'][1],
+        type='srflx')
+
+
 class Candidate:
     """
     An ICE candidate.
@@ -186,21 +206,12 @@ class Component:
                 type='host')
             candidates.append(protocol.local_candidate)
 
-            # query STUN server for server-reflexive candidate
-            if self.__connection.stun_server:
-                request = stun.Message(message_method=stun.Method.BINDING,
-                                       message_class=stun.Class.REQUEST,
-                                       transaction_id=random_string(12).encode('ascii'))
-                response = await protocol.request(request, self.__connection.stun_server)
-
-                candidates.append(Candidate(
-                    foundation=candidate_foundation('srflx', 'udp', address),
-                    component=self.__component,
-                    transport='udp',
-                    priority=candidate_priority(self.__component, 'srflx'),
-                    host=response.attributes['XOR-MAPPED-ADDRESS'][0],
-                    port=response.attributes['XOR-MAPPED-ADDRESS'][1],
-                    type='srflx'))
+        # query STUN server for server-reflexive candidates
+        if self.__connection.stun_server:
+            fs = map(lambda x: server_reflexive_candidate(x, self.__connection.stun_server),
+                     self.__protocols)
+            done, pending = await asyncio.wait(fs)
+            candidates += [task.result() for task in done if task.exception() is None]
 
         self.local_candidates = candidates
         return candidates
