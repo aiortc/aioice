@@ -148,13 +148,20 @@ class Class(enum.IntEnum):
 
 class Method(enum.IntEnum):
     BINDING = 0x1
+    SHARED_SECRET = 0x2
+    ALLOCATE = 0x3
+    REFRESH = 0x4
+    SEND = 0x6
+    DATA = 0x7
+    CREATE_PERMISSION = 0x8
+    CHANNEL_BIND = 0x9
 
 
 class Message(object):
     def __init__(self, message_method, message_class, transaction_id,
                  attributes=None):
-        self.message_method = message_method
-        self.message_class = message_class
+        self.message_method = Method(message_method)
+        self.message_class = Class(message_class)
         self.transaction_id = transaction_id
         self.attributes = attributes or OrderedDict()
 
