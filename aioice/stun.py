@@ -5,7 +5,6 @@ import binascii
 import enum
 import hmac
 import ipaddress
-import logging
 from collections import OrderedDict
 from struct import pack, unpack
 
@@ -17,9 +16,6 @@ IPV6_PROTOCOL = 2
 
 RETRY_INTERVAL = 0.5
 RETRY_MAX = 7
-
-
-logger = logging.getLogger('stun')
 
 
 def xor_address(data, transaction_id):
@@ -203,7 +199,6 @@ class Transaction:
         self.__tries = 0
 
     def message_received(self, message, addr):
-        logger.debug('client < %s' % repr(message))
         self.__timeout_handle.cancel()
         self.__future.set_result(message)
 
@@ -213,11 +208,9 @@ class Transaction:
 
     def __retry(self):
         if self.__tries >= RETRY_MAX:
-            logger.debug('timeout')
             self.__future.set_exception(Exception('Timeout'))
             return
 
-        logger.debug('client > %s' % repr(self.__request))
         self.__protocol.send_stun(self.__request, self.__addr)
 
         if self.__tries:

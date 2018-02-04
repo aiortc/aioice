@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import secrets
 import socket
 import string
@@ -7,6 +8,9 @@ import string
 import netifaces
 
 from . import stun
+
+
+logger = logging.getLogger('ice')
 
 
 def candidate_foundation(candidate_type, candidate_transport, base_address):
@@ -131,6 +135,7 @@ class StunProtocol:
     def datagram_received(self, data, addr):
         try:
             message = stun.parse_message(data)
+            logger.debug('client < %s' % repr(message))
         except ValueError:
             coro = self.queue.put(data)
             asyncio.ensure_future(coro)
@@ -144,10 +149,10 @@ class StunProtocol:
         self.receiver.stun_message_received(message, addr, self)
 
     def error_received(self, exc):
-        print('Error received:', exc)
+        logger.warn('Socket error', exc)
 
     def connection_lost(self, exc):
-        print('Socket closed:', exc)
+        logger.debug('Socket closed', exc)
 
     # custom
 
@@ -174,6 +179,7 @@ class StunProtocol:
         """
         Send a STUN message.
         """
+        logger.debug('client > %s' % repr(message))
         self.transport.sendto(bytes(message), addr)
 
 
@@ -239,10 +245,10 @@ class Component:
             # check for role conflict
             ice_controlling = self.__connection.ice_controlling
             if ice_controlling and 'ICE-CONTROLLING' in message.attributes:
-                print("Role conflict, expected to be controlling")
+                logger.warn("Role conflict, expected to be controlling")
                 return
             elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
-                print("Role conflict, expected to be controlled")
+                logger.warn("Role conflict, expected to be controlled")
                 return
 
             response = stun.Message(
@@ -284,7 +290,9 @@ class Component:
             request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
         request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
         request.add_fingerprint()
-        await pair.protocol.request(request, (pair.remote_candidate.host, pair.remote_candidate.port))
+
+        addr = (pair.remote_candidate.host, pair.remote_candidate.port)
+        await pair.protocol.request(request, addr)
 
     async def recv(self):
         for pair in self.__pairs:
@@ -292,7 +300,8 @@ class Component:
 
     async def send(self, data):
         for pair in self.__pairs:
-            return await pair.protocol.send_data(data, (pair.remote_candidate.host, pair.remote_candidate.port))
+            addr = (pair.remote_candidate.host, pair.remote_candidate.port)
+            return await pair.protocol.send_data(data, addr)
 
     def __incoming_username(self):
         return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
