@@ -128,6 +128,9 @@ class StunProtocol:
         self.transport = None
         self.transactions = {}
 
+    def connection_lost(self, exc):
+        logger.debug('connection_lost(%s)', exc)
+
     def connection_made(self, transport):
         self.transport = transport
 
@@ -148,10 +151,7 @@ class StunProtocol:
         self.receiver.stun_message_received(message, addr, self)
 
     def error_received(self, exc):
-        logger.warn('Socket error', exc)
-
-    def connection_lost(self, exc):
-        logger.debug('Socket closed', exc)
+        logger.debug('error_received(%s)', exc)
 
     # custom
 
