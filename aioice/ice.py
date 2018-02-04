@@ -358,12 +358,12 @@ class Connection:
 
     async def recv(self):
         """
-        Receive the next datagram for the specified component.
+        Receive the next datagram.
         """
         return await self.__component.recv()
 
     async def send(self, data):
         """
-        Send a datagram for the specified component.
+        Send a datagram.
         """
         return await self.__component.send(data)
