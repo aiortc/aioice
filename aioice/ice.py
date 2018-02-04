@@ -183,7 +183,7 @@ class Component:
             protocol.transport.close()
         self.__protocols = []
 
-    async def get_local_candidates(self):
+    async def get_local_candidates(self, timeout=5):
         candidates = []
 
         loop = asyncio.get_event_loop()
@@ -210,8 +210,10 @@ class Component:
         if self.__connection.stun_server:
             fs = map(lambda x: server_reflexive_candidate(x, self.__connection.stun_server),
                      self.__protocols)
-            done, pending = await asyncio.wait(fs)
+            done, pending = await asyncio.wait(fs, timeout=timeout)
             candidates += [task.result() for task in done if task.exception() is None]
+            for task in pending:
+                task.cancel()
 
         self.local_candidates = candidates
         return candidates
