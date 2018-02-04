@@ -1,14 +1,13 @@
 import asyncio
 import hashlib
 import logging
-import secrets
 import socket
 import string
 
 import netifaces
 
 from . import stun
-
+from .compat import secrets
 
 logger = logging.getLogger('ice')
 
