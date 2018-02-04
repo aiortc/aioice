@@ -58,7 +58,7 @@ I/O framework.
 
         # send and receive data
         await connection.send(b'1234')
-        data = await connection.recv(b'1234')
+        data = await connection.recv()
 
         # close connection
         await connection.close()
