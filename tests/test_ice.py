@@ -45,6 +45,11 @@ class IceTest(unittest.TestCase):
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
+        # send data
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
         # close
         run(conn_a.close())
         run(conn_b.close())

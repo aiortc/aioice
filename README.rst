@@ -56,6 +56,10 @@ I/O framework.
         connection.set_remote_candidates(remote_candidates)
         await connection.connect()
 
+        # send and receive data
+        await connection.send(b'1234')
+        data = await connection.recv(b'1234')
+
         # close connection
         await connection.close()
 

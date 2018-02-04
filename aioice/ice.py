@@ -120,6 +120,7 @@ def parse_candidate(value):
 
 class StunProtocol:
     def __init__(self, receiver):
+        self.queue = asyncio.Queue()
         self.receiver = receiver
         self.transport = None
         self.transactions = {}
@@ -131,6 +132,8 @@ class StunProtocol:
         try:
             message = stun.parse_message(data)
         except ValueError:
+            coro = self.queue.put(data)
+            asyncio.ensure_future(coro)
             return
 
         if ((message.message_class == stun.Class.RESPONSE or
@@ -148,6 +151,12 @@ class StunProtocol:
 
     # custom
 
+    async def recv_data(self):
+        return await self.queue.get()
+
+    async def send_data(self, data, addr):
+        self.transport.sendto(data, addr)
+
     async def request(self, request, addr):
         """
         Execute a STUN transaction and return the response.
@@ -161,7 +170,7 @@ class StunProtocol:
 
         return response
 
-    def send(self, message, addr):
+    def send_stun(self, message, addr):
         """
         Send a STUN message.
         """
@@ -176,6 +185,7 @@ class Component:
         self.__addresses = addresses
         self.__connection = connection
         self.__component = component
+        self.__pairs = []
         self.__protocols = []
 
     async def close(self):
@@ -242,7 +252,7 @@ class Component:
             response.attributes['XOR-MAPPED-ADDRESS'] = addr
             response.add_message_integrity(self.__connection.local_password.encode('utf8'))
             response.add_fingerprint()
-            protocol.send(response, addr)
+            protocol.send_stun(response, addr)
 
     async def connect(self):
         # create candidate pairs
@@ -255,22 +265,34 @@ class Component:
                                                         self.__connection.ice_controlling)
                 candidate_pairs.append(pair)
         candidate_pairs.sort(key=lambda x: -x.priority)
+        self.__pairs = candidate_pairs
 
         # perform checks
-        for pair in candidate_pairs:
-            request = stun.Message(message_method=stun.Method.BINDING,
-                                   message_class=stun.Class.REQUEST,
-                                   transaction_id=random_string(12).encode('ascii'))
-            request.attributes['USERNAME'] = self.__outgoing_username()
-            request.attributes['PRIORITY'] = candidate_priority(self.__component, 'prflx')
-            if self.__connection.ice_controlling:
-                request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
-                request.attributes['USE-CANDIDATE'] = None
-            else:
-                request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
-            request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
-            request.add_fingerprint()
-            await protocol.request(request, (remote_candidate.host, remote_candidate.port))
+        for pair in self.__pairs:
+            await self.check_pair(pair)
+
+    async def check_pair(self, pair):
+        request = stun.Message(message_method=stun.Method.BINDING,
+                               message_class=stun.Class.REQUEST,
+                               transaction_id=random_string(12).encode('ascii'))
+        request.attributes['USERNAME'] = self.__outgoing_username()
+        request.attributes['PRIORITY'] = candidate_priority(self.__component, 'prflx')
+        if self.__connection.ice_controlling:
+            request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
+            request.attributes['USE-CANDIDATE'] = None
+        else:
+            request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
+        request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
+        request.add_fingerprint()
+        await pair.protocol.request(request, (pair.remote_candidate.host, pair.remote_candidate.port))
+
+    async def recv(self):
+        for pair in self.__pairs:
+            return await pair.protocol.recv_data()
+
+    async def send(self, data):
+        for pair in self.__pairs:
+            return await pair.protocol.send_data(data, (pair.remote_candidate.host, pair.remote_candidate.port))
 
     def __incoming_username(self):
         return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
@@ -324,3 +346,15 @@ class Connection:
         Close the connection.
         """
         await self.__component.close()
+
+    async def recv(self):
+        """
+        Receive the next datagram for the specified component.
+        """
+        return await self.__component.recv()
+
+    async def send(self, data):
+        """
+        Send a datagram for the specified component.
+        """
+        return await self.__component.send(data)

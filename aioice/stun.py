@@ -218,7 +218,7 @@ class Transaction:
             return
 
         logger.debug('client > %s' % repr(self.__request))
-        self.__protocol.send(self.__request, self.__addr)
+        self.__protocol.send_stun(self.__request, self.__addr)
 
         if self.__tries:
             self.__timeout_delay = 2 * self.__timeout_delay
