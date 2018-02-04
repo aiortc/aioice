@@ -10,7 +10,7 @@ with open(readme_file, encoding='utf-8') as f:
 
 setuptools.setup(
     name='aioice',
-    version='0.1.3',
+    version='0.1.4',
     description='An implementation of Interactive Connectivity Establishment (RFC 5245)',
     long_description=long_description,
     url='https://github.com/jlaine/aioice',
