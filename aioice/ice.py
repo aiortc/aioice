@@ -1,6 +1,7 @@
 import asyncio
 import enum
 import hashlib
+import ipaddress
 import logging
 import socket
 import string
@@ -114,6 +115,17 @@ class Candidate:
             self.type,
             self.generation)
 
+    def can_pair_with(self, other):
+        a = ipaddress.ip_address(self.host)
+        b = ipaddress.ip_address(other.host)
+        if a.version != b.version:
+            return False
+
+        if a.version == 6 and a.is_global != b.is_global:
+            return False
+
+        return True
+
 
 class CandidatePair:
     def __init__(self, protocol, remote_candidate):
@@ -154,23 +166,34 @@ def parse_candidate(value):
         generation=int(bits[9]))
 
 
+def next_protocol_id():
+    protocol_id = next_protocol_id.counter
+    next_protocol_id.counter += 1
+    return protocol_id
+
+
+next_protocol_id.counter = 0
+
+
 class StunProtocol:
     def __init__(self, receiver):
+        self.id = next_protocol_id()
         self.queue = asyncio.Queue()
         self.receiver = receiver
         self.transport = None
         self.transactions = {}
 
     def connection_lost(self, exc):
-        logger.debug('connection_lost(%s)', exc)
+        logger.debug('%s connection_lost(%s)', repr(self), exc)
 
     def connection_made(self, transport):
+        logger.debug('%s connection_made(%s)', repr(self), transport)
         self.transport = transport
 
     def datagram_received(self, data, addr):
         try:
             message = stun.parse_message(data)
-            logger.debug('client < %s' % repr(message))
+            logger.debug('%s < %s %s', repr(self), addr, repr(message))
         except ValueError:
             coro = self.queue.put(data)
             asyncio.ensure_future(coro)
@@ -184,7 +207,7 @@ class StunProtocol:
         self.receiver.stun_message_received(message, addr, self)
 
     def error_received(self, exc):
-        logger.debug('error_received(%s)', exc)
+        logger.debug('%s error_received(%s)', repr(self), exc)
 
     # custom
 
@@ -211,8 +234,11 @@ class StunProtocol:
         """
         Send a STUN message.
         """
-        logger.debug('client > %s' % repr(message))
+        logger.debug('%s > %s %s', repr(self), addr, repr(message))
         self.transport.sendto(bytes(message), addr)
+
+    def __repr__(self):
+        return 'client(%s)' % self.id
 
 
 class Component:
@@ -331,26 +357,29 @@ class Component:
                 self.nominate_pair(pair)
             elif pair.state != CandidatePair.State.IN_PROGRESS:
                 # triggered check
-                self.check_pair(pair)
+                # self.check_pair(pair)
+                pass
 
     async def connect(self):
         # create candidate pairs
         candidate_pairs = []
         for remote_candidate in self.remote_candidates:
             for protocol in self.__protocols:
-                pair = CandidatePair(protocol, remote_candidate)
-                candidate_pairs.append(pair)
+                if protocol.local_candidate.can_pair_with(remote_candidate):
+                    pair = CandidatePair(protocol, remote_candidate)
+                    candidate_pairs.append(pair)
         sort_candidate_pairs(candidate_pairs, self.__connection.ice_controlling)
         self.__pairs = candidate_pairs
 
         # perform checks
-        for pair in self.__pairs:
+        for pair in self.__pairs[:]:
             await self.check_pair(pair)
 
         # wait for a pair to be active
         await self.__active_queue.get()
 
     async def check_pair(self, pair):
+        logger.info('Checking pair %s' % repr(pair))
         pair.state = CandidatePair.State.IN_PROGRESS
 
         request = stun.Message(message_method=stun.Method.BINDING,
@@ -424,7 +453,8 @@ class Connection:
         # get host addresses
         addresses = []
         for interface in netifaces.interfaces():
-            for address in netifaces.ifaddresses(interface)[socket.AF_INET]:
+            ifaddresses = netifaces.ifaddresses(interface)
+            for address in ifaddresses.get(socket.AF_INET, []):
                 if address['addr'] != '127.0.0.1':
                     addresses.append(address['addr'])
 
