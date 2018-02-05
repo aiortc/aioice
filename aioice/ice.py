@@ -427,8 +427,8 @@ class Component:
             return await pair.protocol.recv_data()
 
     async def send(self, data):
-        for pair in self.__pairs:
-            return await pair.protocol.send_data(data, pair.remote_addr)
+        if self.__active_pair:
+            await self.__active_pair.protocol.send_data(data, self.__active_pair.remote_addr)
 
     def __incoming_username(self):
         return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
