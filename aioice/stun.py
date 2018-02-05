@@ -200,6 +200,11 @@ class Message(object):
         )
 
 
+class TimeoutError(Exception):
+    def __str__(self):
+        return 'Transaction timed out'
+
+
 class Transaction:
     def __init__(self, request, addr, protocol):
         self.__addr = addr
@@ -219,7 +224,7 @@ class Transaction:
 
     def __retry(self):
         if self.__tries >= RETRY_MAX:
-            self.__future.set_exception(Exception('Timeout'))
+            self.__future.set_exception(TimeoutError())
             return
 
         self.__protocol.send_stun(self.__request, self.__addr)

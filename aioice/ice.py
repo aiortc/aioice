@@ -1,4 +1,5 @@
 import asyncio
+import enum
 import hashlib
 import logging
 import socket
@@ -72,6 +73,18 @@ async def server_reflexive_candidate(protocol, stun_server):
         type='srflx')
 
 
+def sort_candidate_pairs(pairs, ice_controlling):
+    """
+    Sort a list of candidate pairs.
+    """
+    def pair_priority(pair):
+        return -candidate_pair_priority(pair.protocol.local_candidate,
+                                        pair.remote_candidate,
+                                        ice_controlling)
+
+    pairs.sort(key=pair_priority)
+
+
 class Candidate:
     """
     An ICE candidate.
@@ -104,8 +117,28 @@ class Candidate:
 
 class CandidatePair:
     def __init__(self, protocol, remote_candidate):
+        self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
+        self.remote_nominated = False
+        self.state = CandidatePair.State.WAITING
+
+    def __repr__(self):
+        return 'CandidatePair(%s -> %s)' % (self.local_addr, self.remote_addr)
+
+    @property
+    def local_addr(self):
+        return (self.protocol.local_candidate.host, self.protocol.local_candidate.port)
+
+    @property
+    def remote_addr(self):
+        return (self.remote_candidate.host, self.remote_candidate.port)
+
+    class State(enum.Enum):
+        WAITING = 1
+        IN_PROGRESS = 2
+        SUCCEEDED = 3
+        FAILED = 4
 
 
 def parse_candidate(value):
@@ -187,6 +220,8 @@ class Component:
     An ICE component.
     """
     def __init__(self, component, addresses, connection):
+        self.__active_pair = None
+        self.__active_queue = asyncio.Queue()
         self.__addresses = addresses
         self.__connection = connection
         self.__component = component
@@ -250,6 +285,7 @@ class Component:
                 logger.warn("Role conflict, expected to be controlled")
                 return
 
+            # send binding response
             response = stun.Message(
                 message_method=stun.Method.BINDING,
                 message_class=stun.Class.RESPONSE,
@@ -259,24 +295,64 @@ class Component:
             response.add_fingerprint()
             protocol.send_stun(response, addr)
 
+            # find remote candidate
+            remote_candidate = None
+            for c in self.remote_candidates:
+                if c.host == addr[0] and c.port == addr[1]:
+                    remote_candidate = c
+                    break
+            if remote_candidate is None:
+                # 7.2.1.3. Learning Peer Reflexive Candidates
+                remote_candidate = Candidate(
+                    foundation=random_string(10),
+                    component=self.__component,
+                    transport='udp',
+                    priority=message['PRIORITY'],
+                    host=addr[0],
+                    port=addr[1],
+                    type='prflx')
+                self.remote_candidates.append(remote_candidate)
+
+            # find pair
+            pair = None
+            for p in self.__pairs:
+                if (p.protocol == protocol and p.remote_addr == addr):
+                    pair = p
+                    break
+            if pair is None:
+                pair = CandidatePair(protocol, remote_candidate)
+                self.__pairs.append(pair)
+                sort_candidate_pairs(self.__pairs, self.__connection.ice_controlling)
+
+            if 'USE-CANDIDATE' in message.attributes:
+                pair.remote_nominated = True
+
+            if pair.state == CandidatePair.State.SUCCEEDED:
+                self.nominate_pair(pair)
+            elif pair.state != CandidatePair.State.IN_PROGRESS:
+                # triggered check
+                self.check_pair(pair)
+
     async def connect(self):
         # create candidate pairs
         candidate_pairs = []
         for remote_candidate in self.remote_candidates:
             for protocol in self.__protocols:
                 pair = CandidatePair(protocol, remote_candidate)
-                pair.priority = candidate_pair_priority(protocol.local_candidate,
-                                                        remote_candidate,
-                                                        self.__connection.ice_controlling)
                 candidate_pairs.append(pair)
-        candidate_pairs.sort(key=lambda x: -x.priority)
+        sort_candidate_pairs(candidate_pairs, self.__connection.ice_controlling)
         self.__pairs = candidate_pairs
 
         # perform checks
         for pair in self.__pairs:
             await self.check_pair(pair)
 
+        # wait for a pair to be active
+        await self.__active_queue.get()
+
     async def check_pair(self, pair):
+        pair.state = CandidatePair.State.IN_PROGRESS
+
         request = stun.Message(message_method=stun.Method.BINDING,
                                message_class=stun.Class.REQUEST,
                                transaction_id=random_string(12).encode('ascii'))
@@ -290,8 +366,32 @@ class Component:
         request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
         request.add_fingerprint()
 
-        addr = (pair.remote_candidate.host, pair.remote_candidate.port)
-        await pair.protocol.request(request, addr)
+        try:
+            response = await pair.protocol.request(request, pair.remote_addr)
+        except stun.TimeoutError:
+            response = None
+
+        # update state
+        if response is not None and response.message_class == stun.Class.RESPONSE:
+            pair.state = CandidatePair.State.SUCCEEDED
+        else:
+            pair.state = CandidatePair.State.FAILED
+
+        if self.__connection.ice_controlling or pair.remote_nominated:
+            self.nominate_pair(pair)
+
+    def nominate_pair(self, pair):
+        logger.info('Nominated pair %s' % repr(pair))
+        pair.nominated = True
+
+        nominated_pairs = [x for x in self.__pairs if x.nominated]
+        sort_candidate_pairs(nominated_pairs, self.__connection.ice_controlling)
+        active_pair = nominated_pairs[0]
+
+        if active_pair != self.__active_pair:
+            logger.info('Activated pair %s' % repr(active_pair))
+            self.__active_pair = active_pair
+            asyncio.ensure_future(self.__active_queue.put(active_pair))
 
     async def recv(self):
         for pair in self.__pairs:
@@ -299,8 +399,7 @@ class Component:
 
     async def send(self, data):
         for pair in self.__pairs:
-            addr = (pair.remote_candidate.host, pair.remote_candidate.port)
-            return await pair.protocol.send_data(data, addr)
+            return await pair.protocol.send_data(data, pair.remote_addr)
 
     def __incoming_username(self):
         return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
