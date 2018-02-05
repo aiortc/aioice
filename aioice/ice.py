@@ -195,6 +195,7 @@ class StunProtocol:
             message = stun.parse_message(data)
             logger.debug('%s < %s %s', repr(self), addr, repr(message))
         except ValueError:
+            logger.debug('%s < %s DATA %d', repr(self), addr, len(data))
             coro = self.queue.put(data)
             asyncio.ensure_future(coro)
             return
@@ -215,6 +216,7 @@ class StunProtocol:
         return await self.queue.get()
 
     async def send_data(self, data, addr):
+        logger.debug('%s > %s DATA %d', repr(self), addr, len(data))
         self.transport.sendto(data, addr)
 
     async def request(self, request, addr):
@@ -350,15 +352,11 @@ class Component:
                 self.__pairs.append(pair)
                 sort_candidate_pairs(self.__pairs, self.__connection.ice_controlling)
 
-            if 'USE-CANDIDATE' in message.attributes:
+            if 'USE-CANDIDATE' in message.attributes and not self.__connection.ice_controlling:
                 pair.remote_nominated = True
 
-            if pair.state == CandidatePair.State.SUCCEEDED:
-                self.nominate_pair(pair)
-            elif pair.state != CandidatePair.State.IN_PROGRESS:
-                # triggered check
-                # self.check_pair(pair)
-                pass
+                if pair.state == CandidatePair.State.SUCCEEDED:
+                    self.nominate_pair(pair)
 
     async def connect(self):
         # create candidate pairs
@@ -403,11 +401,10 @@ class Component:
         # update state
         if response is not None and response.message_class == stun.Class.RESPONSE:
             pair.state = CandidatePair.State.SUCCEEDED
+            if self.__connection.ice_controlling or pair.remote_nominated:
+                self.nominate_pair(pair)
         else:
             pair.state = CandidatePair.State.FAILED
-
-        if self.__connection.ice_controlling or pair.remote_nominated:
-            self.nominate_pair(pair)
 
     def nominate_pair(self, pair):
         logger.info('Nominated pair %s' % repr(pair))
