@@ -420,8 +420,12 @@ class Component:
             asyncio.ensure_future(self.__active_queue.put(active_pair))
 
     async def recv(self):
-        for pair in self.__pairs:
-            return await pair.protocol.recv_data()
+        fs = [protocol.recv_data() for protocol in self.__protocols]
+        done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        assert len(done) == 1
+        return done.pop().result()
 
     async def send(self, data):
         if self.__active_pair:
