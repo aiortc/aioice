@@ -370,10 +370,13 @@ class Component:
         self.__pairs = candidate_pairs
 
         # perform checks
-        if not len(self.__pairs):
-            raise exceptions.InvalidCandidates('No candidate pairs to check')
+        succeeded = False
         for pair in self.__pairs[:]:
             await self.check_pair(pair)
+            if pair.state == CandidatePair.State.SUCCEEDED:
+                succeeded = True
+        if not succeeded:
+            raise exceptions.ConnectionError('No validate candidate pairs')
 
         # wait for a pair to be active
         await self.__active_queue.get()
@@ -396,16 +399,11 @@ class Component:
         request.add_fingerprint()
 
         try:
-            response = await pair.protocol.request(request, pair.remote_addr)
-        except exceptions.Timeout:
-            response = None
-
-        # update state
-        if response is not None and response.message_class == stun.Class.RESPONSE:
+            await pair.protocol.request(request, pair.remote_addr)
             pair.state = CandidatePair.State.SUCCEEDED
             if self.__connection.ice_controlling or pair.remote_nominated:
                 self.nominate_pair(pair)
-        else:
+        except exceptions.TransactionError as e:
             pair.state = CandidatePair.State.FAILED
 
     def nominate_pair(self, pair):

@@ -1,10 +1,20 @@
+class ConnectionError(Exception):
+    pass
+
+
 class ImproperlyConfigured(Exception):
     pass
 
 
-class InvalidCandidates(Exception):
+class TransactionError(Exception):
     pass
 
 
-class Timeout(Exception):
-    pass
+class TransactionFailed(TransactionError):
+    def __str__(self):
+        return 'STUN transaction failed'
+
+
+class TransactionTimeout(TransactionError):
+    def __str__(self):
+        return 'STUN transaction timed out'

@@ -213,7 +213,11 @@ class Transaction:
 
     def message_received(self, message, addr):
         self.__timeout_handle.cancel()
-        self.__future.set_result(message)
+
+        if message.message_class == Class.RESPONSE:
+            self.__future.set_result(message)
+        else:
+            self.__future.set_exception(exceptions.TransactionFailed())
 
     async def run(self):
         self.__retry()
@@ -221,7 +225,7 @@ class Transaction:
 
     def __retry(self):
         if self.__tries >= RETRY_MAX:
-            self.__future.set_exception(exceptions.Timeout('Transaction timed out'))
+            self.__future.set_exception(exceptions.TransactionTimeout())
             return
 
         self.__protocol.send_stun(self.__request, self.__addr)

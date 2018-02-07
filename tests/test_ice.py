@@ -10,6 +10,9 @@ def run(coro):
 
 
 class IceTest(unittest.TestCase):
+    def setUp(self):
+        stun.RETRY_MAX = 2
+
     def test_parse_candidate(self):
         candidate = ice.parse_candidate(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
@@ -63,7 +66,7 @@ class IceTest(unittest.TestCase):
         conn.remote_password = 'bar'
         conn.set_remote_candidates([ice.parse_candidate(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
-        with self.assertRaises(exceptions.InvalidCandidates):
+        with self.assertRaises(exceptions.ConnectionError):
             run(conn.connect())
         run(conn.close())
 
@@ -75,7 +78,7 @@ class IceTest(unittest.TestCase):
         run(conn.get_local_candidates())
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(exceptions.InvalidCandidates):
+        with self.assertRaises(exceptions.ConnectionError):
             run(conn.connect())
         run(conn.close())
 
@@ -88,5 +91,16 @@ class IceTest(unittest.TestCase):
         conn.set_remote_candidates([ice.parse_candidate(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
         with self.assertRaises(exceptions.ImproperlyConfigured):
+            run(conn.connect())
+        run(conn.close())
+
+    def test_connect_timeout(self):
+        conn = ice.Connection(ice_controlling=True)
+        run(conn.get_local_candidates())
+        conn.remote_username = 'foo'
+        conn.remote_password = 'bar'
+        conn.set_remote_candidates([ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
+        with self.assertRaises(exceptions.ConnectionError):
             run(conn.connect())
         run(conn.close())
