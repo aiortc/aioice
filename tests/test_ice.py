@@ -5,6 +5,11 @@ import unittest
 from aioice import ice, stun, exceptions
 
 
+async def delay(coro):
+    await asyncio.sleep(1)
+    await coro()
+
+
 async def invite_accept(conn_a, conn_b):
     # invite
     candidates_a = await conn_a.get_local_candidates()
@@ -52,6 +57,25 @@ class IceTest(unittest.TestCase):
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
+    def test_connect_reverse_order(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # introduce a delay so that B's checks complete before A's
+        run(asyncio.gather(delay(conn_a.connect), conn_b.connect()))
 
         # send data
         run(conn_a.send(b'howdee'))
