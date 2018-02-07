@@ -4,12 +4,12 @@ import hashlib
 import ipaddress
 import logging
 import socket
-import string
 
 import netifaces
 
 from . import exceptions, stun
 from .compat import secrets
+from .utils import random_string, random_transaction_id
 
 logger = logging.getLogger('ice')
 
@@ -49,18 +49,13 @@ def candidate_pair_priority(local, remote, ice_controlling):
     return (1 << 32) * min(G, D) + 2 * max(G, D) + (G > D and 1 or 0)
 
 
-def random_string(length):
-    allchar = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(allchar) for x in range(length))
-
-
 async def server_reflexive_candidate(protocol, stun_server):
     """
     Query STUN server to obtain a server-reflexive candidate.
     """
     request = stun.Message(message_method=stun.Method.BINDING,
                            message_class=stun.Class.REQUEST,
-                           transaction_id=random_string(12).encode('ascii'))
+                           transaction_id=random_transaction_id())
     response = await protocol.request(request, stun_server)
 
     local_candidate = protocol.local_candidate
@@ -409,7 +404,7 @@ class Component:
 
         request = stun.Message(message_method=stun.Method.BINDING,
                                message_class=stun.Class.REQUEST,
-                               transaction_id=random_string(12).encode('ascii'))
+                               transaction_id=random_transaction_id())
         request.attributes['USERNAME'] = self.__outgoing_username()
         request.attributes['PRIORITY'] = candidate_priority(self.__component, 'prflx')
         if self.__connection.ice_controlling:
