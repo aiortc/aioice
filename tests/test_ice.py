@@ -94,6 +94,62 @@ class IceTest(unittest.TestCase):
             run(conn.connect())
         run(conn.close())
 
+    def test_connect_role_conflict_both_controlling(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=True)
+
+        # invite
+        candidates_a = run(conn_a.get_local_candidates())
+        print('CANDIDATES A')
+        pprint.pprint(candidates_a)
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+        conn_b.set_remote_candidates(candidates_a)
+
+        # accept
+        candidates_b = run(conn_b.get_local_candidates())
+        print('CANDIDATES B')
+        pprint.pprint(candidates_b)
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_a.set_remote_candidates(candidates_b)
+
+        # connect
+        with self.assertRaises(exceptions.ConnectionError):
+            run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
+    def test_connect_role_conflict_both_controlled(self):
+        conn_a = ice.Connection(ice_controlling=False)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite
+        candidates_a = run(conn_a.get_local_candidates())
+        print('CANDIDATES A')
+        pprint.pprint(candidates_a)
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+        conn_b.set_remote_candidates(candidates_a)
+
+        # accept
+        candidates_b = run(conn_b.get_local_candidates())
+        print('CANDIDATES B')
+        pprint.pprint(candidates_b)
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_a.set_remote_candidates(candidates_b)
+
+        # connect
+        with self.assertRaises(exceptions.ConnectionError):
+            run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
     def test_connect_timeout(self):
         conn = ice.Connection(ice_controlling=True)
         run(conn.get_local_candidates())

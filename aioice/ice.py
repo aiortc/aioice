@@ -307,10 +307,32 @@ class Component:
             # check for role conflict
             ice_controlling = self.__connection.ice_controlling
             if ice_controlling and 'ICE-CONTROLLING' in message.attributes:
-                logger.warn("Role conflict, expected to be controlling")
+                logger.warning('Role conflict, expected to be controlling')
+                if self.__connection.tie_breaker >= message.attributes['ICE-CONTROLLING']:
+                    response = stun.Message(
+                        message_method=stun.Method.BINDING,
+                        message_class=stun.Class.ERROR,
+                        transaction_id=message.transaction_id)
+                    response.attributes['ERROR-CODE'] = (487, 'Role Conflict')
+                    response.add_message_integrity(self.__connection.local_password.encode('utf8'))
+                    response.add_fingerprint()
+                    protocol.send_stun(response, addr)
+                else:
+                    logger.warning('Switching to controlled role is not implemented')
                 return
             elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
-                logger.warn("Role conflict, expected to be controlled")
+                logger.warning("Role conflict, expected to be controlled")
+                if self.__connection.tie_breaker >= message.attributes['ICE-CONTROLLED']:
+                    logger.warning('Switching to controlling role is not implemented')
+                else:
+                    response = stun.Message(
+                        message_method=stun.Method.BINDING,
+                        message_class=stun.Class.ERROR,
+                        transaction_id=message.transaction_id)
+                    response.attributes['ERROR-CODE'] = (487, 'Role Conflict')
+                    response.add_message_integrity(self.__connection.local_password.encode('utf8'))
+                    response.add_fingerprint()
+                    protocol.send_stun(response, addr)
                 return
 
             # send binding response
