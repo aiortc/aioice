@@ -282,6 +282,6 @@ def parse_message(data, integrity_key=None):
         pos += 4 + attr_len + pad_len
     return Message(
         message_method=message_type & 0x3eef,
-        message_class=message_type & 0x0100,
+        message_class=message_type & 0x0110,
         transaction_id=transaction_id,
         attributes=attributes)
