@@ -225,7 +225,7 @@ class Transaction:
         if message.message_class == Class.RESPONSE:
             self.__future.set_result(message)
         else:
-            self.__future.set_exception(exceptions.TransactionFailed())
+            self.__future.set_exception(exceptions.TransactionFailed(message))
 
     async def run(self):
         self.__retry()
