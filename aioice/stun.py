@@ -8,6 +8,8 @@ import ipaddress
 from collections import OrderedDict
 from struct import pack, unpack
 
+from . import exceptions
+
 COOKIE = 0x2112a442
 FINGERPRINT_LENGTH = 8
 FINGERPRINT_XOR = 0x5354554e
@@ -200,11 +202,6 @@ class Message(object):
         )
 
 
-class TimeoutError(Exception):
-    def __str__(self):
-        return 'Transaction timed out'
-
-
 class Transaction:
     def __init__(self, request, addr, protocol):
         self.__addr = addr
@@ -224,7 +221,7 @@ class Transaction:
 
     def __retry(self):
         if self.__tries >= RETRY_MAX:
-            self.__future.set_exception(TimeoutError())
+            self.__future.set_exception(exceptions.Timeout('Transaction timed out'))
             return
 
         self.__protocol.send_stun(self.__request, self.__addr)

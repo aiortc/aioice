@@ -2,7 +2,7 @@ import asyncio
 import pprint
 import unittest
 
-from aioice import ice
+from aioice import ice, exceptions
 
 
 def run(coro):
@@ -53,3 +53,25 @@ class IceTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
+
+    def test_connect_no_local_candidates(self):
+        """
+        If local candidates have not been gathered, connect fails.
+        """
+        candidate = ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.set_remote_candidates([candidate])
+        with self.assertRaises(exceptions.InvalidCandidates):
+            run(conn_a.connect())
+        run(conn_a.close())
+
+    def test_connect_no_remote_candidates(self):
+        """
+        If remote candidates have not been provided, connect fails.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+        run(conn_a.get_local_candidates())
+        with self.assertRaises(exceptions.InvalidCandidates):
+            run(conn_a.connect())
+        run(conn_a.close())

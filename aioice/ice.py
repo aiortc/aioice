@@ -8,7 +8,7 @@ import string
 
 import netifaces
 
-from . import stun
+from . import exceptions, stun
 from .compat import secrets
 
 logger = logging.getLogger('ice')
@@ -370,6 +370,8 @@ class Component:
         self.__pairs = candidate_pairs
 
         # perform checks
+        if not len(self.__pairs):
+            raise exceptions.InvalidCandidates('No candidate pairs to check')
         for pair in self.__pairs[:]:
             await self.check_pair(pair)
 
@@ -395,7 +397,7 @@ class Component:
 
         try:
             response = await pair.protocol.request(request, pair.remote_addr)
-        except stun.TimeoutError:
+        except exceptions.Timeout:
             response = None
 
         # update state
@@ -476,6 +478,9 @@ class Connection:
     async def connect(self):
         """
         Perform ICE handshake.
+
+        This coroutine returns if a candidate pair was successfuly nominated
+        and raises an exception otherwise.
         """
         await self.__component.connect()
 
