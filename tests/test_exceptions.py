@@ -15,6 +15,6 @@ class ExceptionTest(unittest.TestCase):
         exc = exceptions.TransactionFailed(response)
         self.assertEqual(str(exc), 'STUN transaction failed (487 - Role Conflict)')
 
-    def test_transaction_failed(self):
+    def test_transaction_timeout(self):
         exc = exceptions.TransactionTimeout()
         self.assertEqual(str(exc), 'STUN transaction timed out')
