@@ -227,10 +227,10 @@ class StunProtocol:
 
         transaction = stun.Transaction(request, addr, self)
         self.transactions[request.transaction_id] = transaction
-        response = await transaction.run()
-        del self.transactions[request.transaction_id]
-
-        return response
+        try:
+            return await transaction.run()
+        finally:
+            del self.transactions[request.transaction_id]
 
     def send_stun(self, message, addr):
         """
