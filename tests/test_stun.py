@@ -137,6 +137,13 @@ class MessageTest(unittest.TestCase):
             stun.parse_message(data)
         self.assertEqual(str(cm.exception), 'STUN message fingerprint does not match')
 
+    def test_binding_request_ice_controlled_bad_integrity(self):
+        data = read_message('binding_request_ice_controlled.bin')
+
+        with self.assertRaises(ValueError) as cm:
+            stun.parse_message(data, integrity_key=b'bogus-key')
+        self.assertEqual(str(cm.exception), 'STUN message integrity does not match')
+
     def test_binding_request_ice_controlling(self):
         data = read_message('binding_request_ice_controlling.bin')
 

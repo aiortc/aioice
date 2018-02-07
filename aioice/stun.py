@@ -14,6 +14,7 @@ COOKIE = 0x2112a442
 FINGERPRINT_LENGTH = 8
 FINGERPRINT_XOR = 0x5354554e
 HEADER_LENGTH = 20
+INTEGRITY_LENGTH = 24
 IPV4_PROTOCOL = 1
 IPV6_PROTOCOL = 2
 
@@ -23,6 +24,16 @@ RETRY_MAX = 7
 
 def set_body_length(data, length):
     return data[0:2] + pack('!H', length) + data[4:]
+
+
+def message_fingerprint(data):
+    check_data = set_body_length(data, len(data) - HEADER_LENGTH + FINGERPRINT_LENGTH)
+    return binascii.crc32(check_data) ^ FINGERPRINT_XOR
+
+
+def message_integrity(data, key):
+    check_data = set_body_length(data, len(data) - HEADER_LENGTH + INTEGRITY_LENGTH)
+    return hmac.new(key, check_data, 'sha1').digest()
 
 
 def xor_address(data, transaction_id):
@@ -168,15 +179,10 @@ class Message(object):
         self.attributes = attributes or OrderedDict()
 
     def add_fingerprint(self):
-        data = bytes(self)
-        data = set_body_length(data, len(data) - HEADER_LENGTH + FINGERPRINT_LENGTH)
-        self.attributes['FINGERPRINT'] = binascii.crc32(data) ^ FINGERPRINT_XOR
+        self.attributes['FINGERPRINT'] = message_fingerprint(bytes(self))
 
     def add_message_integrity(self, key):
-        data = bytes(self)
-        # increase length by 24
-        data = set_body_length(data, len(data) - HEADER_LENGTH + 24)
-        self.attributes['MESSAGE-INTEGRITY'] = hmac.new(key, data, 'sha1').digest()
+        self.attributes['MESSAGE-INTEGRITY'] = message_integrity(bytes(self), key)
 
     def __bytes__(self):
         data = b''
@@ -240,7 +246,12 @@ class Transaction:
         self.__tries += 1
 
 
-def parse_message(data):
+def parse_message(data, integrity_key=None):
+    """
+    Parses a STUN message.
+
+    If the ``integrity_key`` parameter is given, the message's HMAC will be verified.
+    """
     if len(data) < HEADER_LENGTH:
         raise ValueError('STUN message length is less than 20 bytes')
     message_type, length, cookie, transaction_id = unpack('!HHI12s', data[0:HEADER_LENGTH])
@@ -261,10 +272,12 @@ def parse_message(data):
                 attributes[attr_name] = attr_unpack(v)
 
             if attr_name == 'FINGERPRINT':
-                check_data = set_body_length(data[0:pos],
-                                             pos - HEADER_LENGTH + FINGERPRINT_LENGTH)
-                if attributes[attr_name] != binascii.crc32(check_data) ^ FINGERPRINT_XOR:
+                if attributes[attr_name] != message_fingerprint(data[0:pos]):
                     raise ValueError('STUN message fingerprint does not match')
+            elif attr_name == 'MESSAGE-INTEGRITY':
+                if (integrity_key is not None and
+                   attributes[attr_name] != message_integrity(data[0:pos], integrity_key)):
+                    raise ValueError('STUN message integrity does not match')
 
         pos += 4 + attr_len + pad_len
     return Message(
