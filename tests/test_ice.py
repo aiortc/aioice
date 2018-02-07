@@ -2,7 +2,7 @@ import asyncio
 import pprint
 import unittest
 
-from aioice import ice, exceptions
+from aioice import ice, stun, exceptions
 
 
 def run(coro):
@@ -58,20 +58,35 @@ class IceTest(unittest.TestCase):
         """
         If local candidates have not been gathered, connect fails.
         """
-        candidate = ice.parse_candidate(
-            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
-        conn_a = ice.Connection(ice_controlling=True)
-        conn_a.set_remote_candidates([candidate])
+        conn = ice.Connection(ice_controlling=True)
+        conn.remote_username = 'foo'
+        conn.remote_password = 'bar'
+        conn.set_remote_candidates([ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
         with self.assertRaises(exceptions.InvalidCandidates):
-            run(conn_a.connect())
-        run(conn_a.close())
+            run(conn.connect())
+        run(conn.close())
 
     def test_connect_no_remote_candidates(self):
         """
         If remote candidates have not been provided, connect fails.
         """
-        conn_a = ice.Connection(ice_controlling=True)
-        run(conn_a.get_local_candidates())
+        conn = ice.Connection(ice_controlling=True)
+        run(conn.get_local_candidates())
+        conn.remote_username = 'foo'
+        conn.remote_password = 'bar'
         with self.assertRaises(exceptions.InvalidCandidates):
-            run(conn_a.connect())
-        run(conn_a.close())
+            run(conn.connect())
+        run(conn.close())
+
+    def test_connect_no_remote_credentials(self):
+        """
+        If remote credentials have not been provided, connect fails.
+        """
+        conn = ice.Connection(ice_controlling=True)
+        run(conn.get_local_candidates())
+        conn.set_remote_candidates([ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
+        with self.assertRaises(exceptions.ImproperlyConfigured):
+            run(conn.connect())
+        run(conn.close())

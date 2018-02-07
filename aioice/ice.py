@@ -482,6 +482,9 @@ class Connection:
         This coroutine returns if a candidate pair was successfuly nominated
         and raises an exception otherwise.
         """
+        if (self.remote_username is None or
+           self.remote_password is None):
+            raise exceptions.ImproperlyConfigured('Remote username or password is missing')
         await self.__component.connect()
 
     async def close(self):

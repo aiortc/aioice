@@ -1,3 +1,7 @@
+class ImproperlyConfigured(Exception):
+    pass
+
+
 class InvalidCandidates(Exception):
     pass
 
