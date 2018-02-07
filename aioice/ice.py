@@ -255,6 +255,7 @@ class Component:
         self.__component = component
         self.__pairs = []
         self.__protocols = []
+        self.__remote_candidates = []
 
     async def close(self):
         for protocol in self.__protocols:
@@ -293,11 +294,10 @@ class Component:
             for task in pending:
                 task.cancel()
 
-        self.local_candidates = candidates
         return candidates
 
     def set_remote_candidates(self, candidates):
-        self.remote_candidates = candidates
+        self.__remote_candidates = candidates
 
     def stun_message_received(self, message, addr, protocol):
         if (message.message_method == stun.Method.BINDING and
@@ -325,7 +325,7 @@ class Component:
 
             # find remote candidate
             remote_candidate = None
-            for c in self.remote_candidates:
+            for c in self.__remote_candidates:
                 if c.host == addr[0] and c.port == addr[1]:
                     remote_candidate = c
                     break
@@ -339,7 +339,7 @@ class Component:
                     host=addr[0],
                     port=addr[1],
                     type='prflx')
-                self.remote_candidates.append(remote_candidate)
+                self.__remote_candidates.append(remote_candidate)
 
             # find pair
             pair = None
@@ -361,7 +361,7 @@ class Component:
     async def connect(self):
         # create candidate pairs
         candidate_pairs = []
-        for remote_candidate in self.remote_candidates:
+        for remote_candidate in self.__remote_candidates:
             for protocol in self.__protocols:
                 if protocol.local_candidate.can_pair_with(remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
