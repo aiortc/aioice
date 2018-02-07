@@ -5,6 +5,24 @@ import unittest
 from aioice import ice, stun, exceptions
 
 
+async def invite_accept(conn_a, conn_b):
+    # invite
+    candidates_a = await conn_a.get_local_candidates()
+    print('CANDIDATES A')
+    pprint.pprint(candidates_a)
+    conn_b.remote_username = conn_a.local_username
+    conn_b.remote_password = conn_a.local_password
+    conn_b.set_remote_candidates(candidates_a)
+
+    # accept
+    candidates_b = await conn_b.get_local_candidates()
+    print('CANDIDATES B')
+    pprint.pprint(candidates_b)
+    conn_a.remote_username = conn_b.local_username
+    conn_a.remote_password = conn_b.local_password
+    conn_a.set_remote_candidates(candidates_b)
+
+
 def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
@@ -29,21 +47,8 @@ class IceTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # invite
-        candidates_a = run(conn_a.get_local_candidates())
-        print('CANDIDATES A')
-        pprint.pprint(candidates_a)
-        conn_b.remote_username = conn_a.local_username
-        conn_b.remote_password = conn_a.local_password
-        conn_b.set_remote_candidates(candidates_a)
-
-        # accept
-        candidates_b = run(conn_b.get_local_candidates())
-        print('CANDIDATES B')
-        pprint.pprint(candidates_b)
-        conn_a.remote_username = conn_b.local_username
-        conn_a.remote_password = conn_b.local_password
-        conn_a.set_remote_candidates(candidates_b)
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -98,21 +103,8 @@ class IceTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=True)
 
-        # invite
-        candidates_a = run(conn_a.get_local_candidates())
-        print('CANDIDATES A')
-        pprint.pprint(candidates_a)
-        conn_b.remote_username = conn_a.local_username
-        conn_b.remote_password = conn_a.local_password
-        conn_b.set_remote_candidates(candidates_a)
-
-        # accept
-        candidates_b = run(conn_b.get_local_candidates())
-        print('CANDIDATES B')
-        pprint.pprint(candidates_b)
-        conn_a.remote_username = conn_b.local_username
-        conn_a.remote_password = conn_b.local_password
-        conn_a.set_remote_candidates(candidates_b)
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
 
         # connect
         with self.assertRaises(exceptions.ConnectionError):
@@ -126,21 +118,8 @@ class IceTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=False)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # invite
-        candidates_a = run(conn_a.get_local_candidates())
-        print('CANDIDATES A')
-        pprint.pprint(candidates_a)
-        conn_b.remote_username = conn_a.local_username
-        conn_b.remote_password = conn_a.local_password
-        conn_b.set_remote_candidates(candidates_a)
-
-        # accept
-        candidates_b = run(conn_b.get_local_candidates())
-        print('CANDIDATES B')
-        pprint.pprint(candidates_b)
-        conn_a.remote_username = conn_b.local_username
-        conn_a.remote_password = conn_b.local_password
-        conn_a.set_remote_candidates(candidates_b)
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
 
         # connect
         with self.assertRaises(exceptions.ConnectionError):
@@ -160,3 +139,24 @@ class IceTest(unittest.TestCase):
         with self.assertRaises(exceptions.ConnectionError):
             run(conn.connect())
         run(conn.close())
+
+    def test_connect_with_stun_server(self):
+        stun_server = ('stun.l.google.com', 19302)
+
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
