@@ -37,19 +37,6 @@ class TurnTest(unittest.TestCase):
     def tearDown(self):
         self.server.transport.close()
 
-    def test_allocation(self):
-        loop = asyncio.get_event_loop()
-        transport, protocol = run(loop.create_datagram_endpoint(
-            lambda: turn.TurnClientProtocol(self.server_addr, 'foo', 'bar'),
-            family=socket.AF_INET))
-        run(protocol.connect())
-
-        # bind channel
-        run(protocol.channel_bind(0x4000, ('8.8.8.8', 53)))
-
-        run(protocol.refresh())
-        run(protocol.close())
-
     def test_transport(self):
         transport, protocol = run(turn.create_turn_endpoint(
             DummyClientProtocol,

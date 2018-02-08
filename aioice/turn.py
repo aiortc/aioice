@@ -65,7 +65,17 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         logger.info('TURN allocation created %s' % repr(relayed_address))
         return relayed_address
 
-    async def close(self):
+    async def refresh(self):
+        """
+        Refreshes the TURN allocation.
+        """
+        request = stun.Message(message_method=stun.Method.REFRESH,
+                               message_class=stun.Class.REQUEST)
+        request.attributes['LIFETIME'] = self.lifetime
+        self.__add_authentication(request)
+        await self.request(request, self.server)
+
+    async def release(self):
         """
         Releases the TURN allocation.
         """
@@ -76,16 +86,8 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         await self.request(request, self.server)
 
         logger.info('TURN allocation released')
-
-    async def refresh(self):
-        """
-        Refreshes the TURN allocation.
-        """
-        request = stun.Message(message_method=stun.Method.REFRESH,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['LIFETIME'] = self.lifetime
-        self.__add_authentication(request)
-        await self.request(request, self.server)
+        if self.receiver:
+            self.receiver.connection_lost(None)
 
     def datagram_received(self, data, addr):
         # demultiplex channel data
@@ -162,7 +164,7 @@ class TurnTransport:
         self.__relayed_address = None
 
     def close(self):
-        asyncio.ensure_future(self.__inner_protocol.close())
+        asyncio.ensure_future(self.__inner_protocol.release())
 
     def get_extra_info(self, key):
         if key == 'relayed_address':
