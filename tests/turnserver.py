@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import struct
 
 from aioice import stun
 from aioice.utils import random_string
@@ -17,6 +18,17 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
         self.transport = transport
 
     def datagram_received(self, data, addr):
+        # demultiplex channel data
+        if len(data) >= 4 and (data[0]) & 0xc0 == 0x40:
+            channel, length = struct.unpack('!HH', data[0:4])
+            assert len(data) >= length + 4
+
+            # echo test
+            if data[4:] == b'ping':
+                response = b'pong'
+                self.transport.sendto(struct.pack('!HH', channel, len(response)) + response, addr)
+            return
+
         try:
             message = stun.parse_message(data)
         except ValueError:

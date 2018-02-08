@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import socket
+import struct
 
 from . import exceptions, stun
 from .utils import random_transaction_id
@@ -11,9 +12,12 @@ logger = logging.getLogger('turn')
 
 class TurnClientProtocol(asyncio.DatagramProtocol):
     def __init__(self, server, username, password):
+        self.channels = {}
+        self.channel_number = 0x4000
         self.lifetime = 600
         self.nonce = None
         self.password = password
+        self.receiver = None
         self.realm = None
         self.server = server
         self.transactions = {}
@@ -84,6 +88,16 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         await self.request(request, self.server)
 
     def datagram_received(self, data, addr):
+        # demultiplex channel data
+        if len(data) >= 4 and (data[0]) & 0xc0 == 0x40:
+            channel, length = struct.unpack('!HH', data[0:4])
+            if len(data) >= length + 4 and self.receiver:
+                for channel_addr, channel_number in self.channels.items():
+                    if channel_number == channel:
+                        self.receiver.datagram_received(data[4:4 + length], channel_addr)
+                        break
+            return
+
         try:
             message = stun.parse_message(data)
             logger.debug('%s < %s %s', repr(self), addr, repr(message))
@@ -109,6 +123,19 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         finally:
             del self.transactions[request.transaction_id]
 
+    async def send_data(self, data, addr):
+        channel = self.channels.get(addr)
+        if channel is None:
+            channel = self.channel_number
+            self.channel_number += 1
+            self.channels[addr] = channel
+
+            # bind channel
+            await self.channel_bind(channel, addr)
+
+        header = struct.pack('!HH', channel, len(data))
+        self.transport.sendto(header + data, self.server)
+
     def send_stun(self, message, addr):
         """
         Send a STUN message.
@@ -130,9 +157,8 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
 class TurnTransport:
     def __init__(self, protocol, inner_protocol):
         self.protocol = protocol
-        self.__channels = {}
-        self.__channel_number = 0x4000
         self.__inner_protocol = inner_protocol
+        self.__inner_protocol.receiver = protocol
         self.__relayed_address = None
 
     def close(self):
@@ -143,14 +169,7 @@ class TurnTransport:
             return self.__relayed_address
 
     def sendto(self, data, addr):
-        channel = self.__channels.get(addr)
-        if channel is None:
-            channel = self.__channel_number
-            self.__channel_number += 1
-            self.__channels[addr] = channel
-
-            # bind channel
-            asyncio.ensure_future(self.__inner_protocol.channel_bind(channel, addr))
+        asyncio.ensure_future(self.__inner_protocol.send_data(data, addr))
 
     async def _connect(self):
         self.__relayed_address = await self.__inner_protocol.connect()
