@@ -69,10 +69,15 @@ class IceTest(unittest.TestCase):
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
-        # send data
+        # send data a -> b
         run(conn_a.send(b'howdee'))
         data = run(conn_b.recv())
         self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
 
         # close
         run(conn_a.close())
@@ -88,10 +93,15 @@ class IceTest(unittest.TestCase):
         # introduce a delay so that B's checks complete before A's
         run(asyncio.gather(delay(conn_a.connect), conn_b.connect()))
 
-        # send data
+        # send data a -> b
         run(conn_a.send(b'howdee'))
         data = run(conn_b.recv())
         self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
 
         # close
         run(conn_a.close())
@@ -193,10 +203,15 @@ class IceTest(unittest.TestCase):
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
-        # send data
+        # send data a -> b
         run(conn_a.send(b'howdee'))
         data = run(conn_b.recv())
         self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
 
         # close
         run(conn_a.close())
@@ -226,10 +241,15 @@ class IceTest(unittest.TestCase):
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
-        # send data
+        # send data a -> b
         run(conn_a.send(b'howdee'))
         data = run(conn_b.recv())
         self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
 
         # close
         run(conn_a.close())
