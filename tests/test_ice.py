@@ -41,6 +41,9 @@ class IceTest(unittest.TestCase):
     def setUp(self):
         stun.RETRY_MAX = 2
 
+    def tearDown(self):
+        stun.RETRY_MAX = 7
+
     def test_parse_candidate(self):
         candidate = ice.parse_candidate(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
@@ -139,8 +142,9 @@ class IceTest(unittest.TestCase):
         run(invite_accept(conn_a, conn_b))
 
         # connect
-        with self.assertRaises(exceptions.ConnectionError):
-            run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(), return_exceptions=True))
+        self.assertTrue(isinstance(res_a, exceptions.ConnectionError))
+        self.assertTrue(isinstance(res_b, exceptions.ConnectionError))
 
         # close
         run(conn_a.close())
@@ -154,8 +158,9 @@ class IceTest(unittest.TestCase):
         run(invite_accept(conn_a, conn_b))
 
         # connect
-        with self.assertRaises(exceptions.ConnectionError):
-            run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(), return_exceptions=True))
+        self.assertTrue(isinstance(res_a, exceptions.ConnectionError))
+        self.assertTrue(isinstance(res_b, exceptions.ConnectionError))
 
         # close
         run(conn_a.close())
