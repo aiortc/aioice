@@ -169,7 +169,7 @@ def next_protocol_id():
 next_protocol_id.counter = 0
 
 
-class StunProtocol:
+class StunProtocol(asyncio.DatagramProtocol):
     def __init__(self, receiver):
         self.id = next_protocol_id()
         self.queue = asyncio.Queue()
