@@ -47,7 +47,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         request.attributes['REQUESTED-TRANSPORT'] = 0x11000000
 
         try:
-            response = await self.request(request, self.server)
+            response, _ = await self.request(request, self.server)
         except exceptions.TransactionFailed as e:
             response = e.response
             if response.attributes['ERROR-CODE'][0] == 401:
@@ -60,7 +60,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
                 # retry request with authentication
                 request.transaction_id = random_transaction_id()
                 self.__add_authentication(request)
-                response = await self.request(request, self.server)
+                response, _ = await self.request(request, self.server)
 
         relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
         logger.info('TURN allocation created %s' % repr(relayed_address))

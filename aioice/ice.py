@@ -55,7 +55,7 @@ async def server_reflexive_candidate(protocol, stun_server):
     """
     request = stun.Message(message_method=stun.Method.BINDING,
                            message_class=stun.Class.REQUEST)
-    response = await protocol.request(request, stun_server)
+    response, _ = await protocol.request(request, stun_server)
 
     local_candidate = protocol.local_candidate
     return Candidate(
@@ -185,6 +185,9 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.transport = transport
 
     def datagram_received(self, data, addr):
+        # force IPv6 four-tuple to a two-tuple
+        addr = (addr[0], addr[1])
+
         try:
             message = stun.parse_message(data)
             logger.debug('%s < %s %s', repr(self), addr, repr(message))
@@ -436,7 +439,7 @@ class Component:
         request.add_fingerprint()
 
         try:
-            await pair.protocol.request(request, pair.remote_addr)
+            response, addr = await pair.protocol.request(request, pair.remote_addr)
             pair.state = CandidatePair.State.SUCCEEDED
             if self.__connection.ice_controlling or pair.remote_nominated:
                 self.nominate_pair(pair)
@@ -480,7 +483,8 @@ class Connection:
     An ICE connection.
     """
     def __init__(self, ice_controlling, stun_server=None,
-                 turn_server=None, turn_username=None, turn_password=None):
+                 turn_server=None, turn_username=None, turn_password=None,
+                 use_ipv4=True, use_ipv6=False):
         self.ice_controlling = ice_controlling
         self.local_username = random_string(4)
         self.local_password = random_string(22)
@@ -497,7 +501,10 @@ class Connection:
         for interface in netifaces.interfaces():
             ifaddresses = netifaces.ifaddresses(interface)
             for address in ifaddresses.get(socket.AF_INET, []):
-                if address['addr'] != '127.0.0.1':
+                if use_ipv4 and address['addr'] != '127.0.0.1':
+                    addresses.append(address['addr'])
+            for address in ifaddresses.get(socket.AF_INET6, []):
+                if use_ipv6 and address['addr'] != '::1' and '%' not in address['addr']:
                     addresses.append(address['addr'])
 
         self.__component = Component(1, addresses, self)

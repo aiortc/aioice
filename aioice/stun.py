@@ -231,7 +231,7 @@ class Transaction:
         self.__timeout_handle.cancel()
 
         if message.message_class == Class.RESPONSE:
-            self.__future.set_result(message)
+            self.__future.set_result((message, addr))
         else:
             self.__future.set_exception(exceptions.TransactionFailed(message))
 

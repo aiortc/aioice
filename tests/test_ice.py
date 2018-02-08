@@ -83,6 +83,33 @@ class IceTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    def test_connect_ipv6(self):
+        conn_a = ice.Connection(ice_controlling=True, use_ipv4=False, use_ipv6=True)
+        conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
+
+        # invite / accept
+        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(candidates_a) > 0)
+        for candidate in candidates_a:
+            self.assertEqual(candidate.type, 'host')
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data a -> b
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
     def test_connect_reverse_order(self):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
