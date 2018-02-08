@@ -1,10 +1,9 @@
 import asyncio
-import pprint
+import hashlib
 import socket
 import unittest
 
 from aioice import stun, turn
-from aioice.compat import secrets
 from aioice.utils import random_string
 
 
@@ -13,6 +12,14 @@ def run(coro):
 
 
 class TurnServerProtocol(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.realm = 'test'
+        self.username = 'foo'
+        self.password = 'bar'
+
+        self.integrity_key = hashlib.md5(
+            ':'.join([self.username, self.realm, self.password]).encode('utf8')).digest()
+
     def connection_made(self, transport):
         self.transport = transport
 
@@ -31,7 +38,7 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
                 transaction_id=message.transaction_id)
             response.attributes['ERROR-CODE'] = (401, 'Unauthorized')
             response.attributes['NONCE'] = random_string(16).encode('ascii')
-            response.attributes['REALM'] = 'test'
+            response.attributes['REALM'] = self.realm
             self.transport.sendto(bytes(response), addr)
             return
 
@@ -43,6 +50,7 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
             response.attributes['LIFETIME'] = message.attributes['LIFETIME']
             response.attributes['XOR-MAPPED-ADDRESS'] = addr
             response.attributes['XOR-RELAYED-ADDRESS'] = ('1.2.3.4', 1234)
+            response.add_message_integrity(self.integrity_key)
             response.add_fingerprint()
             self.transport.sendto(bytes(response), addr)
         elif message.message_method == stun.Method.REFRESH:
@@ -51,6 +59,7 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
                 message_class=stun.Class.RESPONSE,
                 transaction_id=message.transaction_id)
             response.attributes['LIFETIME'] = message.attributes['LIFETIME']
+            response.add_message_integrity(self.integrity_key)
             response.add_fingerprint()
             self.transport.sendto(bytes(response), addr)
 
