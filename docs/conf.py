@@ -47,8 +47,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'aioice'
-copyright = '2018, Jeremy Lainé'
-author = 'Jeremy Lainé'
+copyright = u'2018, Jeremy Lainé'
+author = u'Jeremy Lainé'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -144,7 +144,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'aioice.tex', 'aioice Documentation',
-     'Jeremy Lainé', 'manual'),
+     u'Jeremy Lainé', 'manual'),
 ]
 
 
