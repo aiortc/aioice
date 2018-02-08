@@ -157,6 +157,9 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
 
 
 class TurnTransport:
+    """
+    Behaves like a Datagram transport, but uses a TURN allocation.
+    """
     def __init__(self, protocol, inner_protocol):
         self.protocol = protocol
         self.__inner_protocol = inner_protocol
@@ -164,13 +167,30 @@ class TurnTransport:
         self.__relayed_address = None
 
     def close(self):
+        """
+        Close the transport.
+
+        After the TURN allocation has been released, the protocol's
+        `connection_lost()` method will be called with None as its argument.
+        """
         asyncio.ensure_future(self.__inner_protocol.release())
 
-    def get_extra_info(self, key):
-        if key == 'relayed_address':
+    def get_extra_info(self, name, default=None):
+        """
+        Return optional transport information.
+
+        - `'sockname'`: the relayed address
+        """
+        if name == 'sockname':
             return self.__relayed_address
+        return default
 
     def sendto(self, data, addr):
+        """
+        Sends the `data` bytes to the remote peer given `addr`.
+
+        This will bind a TURN channel as necessary.
+        """
         asyncio.ensure_future(self.__inner_protocol.send_data(data, addr))
 
     async def _connect(self):
