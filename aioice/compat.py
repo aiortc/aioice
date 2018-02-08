@@ -1,5 +1,6 @@
 import os
 import random
+
 try:
     import secrets
 except ImportError:

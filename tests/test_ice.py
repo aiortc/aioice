@@ -2,7 +2,7 @@ import asyncio
 import pprint
 import unittest
 
-from aioice import ice, stun, exceptions
+from aioice import exceptions, ice, stun
 
 
 async def delay(coro):
