@@ -1,8 +1,11 @@
 import asyncio
 import pprint
+import socket
 import unittest
 
 from aioice import exceptions, ice, stun
+
+from .turnserver import TurnServerProtocol
 
 
 async def delay(coro):
@@ -26,6 +29,8 @@ async def invite_accept(conn_a, conn_b):
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
     conn_a.set_remote_candidates(candidates_b)
+
+    return candidates_a, candidates_b
 
 
 def run(coro):
@@ -53,7 +58,10 @@ class IceTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
-        run(invite_accept(conn_a, conn_b))
+        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(candidates_a) > 0)
+        for candidate in candidates_a:
+            self.assertEqual(candidate.type, 'host')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -171,7 +179,9 @@ class IceTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
-        run(invite_accept(conn_a, conn_b))
+        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(candidates_a) > 1)
+        self.assertEqual(candidates_a[-1].type, 'srflx')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -184,3 +194,37 @@ class IceTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
+
+    def test_connect_with_turn_server(self):
+        # start turn server
+        loop = asyncio.get_event_loop()
+        transport, turn_server = run(loop.create_datagram_endpoint(
+            lambda: TurnServerProtocol(realm='test', users={'foo': 'bar'}),
+            local_addr=('127.0.0.1', 0),
+            family=socket.AF_INET))
+        turn_server_addr = transport.get_extra_info('sockname')
+
+        # create connections
+        conn_a = ice.Connection(ice_controlling=True,
+                                turn_server=turn_server_addr,
+                                turn_username='foo',
+                                turn_password='bar')
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(candidates_a) > 1)
+        self.assertEqual(candidates_a[-1].type, 'relay')
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+        turn_server.transport.close()

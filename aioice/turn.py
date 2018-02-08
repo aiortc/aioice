@@ -51,7 +51,9 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
                 request.add_fingerprint()
                 response = await self.request(request, self.server)
 
-        logger.info('TURN allocation created')
+        relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
+        logger.info('TURN allocation created %s' % repr(relayed_address))
+        return relayed_address
 
     async def close(self):
         """

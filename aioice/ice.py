@@ -7,7 +7,7 @@ import socket
 
 import netifaces
 
-from . import exceptions, stun
+from . import exceptions, stun, turn
 from .compat import secrets
 from .utils import random_string
 
@@ -265,10 +265,10 @@ class Component:
             _, protocol = await loop.create_datagram_endpoint(
                 lambda: StunProtocol(self),
                 local_addr=(address, 0))
-            port = protocol.transport.get_extra_info('socket').getsockname()[1]
             self.__protocols.append(protocol)
 
             # add host candidate
+            port = protocol.transport.get_extra_info('socket').getsockname()[1]
             protocol.local_candidate = Candidate(
                 foundation=candidate_foundation('host', 'udp', address),
                 component=self.__component,
@@ -287,6 +287,26 @@ class Component:
             candidates += [task.result() for task in done if task.exception() is None]
             for task in pending:
                 task.cancel()
+
+        # connect to TURN server
+        if self.__connection.turn_server:
+            _, protocol = await loop.create_datagram_endpoint(
+                lambda: turn.TurnClientProtocol(self.__connection.turn_server,
+                                                username=self.__connection.turn_username,
+                                                password=self.__connection.turn_password),
+                family=socket.AF_INET)
+            relay_address = await protocol.connect()
+            self.__protocols.append(protocol)
+
+            protocol.local_candidate = Candidate(
+                foundation=candidate_foundation('relay', 'udp', relay_address[0]),
+                component=self.__component,
+                transport='udp',
+                priority=candidate_priority(self.__component, 'relay'),
+                host=relay_address[0],
+                port=relay_address[1],
+                type='relay')
+            candidates.append(protocol.local_candidate)
 
         return candidates
 
@@ -351,7 +371,7 @@ class Component:
                     foundation=random_string(10),
                     component=self.__component,
                     transport='udp',
-                    priority=message['PRIORITY'],
+                    priority=message.attributes['PRIORITY'],
                     host=addr[0],
                     port=addr[1],
                     type='prflx')
@@ -457,7 +477,8 @@ class Connection:
     """
     An ICE connection.
     """
-    def __init__(self, ice_controlling, stun_server=None):
+    def __init__(self, ice_controlling, stun_server=None,
+                 turn_server=None, turn_username=None, turn_password=None):
         self.ice_controlling = ice_controlling
         self.local_username = random_string(4)
         self.local_password = random_string(22)
@@ -465,6 +486,9 @@ class Connection:
         self.remote_password = None
         self.stun_server = stun_server
         self.tie_breaker = secrets.token_bytes(8)
+        self.turn_server = turn_server
+        self.turn_username = turn_username
+        self.turn_password = turn_password
 
         # get host addresses
         addresses = []

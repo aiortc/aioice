@@ -6,5 +6,5 @@ python:
   - 3.5
   - 3.6
 script:
-  - flake8 aioice
+  - flake8 aioice tests
   - coverage run setup.py test
