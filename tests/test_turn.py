@@ -42,8 +42,9 @@ class TurnTest(unittest.TestCase):
             DummyClientProtocol,
             server_addr=self.server_addr,
             username='foo',
-            password='bar'))
-        run(asyncio.sleep(1))
+            password='bar',
+            lifetime=6))
+        run(asyncio.sleep(10))
         self.assertEqual(protocol.received_addr, ('8.8.8.8', 53))
         self.assertEqual(protocol.received_data, b'pong')
         transport.close()

@@ -11,14 +11,15 @@ logger = logging.getLogger('turn')
 
 
 class TurnClientProtocol(asyncio.DatagramProtocol):
-    def __init__(self, server, username, password):
+    def __init__(self, server, username, password, lifetime):
         self.channels = {}
         self.channel_number = 0x4000
-        self.lifetime = 600
+        self.lifetime = lifetime
         self.nonce = None
         self.password = password
         self.receiver = None
         self.realm = None
+        self.refresh_handle = None
         self.server = server
         self.transactions = {}
         self.username = username
@@ -63,22 +64,33 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
 
         relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
         logger.info('TURN allocation created %s' % repr(relayed_address))
+
+        # periodically refresh allocation
+        self.refresh_handle = asyncio.ensure_future(self.refresh())
+
         return relayed_address
 
     async def refresh(self):
         """
-        Refreshes the TURN allocation.
+        Periodically refresh the TURN allocation.
         """
-        request = stun.Message(message_method=stun.Method.REFRESH,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['LIFETIME'] = self.lifetime
-        self.__add_authentication(request)
-        await self.request(request, self.server)
+        while True:
+            await asyncio.sleep(5/6 * self.lifetime)
+
+            request = stun.Message(message_method=stun.Method.REFRESH,
+                                   message_class=stun.Class.REQUEST)
+            request.attributes['LIFETIME'] = self.lifetime
+            self.__add_authentication(request)
+            await self.request(request, self.server)
 
     async def release(self):
         """
         Releases the TURN allocation.
         """
+        if self.refresh_handle:
+            self.refresh_handle.cancel()
+            self.refresh_handle = None
+
         request = stun.Message(message_method=stun.Method.REFRESH,
                                message_class=stun.Class.REQUEST)
         request.attributes['LIFETIME'] = 0
@@ -198,7 +210,7 @@ class TurnTransport:
         self.protocol.connection_made(self)
 
 
-async def create_turn_endpoint(protocol_factory, server_addr, username, password):
+async def create_turn_endpoint(protocol_factory, server_addr, username, password, lifetime=600):
     """
     Create datagram connection relayed over TURN.
     """
@@ -206,7 +218,8 @@ async def create_turn_endpoint(protocol_factory, server_addr, username, password
     _, inner_protocol = await loop.create_datagram_endpoint(
         lambda: TurnClientProtocol(server_addr,
                                    username=username,
-                                   password=password),
+                                   password=password,
+                                   lifetime=lifetime),
         family=socket.AF_INET)
 
     protocol = protocol_factory()
