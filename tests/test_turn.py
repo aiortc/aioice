@@ -30,5 +30,9 @@ class TurnTest(unittest.TestCase):
             lambda: turn.TurnClientProtocol(self.server_addr, 'foo', 'bar'),
             family=socket.AF_INET))
         run(protocol.connect())
+
+        # bind channel
+        run(protocol.channel_bind(0x4000, ('8.8.8.8', 53)))
+
         run(protocol.refresh())
         run(protocol.close())

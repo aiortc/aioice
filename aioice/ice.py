@@ -290,21 +290,23 @@ class Component:
 
         # connect to TURN server
         if self.__connection.turn_server:
-            _, protocol = await loop.create_datagram_endpoint(
-                lambda: turn.TurnClientProtocol(self.__connection.turn_server,
-                                                username=self.__connection.turn_username,
-                                                password=self.__connection.turn_password),
-                family=socket.AF_INET)
-            relay_address = await protocol.connect()
+            # create transport
+            _, protocol = await turn.create_turn_endpoint(
+                lambda: StunProtocol(self),
+                server_addr=self.__connection.turn_server,
+                username=self.__connection.turn_username,
+                password=self.__connection.turn_password)
             self.__protocols.append(protocol)
 
+            # add relayed candidate
+            relayed_address = protocol.transport.get_extra_info('relayed_address')
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('relay', 'udp', relay_address[0]),
+                foundation=candidate_foundation('relay', 'udp', relayed_address[0]),
                 component=self.__component,
                 transport='udp',
                 priority=candidate_priority(self.__component, 'relay'),
-                host=relay_address[0],
-                port=relay_address[1],
+                host=relayed_address[0],
+                port=relayed_address[1],
                 type='relay')
             candidates.append(protocol.local_candidate)
 

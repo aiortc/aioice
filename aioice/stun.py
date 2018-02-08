@@ -72,6 +72,10 @@ def pack_unsigned(value):
     return pack('!I', value)
 
 
+def pack_unsigned_short(value):
+    return pack('!H', value) + b'\x00\x00'
+
+
 def pack_xor_address(value, transaction_id):
     return xor_address(pack_address(value), transaction_id)
 
@@ -121,6 +125,10 @@ def unpack_unsigned(data):
     return unpack('!I', data)[0]
 
 
+def unpack_unsigned_short(data):
+    return unpack('!H', data[0:2])[0]
+
+
 ATTRIBUTES = [
     (0x0001, 'MAPPED-ADDRESS', pack_address, unpack_address),
     (0x0003, 'CHANGE-REQUEST', pack_unsigned, unpack_unsigned),
@@ -129,6 +137,7 @@ ATTRIBUTES = [
     (0x0006, 'USERNAME', pack_string, unpack_string),
     (0x0008, 'MESSAGE-INTEGRITY', pack_bytes, unpack_bytes),
     (0x0009, 'ERROR-CODE', pack_error_code, unpack_error_code),
+    (0x000c, 'CHANNEL-NUMBER', pack_unsigned_short, unpack_unsigned_short),
     (0x000d, 'LIFETIME', pack_unsigned, unpack_unsigned),
     (0x0012, 'XOR-PEER-ADDRESS', pack_xor_address, unpack_xor_address),
     (0x0014, 'REALM', pack_string, unpack_string),

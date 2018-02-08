@@ -65,3 +65,11 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
             response.add_message_integrity(integrity_key)
             response.add_fingerprint()
             self.transport.sendto(bytes(response), addr)
+        elif message.message_method == stun.Method.CHANNEL_BIND:
+            response = stun.Message(
+                message_method=message.message_method,
+                message_class=stun.Class.RESPONSE,
+                transaction_id=message.transaction_id)
+            response.add_message_integrity(integrity_key)
+            response.add_fingerprint()
+            self.transport.sendto(bytes(response), addr)
