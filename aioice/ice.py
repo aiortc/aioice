@@ -440,9 +440,13 @@ class Component:
 
         try:
             response, addr = await pair.protocol.request(request, pair.remote_addr)
-            pair.state = CandidatePair.State.SUCCEEDED
-            if self.__connection.ice_controlling or pair.remote_nominated:
-                self.nominate_pair(pair)
+            if addr == pair.remote_addr:
+                pair.state = CandidatePair.State.SUCCEEDED
+                if self.__connection.ice_controlling or pair.remote_nominated:
+                    self.nominate_pair(pair)
+            else:
+                logger.warning('Checking pair %s -> not symetric' % repr(pair))
+                pair.state = CandidatePair.State.FAILED
         except exceptions.TransactionError as e:
             pair.state = CandidatePair.State.FAILED
 
