@@ -7,6 +7,7 @@ from collections import OrderedDict
 from struct import pack, unpack
 
 from . import exceptions
+from .utils import random_transaction_id
 
 COOKIE = 0x2112a442
 FINGERPRINT_LENGTH = 8
@@ -171,11 +172,11 @@ class Method(enum.IntEnum):
 
 
 class Message(object):
-    def __init__(self, message_method, message_class, transaction_id,
+    def __init__(self, message_method, message_class, transaction_id=None,
                  attributes=None):
         self.message_method = Method(message_method)
         self.message_class = Class(message_class)
-        self.transaction_id = transaction_id
+        self.transaction_id = transaction_id or random_transaction_id()
         self.attributes = attributes or OrderedDict()
 
     def add_fingerprint(self):

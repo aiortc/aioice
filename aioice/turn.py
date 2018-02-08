@@ -27,8 +27,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         Create a TURN allocation.
         """
         request = stun.Message(message_method=stun.Method.ALLOCATE,
-                               message_class=stun.Class.REQUEST,
-                               transaction_id=random_transaction_id())
+                               message_class=stun.Class.REQUEST)
         request.attributes['LIFETIME'] = self.lifetime
         request.attributes['REQUESTED-TRANSPORT'] = 0x11000000
 
@@ -59,8 +58,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         Releases the TURN allocation.
         """
         request = stun.Message(message_method=stun.Method.REFRESH,
-                               message_class=stun.Class.REQUEST,
-                               transaction_id=random_transaction_id())
+                               message_class=stun.Class.REQUEST)
         request.attributes['LIFETIME'] = 0
         request.attributes['USERNAME'] = self.username
         request.attributes['NONCE'] = self.nonce
@@ -76,8 +74,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         Refreshes the TURN allocation.
         """
         request = stun.Message(message_method=stun.Method.REFRESH,
-                               message_class=stun.Class.REQUEST,
-                               transaction_id=random_transaction_id())
+                               message_class=stun.Class.REQUEST)
         request.attributes['LIFETIME'] = self.lifetime
         request.attributes['USERNAME'] = self.username
         request.attributes['NONCE'] = self.nonce

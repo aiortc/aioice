@@ -9,7 +9,7 @@ import netifaces
 
 from . import exceptions, stun
 from .compat import secrets
-from .utils import random_string, random_transaction_id
+from .utils import random_string
 
 logger = logging.getLogger('ice')
 
@@ -54,8 +54,7 @@ async def server_reflexive_candidate(protocol, stun_server):
     Query STUN server to obtain a server-reflexive candidate.
     """
     request = stun.Message(message_method=stun.Method.BINDING,
-                           message_class=stun.Class.REQUEST,
-                           transaction_id=random_transaction_id())
+                           message_class=stun.Class.REQUEST)
     response = await protocol.request(request, stun_server)
 
     local_candidate = protocol.local_candidate
@@ -403,8 +402,7 @@ class Component:
         pair.state = CandidatePair.State.IN_PROGRESS
 
         request = stun.Message(message_method=stun.Method.BINDING,
-                               message_class=stun.Class.REQUEST,
-                               transaction_id=random_transaction_id())
+                               message_class=stun.Class.REQUEST)
         request.attributes['USERNAME'] = self.__outgoing_username()
         request.attributes['PRIORITY'] = candidate_priority(self.__component, 'prflx')
         if self.__connection.ice_controlling:

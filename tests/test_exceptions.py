@@ -1,15 +1,13 @@
 import unittest
 
 from aioice import exceptions, stun
-from aioice.utils import random_transaction_id
 
 
 class ExceptionTest(unittest.TestCase):
     def test_transaction_failed(self):
         response = stun.Message(
             message_method=stun.Method.BINDING,
-            message_class=stun.Class.RESPONSE,
-            transaction_id=random_transaction_id())
+            message_class=stun.Class.RESPONSE)
         response.attributes['ERROR-CODE'] = (487, 'Role Conflict')
 
         exc = exceptions.TransactionFailed(response)
