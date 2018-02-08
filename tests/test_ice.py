@@ -142,7 +142,8 @@ class IceTest(unittest.TestCase):
         run(invite_accept(conn_a, conn_b))
 
         # connect
-        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(), return_exceptions=True))
+        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(),
+                                          return_exceptions=True))
         self.assertTrue(isinstance(res_a, exceptions.ConnectionError))
         self.assertTrue(isinstance(res_b, exceptions.ConnectionError))
 
@@ -158,7 +159,8 @@ class IceTest(unittest.TestCase):
         run(invite_accept(conn_a, conn_b))
 
         # connect
-        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(), return_exceptions=True))
+        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(),
+                                          return_exceptions=True))
         self.assertTrue(isinstance(res_a, exceptions.ConnectionError))
         self.assertTrue(isinstance(res_b, exceptions.ConnectionError))
 
