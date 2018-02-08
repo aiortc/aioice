@@ -44,6 +44,7 @@ class TurnTest(unittest.TestCase):
             username='foo',
             password='bar',
             lifetime=6))
+        self.assertEqual(transport.get_extra_info('peername'), None)
         self.assertEqual(transport.get_extra_info('sockname'), ('1.2.3.4', 1234))
         run(asyncio.sleep(10))
         self.assertEqual(protocol.received_addr, ('8.8.8.8', 53))
