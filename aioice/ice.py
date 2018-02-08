@@ -284,12 +284,16 @@ class Component:
 
         # query STUN server for server-reflexive candidates
         if self.__connection.stun_server:
-            fs = map(lambda x: server_reflexive_candidate(x, self.__connection.stun_server),
-                     self.__protocols)
-            done, pending = await asyncio.wait(fs, timeout=timeout)
-            candidates += [task.result() for task in done if task.exception() is None]
-            for task in pending:
-                task.cancel()
+            # we query STUN server for IPv4
+            fs = []
+            for protocol in self.__protocols:
+                if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
+                    fs.append(server_reflexive_candidate(protocol, self.__connection.stun_server))
+            if len(fs):
+                done, pending = await asyncio.wait(fs, timeout=timeout)
+                candidates += [task.result() for task in done if task.exception() is None]
+                for task in pending:
+                    task.cancel()
 
         # connect to TURN server
         if self.__connection.turn_server:
