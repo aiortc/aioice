@@ -39,32 +39,67 @@ def run(coro):
 
 
 class ConnectionMock:
-    local_password = 'some-password'
+    ice_controlling = True
+    local_password = 'local-password'
+    local_username = 'local-username'
+    remote_password = 'remote-password'
+    remote_username = 'remote-username'
+    tie_breaker = 123456789
+
+
+class ProtocolMock:
+    local_candidate = ice.Candidate(
+        foundation='some-foundation',
+        component=1,
+        transport='udp',
+        priority=1234,
+        host='1.2.3.4',
+        port=1234,
+        type='host')
+
+    sent_message = None
+
+    async def request(self, message, addr, integrity_key=None):
+        return (self.response_message, self.response_addr)
+
+    def send_stun(self, message, addr):
+        self.sent_message = message
 
 
 class IceComponentTest(unittest.TestCase):
-    def test_invalid_method(self):
-
-        class ProtocolMock:
-            sent_message = None
-
-            def send_stun(self, message, addr):
-                self.sent_message = message
-
+    def test_request_with_invalid_method(self):
         connection = ConnectionMock()
         component = ice.Component(1, [], connection)
-
         protocol = ProtocolMock()
 
         request = stun.Message(
             message_method=stun.Method.ALLOCATE,
             message_class=stun.Class.REQUEST)
 
-        component.request_received(request, ('1.2.3.4', 1234), protocol, bytes(request))
+        component.request_received(request, ('2.3.4.5', 2345), protocol, bytes(request))
         self.assertIsNotNone(protocol.sent_message)
         self.assertEqual(protocol.sent_message.message_method, stun.Method.ALLOCATE)
         self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
         self.assertEqual(protocol.sent_message.attributes['ERROR-CODE'], (400, 'Bad Request'))
+
+    def test_response_with_invalid_address(self):
+        connection = ConnectionMock()
+        component = ice.Component(1, [], connection)
+        protocol = ProtocolMock()
+        protocol.response_addr = ('3.4.5.6', 3456)
+        protocol.response_message = 'zob'
+
+        pair = ice.CandidatePair(protocol, ice.Candidate(
+            foundation='some-foundation',
+            component=1,
+            transport='udp',
+            priority=2345,
+            host='2.3.4.5',
+            port=2345,
+            type='host'))
+
+        run(component.check_pair(pair))
+        self.assertEqual(pair.state, ice.CandidatePair.State.FAILED)
 
 
 class IceTest(unittest.TestCase):
