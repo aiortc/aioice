@@ -403,6 +403,10 @@ class Component:
             self.__pairs.append(pair)
             self.sort_pairs()
 
+        # triggered check
+        if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
+            asyncio.ensure_future(self.check_pair(pair))
+
         # 7.2.1.5. Updating the Nominated Flag
         if 'USE-CANDIDATE' in message.attributes and not self.__connection.ice_controlling:
             pair.remote_nominated = True
