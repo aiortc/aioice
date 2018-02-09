@@ -205,14 +205,17 @@ class IceTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=True)
 
+        # set tie breaker for a deterministic outcome
+        conn_a.tie_breaker = 1
+        conn_b.tie_breaker = 2
+
         # invite / accept
         run(invite_accept(conn_a, conn_b))
 
         # connect
-        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(),
-                                          return_exceptions=True))
-        self.assertTrue(isinstance(res_a, exceptions.ConnectionError))
-        self.assertTrue(isinstance(res_b, exceptions.ConnectionError))
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        self.assertFalse(conn_a.ice_controlling)
+        self.assertTrue(conn_b.ice_controlling)
 
         # close
         run(conn_a.close())
@@ -222,14 +225,17 @@ class IceTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=False)
         conn_b = ice.Connection(ice_controlling=False)
 
+        # set tie breaker for a deterministic outcome
+        conn_a.tie_breaker = 1
+        conn_b.tie_breaker = 2
+
         # invite / accept
         run(invite_accept(conn_a, conn_b))
 
         # connect
-        res_a, res_b = run(asyncio.gather(conn_a.connect(), conn_b.connect(),
-                                          return_exceptions=True))
-        self.assertTrue(isinstance(res_a, exceptions.ConnectionError))
-        self.assertTrue(isinstance(res_b, exceptions.ConnectionError))
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        self.assertFalse(conn_a.ice_controlling)
+        self.assertTrue(conn_b.ice_controlling)
 
         # close
         run(conn_a.close())

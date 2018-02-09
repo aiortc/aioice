@@ -1,5 +1,6 @@
 import os
 import random
+import struct
 
 try:
     import secrets
@@ -8,8 +9,12 @@ except ImportError:
 
 
 class CompatSecrets:
-    def choice(self, *args):
-        return random.choice(*args)
+    def choice(self, sequence):
+        return random.choice(sequence)
+
+    def randbits(self, k):
+        assert k == 64
+        return struct.unpack('Q', self.token_bytes(8))[0]
 
     def token_bytes(self, length):
         return os.urandom(length)

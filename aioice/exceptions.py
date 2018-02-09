@@ -7,7 +7,7 @@ class ImproperlyConfigured(Exception):
 
 
 class TransactionError(Exception):
-    pass
+    response = None
 
 
 class TransactionFailed(TransactionError):

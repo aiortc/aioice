@@ -76,6 +76,10 @@ def pack_unsigned_short(value):
     return pack('!H', value) + b'\x00\x00'
 
 
+def pack_unsigned_64(value):
+    return pack('!Q', value)
+
+
 def pack_xor_address(value, transaction_id):
     return xor_address(pack_address(value), transaction_id)
 
@@ -129,6 +133,10 @@ def unpack_unsigned_short(data):
     return unpack('!H', data[0:2])[0]
 
 
+def unpack_unsigned_64(data):
+    return unpack('!Q', data)[0]
+
+
 ATTRIBUTES = [
     (0x0001, 'MAPPED-ADDRESS', pack_address, unpack_address),
     (0x0003, 'CHANGE-REQUEST', pack_unsigned, unpack_unsigned),
@@ -149,8 +157,8 @@ ATTRIBUTES = [
     (0x0025, 'USE-CANDIDATE', pack_none, unpack_none),
     (0x8022, 'SOFTWARE', pack_string, unpack_string),
     (0x8028, 'FINGERPRINT', pack_unsigned, unpack_unsigned),
-    (0x8029, 'ICE-CONTROLLED', pack_bytes, unpack_bytes),
-    (0x802a, 'ICE-CONTROLLING', pack_bytes, unpack_bytes),
+    (0x8029, 'ICE-CONTROLLED', pack_unsigned_64, unpack_unsigned_64),
+    (0x802a, 'ICE-CONTROLLING', pack_unsigned_64, unpack_unsigned_64),
     (0x802b, 'RESPONSE-ORIGIN', pack_address, unpack_address),
     (0x802c, 'OTHER-ADDRESS', pack_address, unpack_address),
 ]

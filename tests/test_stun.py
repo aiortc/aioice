@@ -123,7 +123,7 @@ class MessageTest(unittest.TestCase):
             ('USERNAME', 'AYeZ:sw7YvCSbcVex3bhi'),
             ('PRIORITY', 1685987071),
             ('SOFTWARE', 'FreeSWITCH (-37-987c9b9 64bit)'),
-            ('ICE-CONTROLLED', unhexlify('4c374149526d6179')),
+            ('ICE-CONTROLLED', 5491930053772927353),
             ('MESSAGE-INTEGRITY', unhexlify('1963108a4f764015a66b3fea0b1883dfde1436c8')),
             ('FINGERPRINT', 3230414530),
         ]))
@@ -153,7 +153,7 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(message.transaction_id, b'JEwwUxjLWaa2')
         self.assertEqual(message.attributes, OrderedDict([
             ('USERNAME', 'sw7YvCSbcVex3bhi:AYeZ'),
-            ('ICE-CONTROLLING', unhexlify('527ad2e0d9120891')),
+            ('ICE-CONTROLLING', 5943294521425135761),
             ('USE-CANDIDATE', None),
             ('PRIORITY', 1853759231),
             ('MESSAGE-INTEGRITY', unhexlify('c87b58eccbacdbc075d497ad0c965a82937ab587')),

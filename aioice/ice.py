@@ -201,7 +201,8 @@ class StunProtocol(asyncio.DatagramProtocol):
            message.transaction_id in self.transactions):
             transaction = self.transactions[message.transaction_id]
             transaction.message_received(message, addr)
-        self.receiver.stun_message_received(message, addr, self)
+        elif message.message_class == stun.Class.REQUEST:
+            self.receiver.stun_request_received(message, addr, self)
 
     def error_received(self, exc):
         logger.debug('%s error_received(%s)', repr(self), exc)
@@ -321,86 +322,81 @@ class Component:
     def set_remote_candidates(self, candidates):
         self.__remote_candidates = candidates
 
-    def stun_message_received(self, message, addr, protocol):
-        if (message.message_method == stun.Method.BINDING and
-           message.message_class == stun.Class.REQUEST and
-           message.attributes['USERNAME'] == self.__incoming_username()):
+    def stun_request_received(self, message, addr, protocol):
+        if message.message_method != stun.Method.BINDING:
+            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
+            return
 
-            # check for role conflict
-            ice_controlling = self.__connection.ice_controlling
-            if ice_controlling and 'ICE-CONTROLLING' in message.attributes:
-                logger.warning('Role conflict, expected to be controlling')
-                if self.__connection.tie_breaker >= message.attributes['ICE-CONTROLLING']:
-                    response = stun.Message(
-                        message_method=stun.Method.BINDING,
-                        message_class=stun.Class.ERROR,
-                        transaction_id=message.transaction_id)
-                    response.attributes['ERROR-CODE'] = (487, 'Role Conflict')
-                    response.add_message_integrity(self.__connection.local_password.encode('utf8'))
-                    response.add_fingerprint()
-                    protocol.send_stun(response, addr)
-                else:
-                    logger.warning('Switching to controlled role is not implemented')
+        # 7.2.1.1. Detecting and Repairing Role Conflicts
+        ice_controlling = self.__connection.ice_controlling
+        if ice_controlling and 'ICE-CONTROLLING' in message.attributes:
+            logger.warning('Role conflict, expected to be controlling')
+            if self.__connection.tie_breaker >= message.attributes['ICE-CONTROLLING']:
+                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
                 return
-            elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
-                logger.warning("Role conflict, expected to be controlled")
-                if self.__connection.tie_breaker >= message.attributes['ICE-CONTROLLED']:
-                    logger.warning('Switching to controlling role is not implemented')
-                else:
-                    response = stun.Message(
-                        message_method=stun.Method.BINDING,
-                        message_class=stun.Class.ERROR,
-                        transaction_id=message.transaction_id)
-                    response.attributes['ERROR-CODE'] = (487, 'Role Conflict')
-                    response.add_message_integrity(self.__connection.local_password.encode('utf8'))
-                    response.add_fingerprint()
-                    protocol.send_stun(response, addr)
+            self.__connection.switch_role(ice_controlling=False)
+        elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
+            logger.warning("Role conflict, expected to be controlled")
+            if self.__connection.tie_breaker < message.attributes['ICE-CONTROLLED']:
+                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
                 return
+            self.__connection.switch_role(ice_controlling=True)
 
-            # send binding response
-            response = stun.Message(
-                message_method=stun.Method.BINDING,
-                message_class=stun.Class.RESPONSE,
-                transaction_id=message.transaction_id)
-            response.attributes['XOR-MAPPED-ADDRESS'] = addr
-            response.add_message_integrity(self.__connection.local_password.encode('utf8'))
-            response.add_fingerprint()
-            protocol.send_stun(response, addr)
+        # send binding response
+        response = stun.Message(
+            message_method=stun.Method.BINDING,
+            message_class=stun.Class.RESPONSE,
+            transaction_id=message.transaction_id)
+        response.attributes['XOR-MAPPED-ADDRESS'] = addr
+        response.add_message_integrity(self.__connection.local_password.encode('utf8'))
+        response.add_fingerprint()
+        protocol.send_stun(response, addr)
 
-            # find remote candidate
-            remote_candidate = None
-            for c in self.__remote_candidates:
-                if c.host == addr[0] and c.port == addr[1]:
-                    remote_candidate = c
-                    break
-            if remote_candidate is None:
-                # 7.2.1.3. Learning Peer Reflexive Candidates
-                remote_candidate = Candidate(
-                    foundation=random_string(10),
-                    component=self.__component,
-                    transport='udp',
-                    priority=message.attributes['PRIORITY'],
-                    host=addr[0],
-                    port=addr[1],
-                    type='prflx')
-                self.__remote_candidates.append(remote_candidate)
+        # find remote candidate
+        remote_candidate = None
+        for c in self.__remote_candidates:
+            if c.host == addr[0] and c.port == addr[1]:
+                remote_candidate = c
+                break
+        if remote_candidate is None:
+            # 7.2.1.3. Learning Peer Reflexive Candidates
+            remote_candidate = Candidate(
+                foundation=random_string(10),
+                component=self.__component,
+                transport='udp',
+                priority=message.attributes['PRIORITY'],
+                host=addr[0],
+                port=addr[1],
+                type='prflx')
+            self.__remote_candidates.append(remote_candidate)
 
-            # find pair
-            pair = None
-            for p in self.__pairs:
-                if (p.protocol == protocol and p.remote_addr == addr):
-                    pair = p
-                    break
-            if pair is None:
-                pair = CandidatePair(protocol, remote_candidate)
-                self.__pairs.append(pair)
-                sort_candidate_pairs(self.__pairs, self.__connection.ice_controlling)
+        # find pair
+        pair = None
+        for p in self.__pairs:
+            if (p.protocol == protocol and p.remote_addr == addr):
+                pair = p
+                break
+        if pair is None:
+            pair = CandidatePair(protocol, remote_candidate)
+            self.__pairs.append(pair)
+            self.sort_pairs()
 
-            if 'USE-CANDIDATE' in message.attributes and not self.__connection.ice_controlling:
-                pair.remote_nominated = True
+        # 7.2.1.5. Updating the Nominated Flag
+        if 'USE-CANDIDATE' in message.attributes and not self.__connection.ice_controlling:
+            pair.remote_nominated = True
 
-                if pair.state == CandidatePair.State.SUCCEEDED:
-                    self.nominate_pair(pair)
+            if pair.state == CandidatePair.State.SUCCEEDED:
+                self.nominate_pair(pair)
+
+    def respond_error(self, request, addr, protocol, error_code):
+        response = stun.Message(
+            message_method=request.message_method,
+            message_class=stun.Class.ERROR,
+            transaction_id=request.transaction_id)
+        response.attributes['ERROR-CODE'] = error_code
+        response.add_message_integrity(self.__connection.local_password.encode('utf8'))
+        response.add_fingerprint()
+        protocol.send_stun(response, addr)
 
     async def connect(self):
         # create candidate pairs
@@ -410,8 +406,8 @@ class Component:
                 if protocol.local_candidate.can_pair_with(remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
                     candidate_pairs.append(pair)
-        sort_candidate_pairs(candidate_pairs, self.__connection.ice_controlling)
         self.__pairs = candidate_pairs
+        self.sort_pairs()
 
         # perform checks
         succeeded = False
@@ -444,8 +440,17 @@ class Component:
         # transaction failed
         try:
             response, addr = await pair.protocol.request(request, pair.remote_addr)
-        except exceptions.TransactionError as e:
+        except exceptions.TransactionError as exc:
             pair.state = CandidatePair.State.FAILED
+
+            # 7.1.3.1. Failure Cases
+            if exc.response and exc.response.attributes.get('ERROR-CODE', (None, None))[0] == 487:
+                if 'ICE-CONTROLLING' in request.attributes:
+                    self.__connection.switch_role(ice_controlling=False)
+                elif 'ICE-CONTROLLED' in request.attributes:
+                    self.__connection.switch_role(ice_controlling=True)
+                return await self.check_pair(pair)
+
             return
 
         # check remote address matches
@@ -484,6 +489,9 @@ class Component:
         if self.__active_pair:
             await self.__active_pair.protocol.send_data(data, self.__active_pair.remote_addr)
 
+    def sort_pairs(self):
+        sort_candidate_pairs(self.__pairs, self.__connection.ice_controlling)
+
     def __incoming_username(self):
         return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
 
@@ -504,7 +512,7 @@ class Connection:
         self.remote_username = None
         self.remote_password = None
         self.stun_server = stun_server
-        self.tie_breaker = secrets.token_bytes(8)
+        self.tie_breaker = secrets.randbits(64)
         self.turn_server = turn_server
         self.turn_username = turn_username
         self.turn_password = turn_password
@@ -563,3 +571,8 @@ class Connection:
         Send a datagram.
         """
         return await self.__component.send(data)
+
+    def switch_role(self, ice_controlling):
+        logger.info('Switching to %s role' % (ice_controlling and 'controlling' or 'controlled'))
+        self.ice_controlling = ice_controlling
+        self.__component.sort_pairs()
