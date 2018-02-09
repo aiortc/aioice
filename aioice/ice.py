@@ -391,6 +391,7 @@ class Component:
                 port=addr[1],
                 type='prflx')
             self.__remote_candidates.append(remote_candidate)
+            logger.info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
 
         # find pair
         pair = None
