@@ -38,6 +38,35 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
+class ConnectionMock:
+    local_password = 'some-password'
+
+
+class IceComponentTest(unittest.TestCase):
+    def test_invalid_method(self):
+
+        class ProtocolMock:
+            sent_message = None
+
+            def send_stun(self, message, addr):
+                self.sent_message = message
+
+        connection = ConnectionMock()
+        component = ice.Component(1, [], connection)
+
+        protocol = ProtocolMock()
+
+        request = stun.Message(
+            message_method=stun.Method.ALLOCATE,
+            message_class=stun.Class.REQUEST)
+
+        component.request_received(request, ('1.2.3.4', 1234), protocol, bytes(request))
+        self.assertIsNotNone(protocol.sent_message)
+        self.assertEqual(protocol.sent_message.message_method, stun.Method.ALLOCATE)
+        self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
+        self.assertEqual(protocol.sent_message.attributes['ERROR-CODE'], (400, 'Bad Request'))
+
+
 class IceTest(unittest.TestCase):
     def setUp(self):
         stun.RETRY_MAX = 2
