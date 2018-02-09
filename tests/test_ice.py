@@ -45,6 +45,34 @@ class IceTest(unittest.TestCase):
     def tearDown(self):
         stun.RETRY_MAX = 7
 
+    def test_can_pair_ipv4(self):
+        candidate_a = ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        candidate_b = ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 12345 typ host generation 0')
+        self.assertTrue(candidate_a.can_pair_with(candidate_b))
+
+    def test_can_pair_ipv6(self):
+        candidate_a = ice.parse_candidate(
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 31102 typ host generation 0')
+        candidate_b = ice.parse_candidate(
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345 typ host generation 0')
+        self.assertTrue(candidate_a.can_pair_with(candidate_b))
+
+    def test_cannot_pair_ipv4_ipv6(self):
+        candidate_a = ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        candidate_b = ice.parse_candidate(
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345 typ host generation 0')
+        self.assertFalse(candidate_a.can_pair_with(candidate_b))
+
+    def test_cannot_pair_ipv6_global_local(self):
+        candidate_a = ice.parse_candidate(
+            '6815297761 1 udp 659136 2001:0db8:85a3:0000:0000:8a2e:0370:7334 31102 typ host generation 0')
+        candidate_b = ice.parse_candidate(
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345 typ host generation 0')
+        self.assertFalse(candidate_a.can_pair_with(candidate_b))
+
     def test_parse_candidate(self):
         candidate = ice.parse_candidate(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
