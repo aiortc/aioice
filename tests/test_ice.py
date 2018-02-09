@@ -54,16 +54,19 @@ class IceTest(unittest.TestCase):
 
     def test_can_pair_ipv6(self):
         candidate_a = ice.parse_candidate(
-            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 31102 typ host generation 0')
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 31102'
+            ' typ host generation 0')
         candidate_b = ice.parse_candidate(
-            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345 typ host generation 0')
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345'
+            ' typ host generation 0')
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
     def test_cannot_pair_ipv4_ipv6(self):
         candidate_a = ice.parse_candidate(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         candidate_b = ice.parse_candidate(
-            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345 typ host generation 0')
+            '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345'
+            ' typ host generation 0')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
     def test_cannot_pair_different_components(self):
