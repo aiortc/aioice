@@ -167,6 +167,39 @@ class IceTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    def test_connect_invalid_password(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(candidates_a) > 0)
+        for candidate in candidates_a:
+            self.assertEqual(candidate.type, 'host')
+
+        # invite
+        candidates_a = run(conn_a.get_local_candidates())
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+        conn_b.set_remote_candidates(candidates_a)
+
+        # accept
+        candidates_b = run(conn_b.get_local_candidates())
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = 'wrong-password'
+        conn_a.set_remote_candidates(candidates_b)
+
+        # connect
+        done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()], return_when=asyncio.FIRST_EXCEPTION))
+        for task in pending:
+            task.cancel()
+        self.assertEqual(len(done), 1)
+        self.assertTrue(isinstance(done.pop().exception(), exceptions.ConnectionError))
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
     def test_connect_no_local_candidates(self):
         """
         If local candidates have not been gathered, connect fails.

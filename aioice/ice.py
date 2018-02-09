@@ -202,7 +202,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             transaction = self.transactions[message.transaction_id]
             transaction.message_received(message, addr)
         elif message.message_class == stun.Class.REQUEST:
-            self.receiver.stun_request_received(message, addr, self)
+            self.receiver.stun_request_received(message, addr, self, data)
 
     def error_received(self, exc):
         logger.debug('%s error_received(%s)', repr(self), exc)
@@ -322,8 +322,17 @@ class Component:
     def set_remote_candidates(self, candidates):
         self.__remote_candidates = candidates
 
-    def stun_request_received(self, message, addr, protocol):
+    def stun_request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
+            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
+            return
+
+        # authenticate request
+        try:
+            stun.parse_message(raw_data, integrity_key=self.__connection.local_password.encode('utf8'))
+            if message.attributes.get('USERNAME') != self.__incoming_username():
+                raise ValueError('Wrong username')
+        except ValueError as exc:
             self.respond_error(message, addr, protocol, (400, 'Bad Request'))
             return
 
@@ -416,7 +425,7 @@ class Component:
             if pair.state == CandidatePair.State.SUCCEEDED:
                 succeeded = True
         if not succeeded:
-            raise exceptions.ConnectionError('No validate candidate pairs')
+            raise exceptions.ConnectionError('No validated candidate pairs')
 
         # wait for a pair to be active
         await self.__active_queue.get()
@@ -437,7 +446,6 @@ class Component:
         request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
         request.add_fingerprint()
 
-        # transaction failed
         try:
             response, addr = await pair.protocol.request(request, pair.remote_addr)
         except exceptions.TransactionError as exc:
