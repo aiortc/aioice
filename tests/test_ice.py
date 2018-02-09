@@ -190,7 +190,8 @@ class IceTest(unittest.TestCase):
         conn_a.set_remote_candidates(candidates_b)
 
         # connect
-        done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()], return_when=asyncio.FIRST_EXCEPTION))
+        done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()],
+                                         return_when=asyncio.FIRST_EXCEPTION))
         for task in pending:
             task.cancel()
         self.assertEqual(len(done), 1)
@@ -223,7 +224,8 @@ class IceTest(unittest.TestCase):
         conn_a.set_remote_candidates(candidates_b)
 
         # connect
-        done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()], return_when=asyncio.FIRST_EXCEPTION))
+        done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()],
+                            return_when=asyncio.FIRST_EXCEPTION))
         for task in pending:
             task.cancel()
         self.assertEqual(len(done), 2)

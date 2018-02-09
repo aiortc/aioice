@@ -329,7 +329,8 @@ class Component:
 
         # authenticate request
         try:
-            stun.parse_message(raw_data, integrity_key=self.__connection.local_password.encode('utf8'))
+            stun.parse_message(raw_data,
+                               integrity_key=self.__connection.local_password.encode('utf8'))
             if message.attributes.get('USERNAME') != self.__incoming_username():
                 raise ValueError('Wrong username')
         except ValueError as exc:
