@@ -421,7 +421,7 @@ class Component:
         protocol.send_stun(response, addr)
 
     async def connect(self):
-        # create candidate pairs
+        # 5.7.1. Forming Candidate Pairs
         candidate_pairs = []
         for remote_candidate in self.__remote_candidates:
             for protocol in self.__protocols:
@@ -437,9 +437,14 @@ class Component:
         self.__early_checks = []
 
         # perform checks
+        fs = []
+        for pair in self.__pairs:
+            if pair.state == CandidatePair.State.WAITING:
+                fs.append(self.check_pair(pair))
+        if fs:
+            await asyncio.wait(fs)
         succeeded = False
-        for pair in self.__pairs[:]:
-            await self.check_pair(pair)
+        for pair in self.__pairs:
             if pair.state == CandidatePair.State.SUCCEEDED:
                 succeeded = True
         if not succeeded:
