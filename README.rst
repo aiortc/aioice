@@ -35,7 +35,7 @@ I/O framework.
     import asyncio
     import aioice
 
-    async def connect_using_ice(uri):
+    async def connect_using_ice():
         connection = aioice.Connection(ice_controlling=True)
 
         # gather local candidates
