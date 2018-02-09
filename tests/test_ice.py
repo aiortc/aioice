@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pprint
 import socket
 import unittest
@@ -83,6 +84,7 @@ class IceTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    @unittest.skipIf(os.environ.get('TRAVIS') == 'true', 'travis lacks ipv6')
     def test_connect_ipv6(self):
         conn_a = ice.Connection(ice_controlling=True, use_ipv4=False, use_ipv6=True)
         conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
@@ -244,6 +246,7 @@ class IceTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    @unittest.skipIf(os.environ.get('TRAVIS') == 'true', 'travis lacks ipv6')
     def test_connect_with_stun_server_ipv6(self):
         stun_server = ('stun.l.google.com', 19302)
 
