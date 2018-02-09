@@ -110,15 +110,14 @@ class Candidate:
             self.generation)
 
     def can_pair_with(self, other):
+        """
+        A local candidate is paired with a remote candidate if and only if
+        the two candidates have the same component ID and have the same IP
+        address version.
+        """
         a = ipaddress.ip_address(self.host)
         b = ipaddress.ip_address(other.host)
-        if a.version != b.version:
-            return False
-
-        if a.version == 6 and a.is_global != b.is_global:
-            return False
-
-        return True
+        return self.component == other.component and a.version == b.version
 
 
 class CandidatePair:
