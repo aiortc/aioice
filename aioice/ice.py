@@ -255,7 +255,8 @@ class Component:
         self.__addresses = addresses
         self.__connection = connection
         self.__component = component
-        self.__pairs = []
+        self.__early_checks = []
+        self.__pairs = None
         self.__protocols = []
         self.__remote_candidates = []
 
@@ -367,6 +368,12 @@ class Component:
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
+        if self.__pairs is None:
+            self.__early_checks.append((message, addr, protocol))
+        else:
+            self.handle_incoming_check(message, addr, protocol)
+
+    def handle_incoming_check(self, message, addr, protocol):
         # find remote candidate
         remote_candidate = None
         for c in self.__remote_candidates:
@@ -423,6 +430,11 @@ class Component:
                     candidate_pairs.append(pair)
         self.__pairs = candidate_pairs
         self.sort_pairs()
+
+        # handle early checks
+        for check in self.__early_checks:
+            self.handle_incoming_check(*check)
+        self.__early_checks = []
 
         # perform checks
         succeeded = False
