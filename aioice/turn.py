@@ -122,7 +122,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
              message.message_class == stun.Class.ERROR) and
            message.transaction_id in self.transactions):
             transaction = self.transactions[message.transaction_id]
-            transaction.message_received(message, addr)
+            transaction.response_received(message, addr)
 
     async def request(self, request, addr):
         """

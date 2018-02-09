@@ -200,9 +200,9 @@ class StunProtocol(asyncio.DatagramProtocol):
              message.message_class == stun.Class.ERROR) and
            message.transaction_id in self.transactions):
             transaction = self.transactions[message.transaction_id]
-            transaction.message_received(message, addr)
+            transaction.response_received(message, addr)
         elif message.message_class == stun.Class.REQUEST:
-            self.receiver.stun_request_received(message, addr, self, data)
+            self.receiver.request_received(message, addr, self, data)
 
     def error_received(self, exc):
         logger.debug('%s error_received(%s)', repr(self), exc)
@@ -216,13 +216,18 @@ class StunProtocol(asyncio.DatagramProtocol):
         logger.debug('%s > %s DATA %d', repr(self), addr, len(data))
         self.transport.sendto(data, addr)
 
-    async def request(self, request, addr):
+    async def request(self, request, addr, integrity_key=None):
         """
         Execute a STUN transaction and return the response.
         """
         assert request.transaction_id not in self.transactions
 
+        if integrity_key is not None:
+            request.add_message_integrity(integrity_key)
+            request.add_fingerprint()
+
         transaction = stun.Transaction(request, addr, self)
+        transaction.integrity_key = integrity_key
         self.transactions[request.transaction_id] = transaction
         try:
             return await transaction.run()
@@ -322,7 +327,7 @@ class Component:
     def set_remote_candidates(self, candidates):
         self.__remote_candidates = candidates
 
-    def stun_request_received(self, message, addr, protocol, raw_data):
+    def request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
             self.respond_error(message, addr, protocol, (400, 'Bad Request'))
             return
@@ -444,11 +449,11 @@ class Component:
             request.attributes['USE-CANDIDATE'] = None
         else:
             request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
-        request.add_message_integrity(self.__connection.remote_password.encode('utf8'))
-        request.add_fingerprint()
 
         try:
-            response, addr = await pair.protocol.request(request, pair.remote_addr)
+            response, addr = await pair.protocol.request(
+                request, pair.remote_addr,
+                integrity_key=self.__connection.remote_password.encode('utf8'))
         except exceptions.TransactionError as exc:
             pair.state = CandidatePair.State.FAILED
 

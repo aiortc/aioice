@@ -235,7 +235,7 @@ class Transaction:
         self.__protocol = protocol
         self.__tries = 0
 
-    def message_received(self, message, addr):
+    def response_received(self, message, addr):
         self.__timeout_handle.cancel()
 
         if message.message_class == Class.RESPONSE:
