@@ -276,14 +276,14 @@ class Component:
             self.__protocols.append(protocol)
 
             # add host candidate
-            port = protocol.transport.get_extra_info('sockname')[1]
+            candidate_address = protocol.transport.get_extra_info('sockname')
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('host', 'udp', address),
+                foundation=candidate_foundation('host', 'udp', candidate_address[0]),
                 component=self.__component,
                 transport='udp',
                 priority=candidate_priority(self.__component, 'host'),
-                host=address,
-                port=port,
+                host=candidate_address[0],
+                port=candidate_address[1],
                 type='host')
             candidates.append(protocol.local_candidate)
 
@@ -311,14 +311,14 @@ class Component:
             self.__protocols.append(protocol)
 
             # add relayed candidate
-            relayed_address = protocol.transport.get_extra_info('sockname')
+            candidate_address = protocol.transport.get_extra_info('sockname')
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('relay', 'udp', relayed_address[0]),
+                foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
                 component=self.__component,
                 transport='udp',
                 priority=candidate_priority(self.__component, 'relay'),
-                host=relayed_address[0],
-                port=relayed_address[1],
+                host=candidate_address[0],
+                port=candidate_address[1],
                 type='relay')
             candidates.append(protocol.local_candidate)
 
