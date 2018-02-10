@@ -27,6 +27,9 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
             if data[4:] == b'ping':
                 response = b'pong'
                 self.transport.sendto(struct.pack('!HH', channel, len(response)) + response, addr)
+
+            # send back some junk too
+            self.transport.sendto(b'\x00\x00', addr)
             return
 
         try:
