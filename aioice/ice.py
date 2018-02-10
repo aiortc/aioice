@@ -504,6 +504,7 @@ class Connection:
                 break
         if pair is None:
             pair = CandidatePair(protocol, remote_candidate)
+            pair.state = CandidatePair.State.WAITING
             self.check_list.append(pair)
             self.sort_check_list()
 
