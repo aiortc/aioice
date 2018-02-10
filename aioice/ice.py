@@ -539,7 +539,6 @@ class Connection:
         """
         Starts a check.
         """
-        self.__log_info('Check %s starting' % repr(pair))
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
         tx_username = '%s:%s' % (self.remote_username, self.local_username)
