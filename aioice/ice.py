@@ -342,10 +342,12 @@ class Connection:
     async def get_local_candidates(self):
         """
         Gather local candidates.
+
+        You MUST call this method before calling connect().
         """
-        assert not self.local_candidates
-        for component in self.components:
-            self.local_candidates += await self.get_component_candidates(component)
+        if not self.local_candidates:
+            for component in self.components:
+                self.local_candidates += await self.get_component_candidates(component)
         return self.local_candidates
 
     async def connect(self):
