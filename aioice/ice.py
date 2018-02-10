@@ -148,6 +148,10 @@ class CandidatePair:
         return 'CandidatePair(%s -> %s)' % (self.local_addr, self.remote_addr)
 
     @property
+    def component(self):
+        return self.protocol.local_candidate.component
+
+    @property
     def local_addr(self):
         return (self.protocol.local_candidate.host, self.protocol.local_candidate.port)
 
@@ -262,317 +266,6 @@ class StunProtocol(asyncio.DatagramProtocol):
         return 'client(%s)' % self.id
 
 
-class Component:
-    """
-    An ICE component.
-    """
-    def __init__(self, component, addresses, connection):
-        self.__active_pair = None
-        self.__addresses = addresses
-        self.__connection = connection
-        self.__component = component
-        self.__early_checks = []
-        self.__pairs = []
-        self.__protocols = []
-        self.__remote_candidates = []
-        self.__state_queue = asyncio.Queue()
-
-    async def close(self):
-        for protocol in self.__protocols:
-            protocol.transport.close()
-        self.__protocols = []
-
-    async def get_local_candidates(self, timeout=5):
-        candidates = []
-
-        loop = asyncio.get_event_loop()
-        for address in self.__addresses:
-            # create transport
-            _, protocol = await loop.create_datagram_endpoint(
-                lambda: StunProtocol(self),
-                local_addr=(address, 0))
-            self.__protocols.append(protocol)
-
-            # add host candidate
-            candidate_address = protocol.transport.get_extra_info('sockname')
-            protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('host', 'udp', candidate_address[0]),
-                component=self.__component,
-                transport='udp',
-                priority=candidate_priority(self.__component, 'host'),
-                host=candidate_address[0],
-                port=candidate_address[1],
-                type='host')
-            candidates.append(protocol.local_candidate)
-
-        # query STUN server for server-reflexive candidates
-        if self.__connection.stun_server:
-            # we query STUN server for IPv4
-            fs = []
-            for protocol in self.__protocols:
-                if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
-                    fs.append(server_reflexive_candidate(protocol, self.__connection.stun_server))
-            if len(fs):
-                done, pending = await asyncio.wait(fs, timeout=timeout)
-                candidates += [task.result() for task in done if task.exception() is None]
-                for task in pending:
-                    task.cancel()
-
-        # connect to TURN server
-        if self.__connection.turn_server:
-            # create transport
-            _, protocol = await turn.create_turn_endpoint(
-                lambda: StunProtocol(self),
-                server_addr=self.__connection.turn_server,
-                username=self.__connection.turn_username,
-                password=self.__connection.turn_password)
-            self.__protocols.append(protocol)
-
-            # add relayed candidate
-            candidate_address = protocol.transport.get_extra_info('sockname')
-            protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
-                component=self.__component,
-                transport='udp',
-                priority=candidate_priority(self.__component, 'relay'),
-                host=candidate_address[0],
-                port=candidate_address[1],
-                type='relay')
-            candidates.append(protocol.local_candidate)
-
-        return candidates
-
-    def set_remote_candidates(self, candidates):
-        self.__remote_candidates = candidates
-
-    def request_received(self, message, addr, protocol, raw_data):
-        if message.message_method != stun.Method.BINDING:
-            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
-            return
-
-        # authenticate request
-        try:
-            stun.parse_message(raw_data,
-                               integrity_key=self.__connection.local_password.encode('utf8'))
-            if message.attributes.get('USERNAME') != self.__incoming_username():
-                raise ValueError('Wrong username')
-        except ValueError as exc:
-            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
-            return
-
-        # 7.2.1.1. Detecting and Repairing Role Conflicts
-        ice_controlling = self.__connection.ice_controlling
-        if ice_controlling and 'ICE-CONTROLLING' in message.attributes:
-            logger.warning('Role conflict, expected to be controlling')
-            if self.__connection.tie_breaker >= message.attributes['ICE-CONTROLLING']:
-                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
-                return
-            self.__connection.switch_role(ice_controlling=False)
-        elif not ice_controlling and 'ICE-CONTROLLED' in message.attributes:
-            logger.warning("Role conflict, expected to be controlled")
-            if self.__connection.tie_breaker < message.attributes['ICE-CONTROLLED']:
-                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
-                return
-            self.__connection.switch_role(ice_controlling=True)
-
-        # send binding response
-        response = stun.Message(
-            message_method=stun.Method.BINDING,
-            message_class=stun.Class.RESPONSE,
-            transaction_id=message.transaction_id)
-        response.attributes['XOR-MAPPED-ADDRESS'] = addr
-        response.add_message_integrity(self.__connection.local_password.encode('utf8'))
-        response.add_fingerprint()
-        protocol.send_stun(response, addr)
-
-        if not self.__pairs:
-            self.__early_checks.append((message, addr, protocol))
-        else:
-            self.handle_incoming_check(message, addr, protocol)
-
-    def handle_incoming_check(self, message, addr, protocol):
-        # find remote candidate
-        remote_candidate = None
-        for c in self.__remote_candidates:
-            if c.host == addr[0] and c.port == addr[1]:
-                remote_candidate = c
-                assert remote_candidate.component == self.__component
-                break
-        if remote_candidate is None:
-            # 7.2.1.3. Learning Peer Reflexive Candidates
-            remote_candidate = Candidate(
-                foundation=random_string(10),
-                component=self.__component,
-                transport='udp',
-                priority=message.attributes['PRIORITY'],
-                host=addr[0],
-                port=addr[1],
-                type='prflx')
-            self.__remote_candidates.append(remote_candidate)
-            logger.info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
-
-        # find pair
-        pair = None
-        for p in self.__pairs:
-            if (p.protocol == protocol and p.remote_candidate == remote_candidate):
-                pair = p
-                break
-        if pair is None:
-            pair = CandidatePair(protocol, remote_candidate)
-            self.__pairs.append(pair)
-            self.sort_pairs()
-
-        # triggered check
-        if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
-            asyncio.ensure_future(self.check_pair(pair))
-
-        # 7.2.1.5. Updating the Nominated Flag
-        if 'USE-CANDIDATE' in message.attributes and not self.__connection.ice_controlling:
-            pair.remote_nominated = True
-
-            if pair.state == CandidatePair.State.SUCCEEDED:
-                pair.nominated = True
-                self.on_pair_complete(pair)
-
-    def respond_error(self, request, addr, protocol, error_code):
-        response = stun.Message(
-            message_method=request.message_method,
-            message_class=stun.Class.ERROR,
-            transaction_id=request.transaction_id)
-        response.attributes['ERROR-CODE'] = error_code
-        response.add_message_integrity(self.__connection.local_password.encode('utf8'))
-        response.add_fingerprint()
-        protocol.send_stun(response, addr)
-
-    async def connect(self):
-        # 5.7.1. Forming Candidate Pairs
-        for remote_candidate in self.__remote_candidates:
-            for protocol in self.__protocols:
-                if protocol.local_candidate.can_pair_with(remote_candidate):
-                    pair = CandidatePair(protocol, remote_candidate)
-                    self.__pairs.append(pair)
-        self.sort_pairs()
-        if not self.__pairs:
-            raise exceptions.ConnectionError
-
-        # handle early checks
-        for check in self.__early_checks:
-            self.handle_incoming_check(*check)
-        self.__early_checks = []
-
-        # perform checks
-        while True:
-            if not self.periodic_check():
-                break
-            await asyncio.sleep(0.02)
-
-        # wait for a pair to be active
-        res = await self.__state_queue.get()
-        if not res:
-            raise exceptions.ConnectionError
-
-    def periodic_check(self):
-        # find the highest-priority pair that is in the waiting state
-        for pair in self.__pairs:
-            if pair.state == CandidatePair.State.WAITING:
-                asyncio.ensure_future(self.check_pair(pair))
-                return True
-
-        # find the highest-priority pair that is in the frozen state
-        for pair in self.__pairs:
-            if pair.state == CandidatePair.State.FROZEN:
-                asyncio.ensure_future(self.check_pair(pair))
-                return True
-
-        return False
-
-    async def check_pair(self, pair):
-        logger.info('Checking pair %s' % repr(pair))
-        self.set_pair_state(pair, CandidatePair.State.IN_PROGRESS)
-
-        request = stun.Message(message_method=stun.Method.BINDING,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['USERNAME'] = self.__outgoing_username()
-        request.attributes['PRIORITY'] = candidate_priority(self.__component, 'prflx')
-        if self.__connection.ice_controlling:
-            request.attributes['ICE-CONTROLLING'] = self.__connection.tie_breaker
-            request.attributes['USE-CANDIDATE'] = None
-        else:
-            request.attributes['ICE-CONTROLLED'] = self.__connection.tie_breaker
-
-        try:
-            response, addr = await pair.protocol.request(
-                request, pair.remote_addr,
-                integrity_key=self.__connection.remote_password.encode('utf8'))
-        except exceptions.TransactionError as exc:
-            # 7.1.3.1. Failure Cases
-            if exc.response and exc.response.attributes.get('ERROR-CODE', (None, None))[0] == 487:
-                if 'ICE-CONTROLLING' in request.attributes:
-                    self.__connection.switch_role(ice_controlling=False)
-                elif 'ICE-CONTROLLED' in request.attributes:
-                    self.__connection.switch_role(ice_controlling=True)
-                return await self.check_pair(pair)
-            else:
-                self.set_pair_state(pair, CandidatePair.State.FAILED)
-                self.on_pair_complete(pair)
-                return
-
-        # check remote address matches
-        if addr != pair.remote_addr:
-            logger.warning('Checking pair %s failed : source address mismatch' % repr(pair))
-            self.set_pair_state(pair, CandidatePair.State.FAILED)
-            self.on_pair_complete(pair)
-            return
-
-        # success
-        self.set_pair_state(pair, CandidatePair.State.SUCCEEDED)
-        if self.__connection.ice_controlling or pair.remote_nominated:
-            pair.nominated = True
-        self.on_pair_complete(pair)
-
-    def on_pair_complete(self, pair):
-        if pair.state == CandidatePair.State.SUCCEEDED and pair.nominated:
-            self.__active_pair = pair
-            asyncio.ensure_future(self.__state_queue.put(True))
-            return
-
-        for p in self.__pairs:
-            if p.state not in [CandidatePair.State.SUCCEEDED, CandidatePair.State.FAILED]:
-                return
-
-        if not self.__connection.ice_controlling:
-            for p in self.__pairs:
-                if p.state == CandidatePair.State.SUCCEEDED:
-                    return
-
-        asyncio.ensure_future(self.__state_queue.put(False))
-
-    def set_pair_state(self, pair, state):
-        logger.info('Pair state %s for %s' % (state, repr(pair)))
-        pair.state = state
-
-    async def recv(self):
-        fs = [protocol.recv_data() for protocol in self.__protocols]
-        done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        assert len(done) == 1
-        return done.pop().result()
-
-    async def send(self, data):
-        if self.__active_pair:
-            await self.__active_pair.protocol.send_data(data, self.__active_pair.remote_addr)
-
-    def sort_pairs(self):
-        sort_candidate_pairs(self.__pairs, self.__connection.ice_controlling)
-
-    def __incoming_username(self):
-        return '%s:%s' % (self.__connection.local_username, self.__connection.remote_username)
-
-    def __outgoing_username(self):
-        return '%s:%s' % (self.__connection.remote_username, self.__connection.local_username)
-
-
 class Connection:
     """
     An ICE connection.
@@ -583,6 +276,7 @@ class Connection:
         self.ice_controlling = ice_controlling
         self.local_username = random_string(4)
         self.local_password = random_string(22)
+        self.remote_candidates = []
         self.remote_username = None
         self.remote_password = None
         self.stun_server = stun_server
@@ -591,20 +285,25 @@ class Connection:
         self.turn_username = turn_username
         self.turn_password = turn_password
 
-        addresses = get_host_addresses(use_ipv4=use_ipv4, use_ipv6=use_ipv6)
-        self.__component = Component(1, addresses, self)
+        # private
+        self.__active_pair = None
+        self.addresses = get_host_addresses(use_ipv4=use_ipv4, use_ipv6=use_ipv6)
+        self.check_list = []
+        self.check_list_state = asyncio.Queue()
+        self.early_checks = []
+        self.protocols = []
 
     async def get_local_candidates(self):
         """
         Gather local candidates.
         """
-        return await self.__component.get_local_candidates()
+        return await self.get_component_candidates(1)
 
     def set_remote_candidates(self, candidates):
         """
         Set remote candidates.
         """
-        self.__component.set_remote_candidates(candidates)
+        self.remote_candidates = candidates
 
     async def connect(self):
         """
@@ -616,27 +315,316 @@ class Connection:
         if (self.remote_username is None or
            self.remote_password is None):
             raise exceptions.ImproperlyConfigured('Remote username or password is missing')
-        await self.__component.connect()
+
+        # 5.7.1. Forming Candidate Pairs
+        for remote_candidate in self.remote_candidates:
+            for protocol in self.protocols:
+                if protocol.local_candidate.can_pair_with(remote_candidate):
+                    pair = CandidatePair(protocol, remote_candidate)
+                    self.check_list.append(pair)
+        self.sort_check_list()
+        if not self.check_list:
+            raise exceptions.ConnectionError
+
+        # handle early checks
+        for check in self.early_checks:
+            self.check_incoming(*check)
+        self.early_checks = []
+
+        # perform checks
+        while True:
+            if not self.check_periodic():
+                break
+            await asyncio.sleep(0.02)
+
+        # wait for a pair to be active
+        res = await self.check_list_state.get()
+        if not res:
+            raise exceptions.ConnectionError
 
     async def close(self):
         """
         Close the connection.
         """
-        await self.__component.close()
+        for protocol in self.protocols:
+            protocol.transport.close()
+        self.protocols = []
 
     async def recv(self):
         """
         Receive the next datagram.
         """
-        return await self.__component.recv()
+        fs = [protocol.recv_data() for protocol in self.protocols]
+        done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        assert len(done) == 1
+        return done.pop().result()
 
     async def send(self, data):
         """
         Send a datagram.
         """
-        return await self.__component.send(data)
+        if self.__active_pair:
+            await self.__active_pair.protocol.send_data(data, self.__active_pair.remote_addr)
+
+    # private
+
+    def check_complete(self, pair):
+        if pair.state == CandidatePair.State.SUCCEEDED and pair.nominated:
+            self.__active_pair = pair
+            asyncio.ensure_future(self.check_list_state.put(True))
+            return
+
+        for p in self.check_list:
+            if p.state not in [CandidatePair.State.SUCCEEDED, CandidatePair.State.FAILED]:
+                return
+
+        if not self.ice_controlling:
+            for p in self.check_list:
+                if p.state == CandidatePair.State.SUCCEEDED:
+                    return
+
+        asyncio.ensure_future(self.check_list_state.put(False))
+
+    def check_incoming(self, message, addr, protocol):
+        """
+        Handle a succesful incoming check.
+        """
+        component = protocol.local_candidate.component
+
+        # find remote candidate
+        remote_candidate = None
+        for c in self.remote_candidates:
+            if c.host == addr[0] and c.port == addr[1]:
+                remote_candidate = c
+                assert remote_candidate.component == component
+                break
+        if remote_candidate is None:
+            # 7.2.1.3. Learning Peer Reflexive Candidates
+            remote_candidate = Candidate(
+                foundation=random_string(10),
+                component=component,
+                transport='udp',
+                priority=message.attributes['PRIORITY'],
+                host=addr[0],
+                port=addr[1],
+                type='prflx')
+            self.remote_candidates.append(remote_candidate)
+            logger.info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
+
+        # find pair
+        pair = None
+        for p in self.check_list:
+            if (p.protocol == protocol and p.remote_candidate == remote_candidate):
+                pair = p
+                break
+        if pair is None:
+            pair = CandidatePair(protocol, remote_candidate)
+            self.check_list.append(pair)
+            self.sort_check_list()
+
+        # triggered check
+        if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
+            asyncio.ensure_future(self.check_start(pair))
+
+        # 7.2.1.5. Updating the Nominated Flag
+        if 'USE-CANDIDATE' in message.attributes and not self.ice_controlling:
+            pair.remote_nominated = True
+
+            if pair.state == CandidatePair.State.SUCCEEDED:
+                pair.nominated = True
+                self.check_complete(pair)
+
+    def check_periodic(self):
+        # find the highest-priority pair that is in the waiting state
+        for pair in self.check_list:
+            if pair.state == CandidatePair.State.WAITING:
+                asyncio.ensure_future(self.check_start(pair))
+                return True
+
+        # find the highest-priority pair that is in the frozen state
+        for pair in self.check_list:
+            if pair.state == CandidatePair.State.FROZEN:
+                asyncio.ensure_future(self.check_start(pair))
+                return True
+
+        return False
+
+    async def check_start(self, pair):
+        """
+        Starts a check.
+        """
+        logger.info('Checking pair %s' % repr(pair))
+        self.check_state(pair, CandidatePair.State.IN_PROGRESS)
+
+        tx_username = '%s:%s' % (self.remote_username, self.local_username)
+        request = stun.Message(message_method=stun.Method.BINDING,
+                               message_class=stun.Class.REQUEST)
+        request.attributes['USERNAME'] = tx_username
+        request.attributes['PRIORITY'] = candidate_priority(pair.component, 'prflx')
+        if self.ice_controlling:
+            request.attributes['ICE-CONTROLLING'] = self.tie_breaker
+            request.attributes['USE-CANDIDATE'] = None
+        else:
+            request.attributes['ICE-CONTROLLED'] = self.tie_breaker
+
+        try:
+            response, addr = await pair.protocol.request(
+                request, pair.remote_addr,
+                integrity_key=self.remote_password.encode('utf8'))
+        except exceptions.TransactionError as exc:
+            # 7.1.3.1. Failure Cases
+            if exc.response and exc.response.attributes.get('ERROR-CODE', (None, None))[0] == 487:
+                if 'ICE-CONTROLLING' in request.attributes:
+                    self.switch_role(ice_controlling=False)
+                elif 'ICE-CONTROLLED' in request.attributes:
+                    self.switch_role(ice_controlling=True)
+                return await self.check_start(pair)
+            else:
+                self.check_state(pair, CandidatePair.State.FAILED)
+                self.check_complete(pair)
+                return
+
+        # check remote address matches
+        if addr != pair.remote_addr:
+            logger.warning('Checking pair %s failed : source address mismatch' % repr(pair))
+            self.check_state(pair, CandidatePair.State.FAILED)
+            self.check_complete(pair)
+            return
+
+        # success
+        self.check_state(pair, CandidatePair.State.SUCCEEDED)
+        if self.ice_controlling or pair.remote_nominated:
+            pair.nominated = True
+        self.check_complete(pair)
+
+    def check_state(self, pair, state):
+        """
+        Updates the state of a check.
+        """
+        logger.info('Pair state %s for %s' % (state, repr(pair)))
+        pair.state = state
+
+    async def get_component_candidates(self, component, timeout=5):
+        candidates = []
+
+        loop = asyncio.get_event_loop()
+        for address in self.addresses:
+            # create transport
+            _, protocol = await loop.create_datagram_endpoint(
+                lambda: StunProtocol(self),
+                local_addr=(address, 0))
+            self.protocols.append(protocol)
+
+            # add host candidate
+            candidate_address = protocol.transport.get_extra_info('sockname')
+            protocol.local_candidate = Candidate(
+                foundation=candidate_foundation('host', 'udp', candidate_address[0]),
+                component=component,
+                transport='udp',
+                priority=candidate_priority(component, 'host'),
+                host=candidate_address[0],
+                port=candidate_address[1],
+                type='host')
+            candidates.append(protocol.local_candidate)
+
+        # query STUN server for server-reflexive candidates
+        if self.stun_server:
+            # we query STUN server for IPv4
+            fs = []
+            for protocol in self.protocols:
+                if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
+                    fs.append(server_reflexive_candidate(protocol, self.stun_server))
+            if len(fs):
+                done, pending = await asyncio.wait(fs, timeout=timeout)
+                candidates += [task.result() for task in done if task.exception() is None]
+                for task in pending:
+                    task.cancel()
+
+        # connect to TURN server
+        if self.turn_server:
+            # create transport
+            _, protocol = await turn.create_turn_endpoint(
+                lambda: StunProtocol(self),
+                server_addr=self.turn_server,
+                username=self.turn_username,
+                password=self.turn_password)
+            self.protocols.append(protocol)
+
+            # add relayed candidate
+            candidate_address = protocol.transport.get_extra_info('sockname')
+            protocol.local_candidate = Candidate(
+                foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
+                component=component,
+                transport='udp',
+                priority=candidate_priority(component, 'relay'),
+                host=candidate_address[0],
+                port=candidate_address[1],
+                type='relay')
+            candidates.append(protocol.local_candidate)
+
+        return candidates
+
+    def request_received(self, message, addr, protocol, raw_data):
+        if message.message_method != stun.Method.BINDING:
+            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
+            return
+
+        # authenticate request
+        try:
+            stun.parse_message(raw_data,
+                               integrity_key=self.local_password.encode('utf8'))
+            rx_username = '%s:%s' % (self.local_username, self.remote_username)
+            if message.attributes.get('USERNAME') != rx_username:
+                raise ValueError('Wrong username')
+        except ValueError as exc:
+            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
+            return
+
+        # 7.2.1.1. Detecting and Repairing Role Conflicts
+        if self.ice_controlling and 'ICE-CONTROLLING' in message.attributes:
+            logger.warning('Role conflict, expected to be controlling')
+            if self.tie_breaker >= message.attributes['ICE-CONTROLLING']:
+                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
+                return
+            self.switch_role(ice_controlling=False)
+        elif not self.ice_controlling and 'ICE-CONTROLLED' in message.attributes:
+            logger.warning("Role conflict, expected to be controlled")
+            if self.tie_breaker < message.attributes['ICE-CONTROLLED']:
+                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
+                return
+            self.switch_role(ice_controlling=True)
+
+        # send binding response
+        response = stun.Message(
+            message_method=stun.Method.BINDING,
+            message_class=stun.Class.RESPONSE,
+            transaction_id=message.transaction_id)
+        response.attributes['XOR-MAPPED-ADDRESS'] = addr
+        response.add_message_integrity(self.local_password.encode('utf8'))
+        response.add_fingerprint()
+        protocol.send_stun(response, addr)
+
+        if not self.check_list:
+            self.early_checks.append((message, addr, protocol))
+        else:
+            self.check_incoming(message, addr, protocol)
+
+    def respond_error(self, request, addr, protocol, error_code):
+        response = stun.Message(
+            message_method=request.message_method,
+            message_class=stun.Class.ERROR,
+            transaction_id=request.transaction_id)
+        response.attributes['ERROR-CODE'] = error_code
+        response.add_message_integrity(self.local_password.encode('utf8'))
+        response.add_fingerprint()
+        protocol.send_stun(response, addr)
+
+    def sort_check_list(self):
+        sort_candidate_pairs(self.check_list, self.ice_controlling)
 
     def switch_role(self, ice_controlling):
         logger.info('Switching to %s role' % (ice_controlling and 'controlling' or 'controlled'))
         self.ice_controlling = ice_controlling
-        self.__component.sort_pairs()
+        self.sort_check_list()
