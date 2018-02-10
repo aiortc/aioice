@@ -476,7 +476,7 @@ class Component:
 
     async def check_pair(self, pair):
         logger.info('Checking pair %s' % repr(pair))
-        pair.state = CandidatePair.State.IN_PROGRESS
+        self.set_pair_state(pair, CandidatePair.State.IN_PROGRESS)
 
         request = stun.Message(message_method=stun.Method.BINDING,
                                message_class=stun.Class.REQUEST)
@@ -493,8 +493,6 @@ class Component:
                 request, pair.remote_addr,
                 integrity_key=self.__connection.remote_password.encode('utf8'))
         except exceptions.TransactionError as exc:
-            pair.state = CandidatePair.State.FAILED
-
             # 7.1.3.1. Failure Cases
             if exc.response and exc.response.attributes.get('ERROR-CODE', (None, None))[0] == 487:
                 if 'ICE-CONTROLLING' in request.attributes:
@@ -502,17 +500,18 @@ class Component:
                 elif 'ICE-CONTROLLED' in request.attributes:
                     self.__connection.switch_role(ice_controlling=True)
                 return await self.check_pair(pair)
-
-            return
+            else:
+                self.set_pair_state(pair, CandidatePair.State.FAILED)
+                return
 
         # check remote address matches
         if addr != pair.remote_addr:
             logger.warning('Checking pair %s failed : source address mismatch' % repr(pair))
-            pair.state = CandidatePair.State.FAILED
+            self.set_pair_state(pair, CandidatePair.State.FAILED)
             return
 
         # success
-        pair.state = CandidatePair.State.SUCCEEDED
+        self.set_pair_state(pair, CandidatePair.State.SUCCEEDED)
         if self.__connection.ice_controlling or pair.remote_nominated:
             self.nominate_pair(pair)
 
@@ -528,6 +527,10 @@ class Component:
             logger.info('Activated pair %s' % repr(active_pair))
             self.__active_pair = active_pair
             asyncio.ensure_future(self.__active_queue.put(active_pair))
+
+    def set_pair_state(self, pair, state):
+        logger.info('Pair state %s for %s' % (state, repr(pair)))
+        pair.state = state
 
     async def recv(self):
         fs = [protocol.recv_data() for protocol in self.__protocols]
