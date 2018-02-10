@@ -1,6 +1,5 @@
 import asyncio
 import os
-import pprint
 import socket
 import unittest
 from unittest import mock
@@ -18,16 +17,12 @@ async def delay(coro):
 async def invite_accept(conn_a, conn_b):
     # invite
     candidates_a = await conn_a.get_local_candidates()
-    print('CANDIDATES A')
-    pprint.pprint(candidates_a)
     conn_b.remote_username = conn_a.local_username
     conn_b.remote_password = conn_a.local_password
     conn_b.set_remote_candidates(candidates_a)
 
     # accept
     candidates_b = await conn_b.get_local_candidates()
-    print('CANDIDATES B')
-    pprint.pprint(candidates_b)
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
     conn_a.set_remote_candidates(candidates_b)
