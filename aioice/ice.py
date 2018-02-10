@@ -118,6 +118,9 @@ class Candidate:
         return 'Candidate(%s)' % self
 
     def __str__(self):
+        """
+        Return a string representation suitable for SDP.
+        """
         return '%s %d %s %d %s %d typ %s generation %d' % (
             self.foundation,
             self.component,
@@ -176,6 +179,14 @@ class CandidatePair:
 
 
 def parse_candidate(value):
+    """
+    Parse a :class:`Candidate` from SDP.
+
+    .. code-block:: python
+
+       parse_candidate(
+        '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+    """
     bits = value.split()
     return Candidate(
         foundation=bits[0],

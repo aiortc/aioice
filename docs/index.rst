@@ -24,3 +24,8 @@ aioice
 ``aioice`` is a library for Interactive Connectivity Establishment (RFC 5245)
 in Python. It is built on top of :mod:`asyncio`, Python's standard asynchronous
 I/O framework.
+
+.. toctree::
+   :maxdepth: 2
+
+   api
