@@ -472,6 +472,35 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    def test_connect_with_stun_server_timeout(self):
+        stun_server = ('1.2.3.4', 19302)
+
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(candidates_a) > 0)
+        for candidate in candidates_a:
+            self.assertEqual(candidate.type, 'host')
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data a -> b
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
     @unittest.skipIf(os.environ.get('TRAVIS') == 'true', 'travis lacks ipv6')
     def test_connect_with_stun_server_ipv6(self):
         stun_server = ('stun.l.google.com', 19302)
