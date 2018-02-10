@@ -196,6 +196,7 @@ next_protocol_id.counter = 0
 
 class StunProtocol(asyncio.DatagramProtocol):
     def __init__(self, receiver):
+        self.__closed = asyncio.Future()
         self.id = next_protocol_id()
         self.queue = asyncio.Queue()
         self.receiver = receiver
@@ -204,6 +205,7 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     def connection_lost(self, exc):
         logger.debug('%s connection_lost(%s)', repr(self), exc)
+        self.__closed.set_result(True)
 
     def connection_made(self, transport):
         logger.debug('%s connection_made(%s)', repr(self), transport)
@@ -234,6 +236,10 @@ class StunProtocol(asyncio.DatagramProtocol):
         logger.debug('%s error_received(%s)', repr(self), exc)
 
     # custom
+
+    async def close(self):
+        self.transport.close()
+        await self.__closed
 
     async def recv_data(self):
         return await self.queue.get()
@@ -381,7 +387,7 @@ class Connection:
         Close the connection.
         """
         for protocol in self.protocols:
-            protocol.transport.close()
+            await protocol.close()
         self.protocols = []
 
     async def recv(self):
