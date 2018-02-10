@@ -313,10 +313,15 @@ class Connection:
         self.components = set([1])
         self.ice_controlling = ice_controlling
         self.id = next_connection_id()
+        #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
+        #: Local password, automatically set to a random value.
         self.local_password = random_string(22)
+        #: Remote candidates, which you need to set.
         self.remote_candidates = []
+        #: Remote username, which you need to set.
         self.remote_username = None
+        #: Remote password, which you need to set.
         self.remote_password = None
         self.stun_server = stun_server
         self.tie_breaker = secrets.randbits(64)
