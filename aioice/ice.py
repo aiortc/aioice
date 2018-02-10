@@ -156,6 +156,7 @@ class CandidatePair:
         return (self.remote_candidate.host, self.remote_candidate.port)
 
     class State(enum.Enum):
+        FROZEN = 0
         WAITING = 1
         IN_PROGRESS = 2
         SUCCEEDED = 3
@@ -267,14 +268,14 @@ class Component:
     """
     def __init__(self, component, addresses, connection):
         self.__active_pair = None
-        self.__active_queue = asyncio.Queue()
         self.__addresses = addresses
         self.__connection = connection
         self.__component = component
         self.__early_checks = []
-        self.__pairs = None
+        self.__pairs = []
         self.__protocols = []
         self.__remote_candidates = []
+        self.__state_queue = asyncio.Queue()
 
     async def close(self):
         for protocol in self.__protocols:
@@ -384,7 +385,7 @@ class Component:
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
-        if self.__pairs is None:
+        if not self.__pairs:
             self.__early_checks.append((message, addr, protocol))
         else:
             self.handle_incoming_check(message, addr, protocol)
@@ -395,6 +396,7 @@ class Component:
         for c in self.__remote_candidates:
             if c.host == addr[0] and c.port == addr[1]:
                 remote_candidate = c
+                assert remote_candidate.component == self.__component
                 break
         if remote_candidate is None:
             # 7.2.1.3. Learning Peer Reflexive Candidates
@@ -412,7 +414,7 @@ class Component:
         # find pair
         pair = None
         for p in self.__pairs:
-            if (p.protocol == protocol and p.remote_addr == addr):
+            if (p.protocol == protocol and p.remote_candidate == remote_candidate):
                 pair = p
                 break
         if pair is None:
@@ -429,7 +431,8 @@ class Component:
             pair.remote_nominated = True
 
             if pair.state == CandidatePair.State.SUCCEEDED:
-                self.nominate_pair(pair)
+                pair.nominated = True
+                self.on_pair_complete(pair)
 
     def respond_error(self, request, addr, protocol, error_code):
         response = stun.Message(
@@ -443,14 +446,14 @@ class Component:
 
     async def connect(self):
         # 5.7.1. Forming Candidate Pairs
-        candidate_pairs = []
         for remote_candidate in self.__remote_candidates:
             for protocol in self.__protocols:
                 if protocol.local_candidate.can_pair_with(remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
-                    candidate_pairs.append(pair)
-        self.__pairs = candidate_pairs
+                    self.__pairs.append(pair)
         self.sort_pairs()
+        if not self.__pairs:
+            raise exceptions.ConnectionError
 
         # handle early checks
         for check in self.__early_checks:
@@ -458,21 +461,30 @@ class Component:
         self.__early_checks = []
 
         # perform checks
-        fs = []
-        for pair in self.__pairs:
-            if pair.state == CandidatePair.State.WAITING:
-                fs.append(self.check_pair(pair))
-        if fs:
-            await asyncio.wait(fs)
-        succeeded = False
-        for pair in self.__pairs:
-            if pair.state == CandidatePair.State.SUCCEEDED:
-                succeeded = True
-        if not succeeded:
-            raise exceptions.ConnectionError('No validated candidate pairs')
+        while True:
+            if not self.periodic_check():
+                break
+            await asyncio.sleep(0.02)
 
         # wait for a pair to be active
-        await self.__active_queue.get()
+        res = await self.__state_queue.get()
+        if not res:
+            raise exceptions.ConnectionError
+
+    def periodic_check(self):
+        # find the highest-priority pair that is in the waiting state
+        for pair in self.__pairs:
+            if pair.state == CandidatePair.State.WAITING:
+                asyncio.ensure_future(self.check_pair(pair))
+                return True
+
+        # find the highest-priority pair that is in the frozen state
+        for pair in self.__pairs:
+            if pair.state == CandidatePair.State.FROZEN:
+                asyncio.ensure_future(self.check_pair(pair))
+                return True
+
+        return False
 
     async def check_pair(self, pair):
         logger.info('Checking pair %s' % repr(pair))
@@ -502,31 +514,38 @@ class Component:
                 return await self.check_pair(pair)
             else:
                 self.set_pair_state(pair, CandidatePair.State.FAILED)
+                self.on_pair_complete(pair)
                 return
 
         # check remote address matches
         if addr != pair.remote_addr:
             logger.warning('Checking pair %s failed : source address mismatch' % repr(pair))
             self.set_pair_state(pair, CandidatePair.State.FAILED)
+            self.on_pair_complete(pair)
             return
 
         # success
         self.set_pair_state(pair, CandidatePair.State.SUCCEEDED)
         if self.__connection.ice_controlling or pair.remote_nominated:
-            self.nominate_pair(pair)
+            pair.nominated = True
+        self.on_pair_complete(pair)
 
-    def nominate_pair(self, pair):
-        logger.info('Nominated pair %s' % repr(pair))
-        pair.nominated = True
+    def on_pair_complete(self, pair):
+        if pair.state == CandidatePair.State.SUCCEEDED and pair.nominated:
+            self.__active_pair = pair
+            asyncio.ensure_future(self.__state_queue.put(True))
+            return
 
-        nominated_pairs = [x for x in self.__pairs if x.nominated]
-        sort_candidate_pairs(nominated_pairs, self.__connection.ice_controlling)
-        active_pair = nominated_pairs[0]
+        for p in self.__pairs:
+            if p.state not in [CandidatePair.State.SUCCEEDED, CandidatePair.State.FAILED]:
+                return
 
-        if active_pair != self.__active_pair:
-            logger.info('Activated pair %s' % repr(active_pair))
-            self.__active_pair = active_pair
-            asyncio.ensure_future(self.__active_queue.put(active_pair))
+        if not self.__connection.ice_controlling:
+            for p in self.__pairs:
+                if p.state == CandidatePair.State.SUCCEEDED:
+                    return
+
+        asyncio.ensure_future(self.__state_queue.put(False))
 
     def set_pair_state(self, pair, state):
         logger.info('Pair state %s for %s' % (state, repr(pair)))
