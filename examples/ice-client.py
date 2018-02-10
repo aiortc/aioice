@@ -31,7 +31,7 @@ async def offer(options):
     # await answer
     message = json.loads(await websocket.recv())
     print('received answer', message)
-    connection.set_remote_candidates([aioice.parse_candidate(c) for c in message['candidates']])
+    connection.remote_candidates = ([aioice.parse_candidate(c) for c in message['candidates']])
     connection.remote_username = message['username']
     connection.remote_password = message['password']
 
@@ -55,7 +55,7 @@ async def answer(options):
     # await offer
     message = json.loads(await websocket.recv())
     print('received offer', message)
-    connection.set_remote_candidates([aioice.parse_candidate(c) for c in message['candidates']])
+    connection.remote_candidates = [aioice.parse_candidate(c) for c in message['candidates']]
     connection.remote_username = message['username']
     connection.remote_password = message['password']
 

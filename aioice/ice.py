@@ -313,6 +313,8 @@ class Connection:
         self.components = set([1])
         self.ice_controlling = ice_controlling
         self.id = next_connection_id()
+        #: Local candidates, automatically set by get_local_candidates().
+        self.local_candidates = []
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
         #: Local password, automatically set to a random value.
@@ -341,16 +343,10 @@ class Connection:
         """
         Gather local candidates.
         """
-        candidates = []
+        assert not self.local_candidates
         for component in self.components:
-            candidates += await self.get_component_candidates(component)
-        return candidates
-
-    def set_remote_candidates(self, candidates):
-        """
-        Set remote candidates.
-        """
-        self.remote_candidates = candidates
+            self.local_candidates += await self.get_component_candidates(component)
+        return self.local_candidates
 
     async def connect(self):
         """

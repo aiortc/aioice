@@ -4,7 +4,7 @@ API Reference
 .. automodule:: aioice
 
    .. autoclass:: Connection
-      :members: local_username, local_password, remote_candidates, remote_username, remote_password
+      :members: local_candidates, local_username, local_password, remote_candidates, remote_username, remote_password
 
       .. automethod:: connect()
       .. automethod:: recv()

@@ -16,18 +16,16 @@ async def delay(coro):
 
 async def invite_accept(conn_a, conn_b):
     # invite
-    candidates_a = await conn_a.get_local_candidates()
+    await conn_a.get_local_candidates()
+    conn_b.remote_candidates = conn_a.local_candidates
     conn_b.remote_username = conn_a.local_username
     conn_b.remote_password = conn_a.local_password
-    conn_b.set_remote_candidates(candidates_a)
 
     # accept
-    candidates_b = await conn_b.get_local_candidates()
+    await conn_b.get_local_candidates()
+    conn_a.remote_candidates = conn_b.local_candidates
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
-    conn_a.set_remote_candidates(candidates_b)
-
-    return candidates_a, candidates_b
 
 
 def run(coro):
@@ -177,9 +175,9 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 0)
+        for candidate in conn_a.local_candidates:
             self.assertEqual(candidate.type, 'host')
 
         # connect
@@ -206,9 +204,9 @@ class IceConnectionTest(unittest.TestCase):
         conn_b.components.add(2)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 0)
+        for candidate in conn_a.local_candidates:
             self.assertEqual(candidate.type, 'host')
 
         # connect
@@ -247,9 +245,9 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 0)
+        for candidate in conn_a.local_candidates:
             self.assertEqual(candidate.type, 'host')
 
         # connect
@@ -297,23 +295,17 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
-            self.assertEqual(candidate.type, 'host')
-
         # invite
-        candidates_a = run(conn_a.get_local_candidates())
+        run(conn_a.get_local_candidates())
+        conn_b.remote_candidates = conn_a.local_candidates
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
-        conn_b.set_remote_candidates(candidates_a)
 
         # accept
-        candidates_b = run(conn_b.get_local_candidates())
+        run(conn_b.get_local_candidates())
+        conn_a.remote_candidates = conn_b.local_candidates
         conn_a.remote_username = conn_b.local_username
         conn_a.remote_password = 'wrong-password'
-        conn_a.set_remote_candidates(candidates_b)
 
         # connect
         done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()],
@@ -331,23 +323,17 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
-            self.assertEqual(candidate.type, 'host')
-
         # invite
-        candidates_a = run(conn_a.get_local_candidates())
+        run(conn_a.get_local_candidates())
+        conn_b.remote_candidates = conn_a.local_candidates
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
-        conn_b.set_remote_candidates(candidates_a)
 
         # accept
-        candidates_b = run(conn_b.get_local_candidates())
+        run(conn_b.get_local_candidates())
+        conn_a.remote_candidates = conn_b.local_candidates
         conn_a.remote_username = 'wrong-username'
         conn_a.remote_password = conn_b.local_password
-        conn_a.set_remote_candidates(candidates_b)
 
         # connect
         done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()],
@@ -367,10 +353,10 @@ class IceConnectionTest(unittest.TestCase):
         If local candidates have not been gathered, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
+        conn.remote_candidates = [ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        conn.set_remote_candidates([ice.parse_candidate(
-            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
         with self.assertRaises(exceptions.ConnectionError):
             run(conn.connect())
         run(conn.close())
@@ -393,8 +379,8 @@ class IceConnectionTest(unittest.TestCase):
         """
         conn = ice.Connection(ice_controlling=True)
         run(conn.get_local_candidates())
-        conn.set_remote_candidates([ice.parse_candidate(
-            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
+        conn.remote_candidates = [ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         with self.assertRaises(exceptions.ImproperlyConfigured):
             run(conn.connect())
         run(conn.close())
@@ -445,10 +431,10 @@ class IceConnectionTest(unittest.TestCase):
 
         conn = ice.Connection(ice_controlling=True)
         run(conn.get_local_candidates())
+        conn.remote_candidates = [ice.parse_candidate(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        conn.set_remote_candidates([ice.parse_candidate(
-            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')])
         with self.assertRaises(exceptions.ConnectionError):
             run(conn.connect())
         run(conn.close())
@@ -460,9 +446,9 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 1)
-        self.assertEqual(candidates_a[-1].type, 'srflx')
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 1)
+        self.assertEqual(conn_a.local_candidates[-1].type, 'srflx')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -488,9 +474,9 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 0)
+        for candidate in conn_a.local_candidates:
             self.assertEqual(candidate.type, 'host')
 
         # connect
@@ -519,11 +505,11 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
+        run(invite_accept(conn_a, conn_b))
 
         # we only want host candidates : no STUN for IPv6
-        self.assertTrue(len(candidates_a) > 0)
-        for candidate in candidates_a:
+        self.assertTrue(len(conn_a.local_candidates) > 0)
+        for candidate in conn_a.local_candidates:
             self.assertEqual(candidate.type, 'host')
 
         # connect
@@ -560,9 +546,9 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
-        candidates_a, _ = run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(candidates_a) > 1)
-        self.assertEqual(candidates_a[-1].type, 'relay')
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 1)
+        self.assertEqual(conn_a.local_candidates[-1].type, 'relay')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))

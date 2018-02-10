@@ -54,9 +54,9 @@ I/O framework.
         remote_candidates, remote_username, remote_password = get_remote_info()
 
         # perform ICE handshake
+        connection.remote_candidates = remote_candidates
         connection.remote_username = remote_username
         connection.remote_password = remote_password
-        connection.set_remote_candidates(remote_candidates)
         await connection.connect()
 
         # send and receive data
