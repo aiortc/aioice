@@ -96,9 +96,6 @@ class IceComponentTest(unittest.TestCase):
 
 
 class IceConnectionTest(unittest.TestCase):
-    def setUp(self):
-        stun.RETRY_MAX = 2
-
     def tearDown(self):
         stun.RETRY_MAX = 7
 
@@ -434,6 +431,9 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_b.close())
 
     def test_connect_timeout(self):
+        # lower STUN retries
+        stun.RETRY_MAX = 2
+
         conn = ice.Connection(ice_controlling=True)
         run(conn.get_local_candidates())
         conn.remote_username = 'foo'
