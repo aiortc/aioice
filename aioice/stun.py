@@ -236,16 +236,18 @@ class Transaction:
         self.__tries = 0
 
     def response_received(self, message, addr):
-        self.__timeout_handle.cancel()
-
         if message.message_class == Class.RESPONSE:
             self.__future.set_result((message, addr))
         else:
             self.__future.set_exception(exceptions.TransactionFailed(message))
 
     async def run(self):
-        self.__retry()
-        return await self.__future
+        try:
+            self.__retry()
+            return await self.__future
+        finally:
+            if self.__timeout_handle:
+                self.__timeout_handle.cancel()
 
     def __retry(self):
         if self.__tries >= RETRY_MAX:
