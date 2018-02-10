@@ -89,7 +89,7 @@ def sort_candidate_pairs(pairs, ice_controlling):
     Sort a list of candidate pairs.
     """
     def pair_priority(pair):
-        return -candidate_pair_priority(pair.protocol.local_candidate,
+        return -candidate_pair_priority(pair.local_candidate,
                                         pair.remote_candidate,
                                         ice_controlling)
 
@@ -138,22 +138,27 @@ class Candidate:
 
 class CandidatePair:
     def __init__(self, protocol, remote_candidate):
+        self.handle = None
         self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
         self.remote_nominated = False
-        self.state = CandidatePair.State.WAITING
+        self.state = CandidatePair.State.FROZEN
 
     def __repr__(self):
         return 'CandidatePair(%s -> %s)' % (self.local_addr, self.remote_addr)
 
     @property
     def component(self):
-        return self.protocol.local_candidate.component
+        return self.local_candidate.component
 
     @property
     def local_addr(self):
-        return (self.protocol.local_candidate.host, self.protocol.local_candidate.port)
+        return (self.local_candidate.host, self.local_candidate.port)
+
+    @property
+    def local_candidate(self):
+        return self.protocol.local_candidate
 
     @property
     def remote_addr(self):
@@ -273,6 +278,7 @@ class Connection:
     def __init__(self, ice_controlling, stun_server=None,
                  turn_server=None, turn_username=None, turn_password=None,
                  use_ipv4=True, use_ipv6=False):
+        self.components = set([1])
         self.ice_controlling = ice_controlling
         self.local_username = random_string(4)
         self.local_password = random_string(22)
@@ -297,7 +303,10 @@ class Connection:
         """
         Gather local candidates.
         """
-        return await self.get_component_candidates(1)
+        candidates = []
+        for component in self.components:
+            candidates += await self.get_component_candidates(component)
+        return candidates
 
     def set_remote_candidates(self, candidates):
         """
@@ -326,6 +335,25 @@ class Connection:
         if not self.check_list:
             raise exceptions.ConnectionError
 
+        # unfreeze first pair for component 1
+        first_pair = None
+        for pair in self.check_list:
+            if pair.component == 1:
+                first_pair = pair
+                break
+        assert first_pair is not None
+        if first_pair.state == CandidatePair.State.FROZEN:
+            self.check_state(first_pair, CandidatePair.State.WAITING)
+
+        # unfreeze pairs with same component but different foundations
+        seen_foundations = set(first_pair.local_candidate.foundation)
+        for pair in self.check_list:
+            if (pair.component == first_pair.component and
+               pair.local_candidate.foundation not in seen_foundations and
+               pair.state == CandidatePair.State.FROZEN):
+                self.check_state(pair, CandidatePair.State.WAITING)
+                seen_foundations.add(pair.local_candidate.foundation)
+
         # handle early checks
         for check in self.early_checks:
             self.check_incoming(*check)
@@ -337,8 +365,14 @@ class Connection:
                 break
             await asyncio.sleep(0.02)
 
-        # wait for a pair to be active
+        # wait for completion
         res = await self.check_list_state.get()
+
+        # cancel remaining checks
+        for check in self.check_list:
+            if check.handle:
+                check.handle.cancel()
+
         if not res:
             raise exceptions.ConnectionError
 
@@ -371,10 +405,19 @@ class Connection:
     # private
 
     def check_complete(self, pair):
-        if pair.state == CandidatePair.State.SUCCEEDED and pair.nominated:
-            self.__active_pair = pair
-            asyncio.ensure_future(self.check_list_state.put(True))
-            return
+        pair.handle = None
+
+        if pair.state == CandidatePair.State.SUCCEEDED:
+            if pair.nominated:
+                self.__active_pair = pair
+                asyncio.ensure_future(self.check_list_state.put(True))
+                return
+
+            # 7.1.3.2.3.  Updating Pair States
+            for p in self.check_list:
+                if (p.local_candidate.foundation == pair.local_candidate.foundation and
+                   p.state == CandidatePair.State.FROZEN):
+                    self.check_state(p, CandidatePair.State.WAITING)
 
         for p in self.check_list:
             if p.state not in [CandidatePair.State.SUCCEEDED, CandidatePair.State.FAILED]:
@@ -426,7 +469,7 @@ class Connection:
 
         # triggered check
         if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
-            asyncio.ensure_future(self.check_start(pair))
+            pair.handle = asyncio.ensure_future(self.check_start(pair))
 
         # 7.2.1.5. Updating the Nominated Flag
         if 'USE-CANDIDATE' in message.attributes and not self.ice_controlling:
@@ -440,13 +483,13 @@ class Connection:
         # find the highest-priority pair that is in the waiting state
         for pair in self.check_list:
             if pair.state == CandidatePair.State.WAITING:
-                asyncio.ensure_future(self.check_start(pair))
+                pair.handle = asyncio.ensure_future(self.check_start(pair))
                 return True
 
         # find the highest-priority pair that is in the frozen state
         for pair in self.check_list:
             if pair.state == CandidatePair.State.FROZEN:
-                asyncio.ensure_future(self.check_start(pair))
+                pair.handle = asyncio.ensure_future(self.check_start(pair))
                 return True
 
         return False
@@ -455,7 +498,7 @@ class Connection:
         """
         Starts a check.
         """
-        logger.info('Checking pair %s' % repr(pair))
+        logger.info('Check %s starting' % repr(pair))
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
         tx_username = '%s:%s' % (self.remote_username, self.local_username)
@@ -488,7 +531,7 @@ class Connection:
 
         # check remote address matches
         if addr != pair.remote_addr:
-            logger.warning('Checking pair %s failed : source address mismatch' % repr(pair))
+            logger.warning('Check %s failed : source address mismatch' % repr(pair))
             self.check_state(pair, CandidatePair.State.FAILED)
             self.check_complete(pair)
             return
@@ -503,7 +546,7 @@ class Connection:
         """
         Updates the state of a check.
         """
-        logger.info('Pair state %s for %s' % (state, repr(pair)))
+        logger.info('Check %s %s -> %s' % (repr(pair), pair.state, state))
         pair.state = state
 
     async def get_component_candidates(self, component, timeout=5):
