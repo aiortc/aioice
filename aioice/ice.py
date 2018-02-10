@@ -13,6 +13,9 @@ from .utils import random_string
 
 logger = logging.getLogger('ice')
 
+ICE_COMPLETED = 1
+ICE_FAILED = 2
+
 
 def candidate_foundation(candidate_type, candidate_transport, base_address):
     """
@@ -204,11 +207,11 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.transactions = {}
 
     def connection_lost(self, exc):
-        logger.debug('%s connection_lost(%s)', repr(self), exc)
+        self.__log_debug('connection_lost(%s)', exc)
         self.__closed.set_result(True)
 
     def connection_made(self, transport):
-        logger.debug('%s connection_made(%s)', repr(self), transport)
+        self.__log_debug('connection_made(%s)', transport)
         self.transport = transport
 
     def datagram_received(self, data, addr):
@@ -217,9 +220,9 @@ class StunProtocol(asyncio.DatagramProtocol):
 
         try:
             message = stun.parse_message(data)
-            logger.debug('%s < %s %s', repr(self), addr, repr(message))
+            self.__log_debug('< %s %s', addr, repr(message))
         except ValueError:
-            logger.debug('%s < %s DATA %d', repr(self), addr, len(data))
+            self.__log_debug('< %s DATA %d', addr, len(data))
             coro = self.queue.put(data)
             asyncio.ensure_future(coro)
             return
@@ -233,7 +236,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             self.receiver.request_received(message, addr, self, data)
 
     def error_received(self, exc):
-        logger.debug('%s error_received(%s)', repr(self), exc)
+        self.__log_debug('error_received(%s)', exc)
 
     # custom
 
@@ -245,7 +248,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         return await self.queue.get()
 
     async def send_data(self, data, addr):
-        logger.debug('%s > %s DATA %d', repr(self), addr, len(data))
+        self.__log_debug('%s DATA %d', addr, len(data))
         self.transport.sendto(data, addr)
 
     async def request(self, request, addr, integrity_key=None):
@@ -270,11 +273,23 @@ class StunProtocol(asyncio.DatagramProtocol):
         """
         Send a STUN message.
         """
-        logger.debug('%s > %s %s', repr(self), addr, repr(message))
+        self.__log_debug('> %s %s', addr, repr(message))
         self.transport.sendto(bytes(message), addr)
 
+    def __log_debug(self, msg, *args):
+        logger.debug(repr(self.receiver) + ' ' + repr(self) + ' ' + msg, *args)
+
     def __repr__(self):
-        return 'client(%s)' % self.id
+        return 'protocol(%s)' % self.id
+
+
+def next_connection_id():
+    connection_id = next_connection_id.counter
+    next_connection_id.counter += 1
+    return connection_id
+
+
+next_connection_id.counter = 0
 
 
 class Connection:
@@ -286,6 +301,7 @@ class Connection:
                  use_ipv4=True, use_ipv6=False):
         self.components = set([1])
         self.ice_controlling = ice_controlling
+        self.id = next_connection_id()
         self.local_username = random_string(4)
         self.local_password = random_string(22)
         self.remote_candidates = []
@@ -298,7 +314,7 @@ class Connection:
         self.turn_password = turn_password
 
         # private
-        self.__active_pair = None
+        self.__nominated = {}
         self.addresses = get_host_addresses(use_ipv4=use_ipv4, use_ipv6=use_ipv6)
         self.check_list = []
         self.check_list_state = asyncio.Queue()
@@ -339,7 +355,7 @@ class Connection:
                     self.check_list.append(pair)
         self.sort_check_list()
         if not self.check_list:
-            raise exceptions.ConnectionError
+            raise exceptions.ConnectionError('No candidate pairs formed')
 
         # unfreeze first pair for component 1
         first_pair = None
@@ -379,7 +395,7 @@ class Connection:
             if check.handle:
                 check.handle.cancel()
 
-        if not res:
+        if res != ICE_COMPLETED:
             raise exceptions.ConnectionError
 
     async def close(self):
@@ -401,12 +417,13 @@ class Connection:
         assert len(done) == 1
         return done.pop().result()
 
-    async def send(self, data):
+    async def send(self, data, component=1):
         """
         Send a datagram.
         """
-        if self.__active_pair:
-            await self.__active_pair.protocol.send_data(data, self.__active_pair.remote_addr)
+        active_pair = self.__nominated.get(component)
+        if active_pair:
+            await active_pair.protocol.send_data(data, active_pair.remote_addr)
 
     # private
 
@@ -415,8 +432,24 @@ class Connection:
 
         if pair.state == CandidatePair.State.SUCCEEDED:
             if pair.nominated:
-                self.__active_pair = pair
-                asyncio.ensure_future(self.check_list_state.put(True))
+                self.__nominated[pair.component] = pair
+
+                # 8.1.2.  Updating States
+                #
+                # The agent MUST remove all Waiting and Frozen pairs in the check
+                # list and triggered check queue for the same component as the
+                # nominated pairs for that media stream.
+                for p in self.check_list:
+                    if (p.component == pair.component and
+                       p.state in [CandidatePair.State.WAITING, CandidatePair.State.FROZEN]):
+                        self.check_state(p, CandidatePair.State.FAILED)
+
+            # Once there is at least one nominated pair in the valid list for
+            # every component of at least one media stream and the state of the
+            # check list is Running:
+            if len(self.__nominated) == len(self.components):
+                self.__log_info('ICE completed')
+                asyncio.ensure_future(self.check_list_state.put(ICE_COMPLETED))
                 return
 
             # 7.1.3.2.3.  Updating Pair States
@@ -434,7 +467,8 @@ class Connection:
                 if p.state == CandidatePair.State.SUCCEEDED:
                     return
 
-        asyncio.ensure_future(self.check_list_state.put(False))
+        self.__log_info('ICE failed')
+        asyncio.ensure_future(self.check_list_state.put(ICE_FAILED))
 
     def check_incoming(self, message, addr, protocol):
         """
@@ -460,7 +494,7 @@ class Connection:
                 port=addr[1],
                 type='prflx')
             self.remote_candidates.append(remote_candidate)
-            logger.info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
+            self.__log_info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
 
         # find pair
         pair = None
@@ -504,7 +538,7 @@ class Connection:
         """
         Starts a check.
         """
-        logger.info('Check %s starting' % repr(pair))
+        self.__log_info('Check %s starting' % repr(pair))
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
         tx_username = '%s:%s' % (self.remote_username, self.local_username)
@@ -537,7 +571,7 @@ class Connection:
 
         # check remote address matches
         if addr != pair.remote_addr:
-            logger.warning('Check %s failed : source address mismatch' % repr(pair))
+            self.__log_info('Check %s failed : source address mismatch' % repr(pair))
             self.check_state(pair, CandidatePair.State.FAILED)
             self.check_complete(pair)
             return
@@ -552,7 +586,7 @@ class Connection:
         """
         Updates the state of a check.
         """
-        logger.info('Check %s %s -> %s' % (repr(pair), pair.state, state))
+        self.__log_info('Check %s %s -> %s' % (repr(pair), pair.state, state))
         pair.state = state
 
     async def get_component_candidates(self, component, timeout=5):
@@ -633,13 +667,13 @@ class Connection:
 
         # 7.2.1.1. Detecting and Repairing Role Conflicts
         if self.ice_controlling and 'ICE-CONTROLLING' in message.attributes:
-            logger.warning('Role conflict, expected to be controlling')
+            self.__log_info('Role conflict, expected to be controlling')
             if self.tie_breaker >= message.attributes['ICE-CONTROLLING']:
                 self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
                 return
             self.switch_role(ice_controlling=False)
         elif not self.ice_controlling and 'ICE-CONTROLLED' in message.attributes:
-            logger.warning("Role conflict, expected to be controlled")
+            self.__log_info('Role conflict, expected to be controlled')
             if self.tie_breaker < message.attributes['ICE-CONTROLLED']:
                 self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
                 return
@@ -674,6 +708,12 @@ class Connection:
         sort_candidate_pairs(self.check_list, self.ice_controlling)
 
     def switch_role(self, ice_controlling):
-        logger.info('Switching to %s role' % (ice_controlling and 'controlling' or 'controlled'))
+        self.__log_info('Switching to %s role', ice_controlling and 'controlling' or 'controlled')
         self.ice_controlling = ice_controlling
         self.sort_check_list()
+
+    def __log_info(self, msg, *args):
+        logger.info(repr(self) + ' ' + msg, *args)
+
+    def __repr__(self):
+        return 'Connection(%s)' % self.id
