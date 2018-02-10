@@ -1,7 +1,10 @@
 aioice
 ======
 
-|pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel| |travis| |coveralls|
+|rtd| |pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel| |travis| |coveralls|
+
+.. |rtd| image:: https://readthedocs.org/projects/aioice/badge/?version=latest
+   :target: https://aioice.readthedocs.io/
 
 .. |pypi-v| image:: https://img.shields.io/pypi/v/aioice.svg
     :target: https://pypi.python.org/pypi/aioice
