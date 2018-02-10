@@ -245,7 +245,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         await self.__closed
 
     async def recv_data(self):
-        return await self.queue.get()
+        return await self.queue.get(), self.local_candidate.component
 
     async def send_data(self, data, addr):
         self.__log_debug('%s DATA %d', addr, len(data))
@@ -409,6 +409,19 @@ class Connection:
     async def recv(self):
         """
         Receive the next datagram.
+
+        The return value is a `bytes` object representing the data received.
+        """
+        data, component = await self.recvfrom()
+        return data
+
+    async def recvfrom(self):
+        """
+        Receive the next datagram.
+
+        The return value is a `(bytes, component)` tuple where `bytes` is a
+        bytes object representing the data received and `component` is the
+        component on which the data was received.
         """
         fs = [protocol.recv_data() for protocol in self.protocols]
         done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
@@ -417,9 +430,15 @@ class Connection:
         assert len(done) == 1
         return done.pop().result()
 
-    async def send(self, data, component=1):
+    async def send(self, data):
         """
-        Send a datagram.
+        Send a datagram on the first component.
+        """
+        await self.sendto(data, 1)
+
+    async def sendto(self, data, component):
+        """
+        Send a datagram on the specified component.
         """
         active_pair = self.__nominated.get(component)
         if active_pair:

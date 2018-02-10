@@ -214,15 +214,29 @@ class IceConnectionTest(unittest.TestCase):
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
-        # send data a -> b
-        run(conn_a.send(b'howdee'))
-        data = run(conn_b.recv())
+        # send data a -> b (component 1)
+        run(conn_a.sendto(b'howdee', 1))
+        data, component = run(conn_b.recvfrom())
         self.assertEqual(data, b'howdee')
+        self.assertEqual(component, 1)
 
-        # send data b -> a
-        run(conn_b.send(b'gotcha'))
-        data = run(conn_a.recv())
+        # send data b -> a (component 1)
+        run(conn_b.sendto(b'gotcha', 1))
+        data, component = run(conn_a.recvfrom())
         self.assertEqual(data, b'gotcha')
+        self.assertEqual(component, 1)
+
+        # send data a -> b (component 2)
+        run(conn_a.sendto(b'howdee 2', 2))
+        data, component = run(conn_b.recvfrom())
+        self.assertEqual(data, b'howdee 2')
+        self.assertEqual(component, 2)
+
+        # send data b -> a (component 2)
+        run(conn_b.sendto(b'gotcha 2', 2))
+        data, component = run(conn_a.recvfrom())
+        self.assertEqual(data, b'gotcha 2')
+        self.assertEqual(component, 2)
 
         # close
         run(conn_a.close())
