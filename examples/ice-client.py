@@ -8,11 +8,13 @@ import logging
 import websockets
 
 
+STUN_SERVER = ('stun.l.google.com', 19302)
 WEBSOCKET_URI = 'ws://127.0.0.1:8765'
 
 
 async def offer():
-    connection = aioice.Connection(ice_controlling=True)
+    connection = aioice.Connection(ice_controlling=True,
+                                   stun_server=STUN_SERVER)
     local_candidates = await connection.get_local_candidates()
 
     websocket = await websockets.connect(WEBSOCKET_URI)
@@ -40,7 +42,8 @@ async def offer():
 
 
 async def answer():
-    connection = aioice.Connection(ice_controlling=False)
+    connection = aioice.Connection(ice_controlling=False,
+                                   stun_server=STUN_SERVER)
     local_candidates = await connection.get_local_candidates()
 
     websocket = await websockets.connect(WEBSOCKET_URI)
