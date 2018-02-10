@@ -49,6 +49,22 @@ def candidate_pair_priority(local, remote, ice_controlling):
     return (1 << 32) * min(G, D) + 2 * max(G, D) + (G > D and 1 or 0)
 
 
+def get_host_addresses(use_ipv4, use_ipv6):
+    """
+    Get local IP addresses.
+    """
+    addresses = []
+    for interface in netifaces.interfaces():
+        ifaddresses = netifaces.ifaddresses(interface)
+        for address in ifaddresses.get(socket.AF_INET, []):
+            if use_ipv4 and address['addr'] != '127.0.0.1':
+                addresses.append(address['addr'])
+        for address in ifaddresses.get(socket.AF_INET6, []):
+            if use_ipv6 and address['addr'] != '::1' and '%' not in address['addr']:
+                addresses.append(address['addr'])
+    return addresses
+
+
 async def server_reflexive_candidate(protocol, stun_server):
     """
     Query STUN server to obtain a server-reflexive candidate.
@@ -553,17 +569,7 @@ class Connection:
         self.turn_username = turn_username
         self.turn_password = turn_password
 
-        # get host addresses
-        addresses = []
-        for interface in netifaces.interfaces():
-            ifaddresses = netifaces.ifaddresses(interface)
-            for address in ifaddresses.get(socket.AF_INET, []):
-                if use_ipv4 and address['addr'] != '127.0.0.1':
-                    addresses.append(address['addr'])
-            for address in ifaddresses.get(socket.AF_INET6, []):
-                if use_ipv6 and address['addr'] != '::1' and '%' not in address['addr']:
-                    addresses.append(address['addr'])
-
+        addresses = get_host_addresses(use_ipv4=use_ipv4, use_ipv6=use_ipv6)
         self.__component = Component(1, addresses, self)
 
     async def get_local_candidates(self):

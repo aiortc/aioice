@@ -3,6 +3,7 @@ import os
 import pprint
 import socket
 import unittest
+from unittest import mock
 
 from aioice import exceptions, ice, stun
 
@@ -102,7 +103,7 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(pair.state, ice.CandidatePair.State.FAILED)
 
 
-class IceTest(unittest.TestCase):
+class IceConnectionTest(unittest.TestCase):
     def setUp(self):
         stun.RETRY_MAX = 2
 
@@ -139,6 +140,41 @@ class IceTest(unittest.TestCase):
         candidate_b = ice.parse_candidate(
             '6815297761 2 udp 659136 1.2.3.4 12345 typ host generation 0')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
+
+    @mock.patch('netifaces.interfaces')
+    @mock.patch('netifaces.ifaddresses')
+    def test_get_host_addresses(self, mock_ifaddresses, mock_interfaces):
+        mock_interfaces.return_value = ['eth0']
+        mock_ifaddresses.return_value = {
+            socket.AF_INET: [
+                {'addr': '127.0.0.1'},
+                {'addr': '1.2.3.4'},
+            ],
+            socket.AF_INET6: [
+                {'addr': '::1'},
+                {'addr': '2a02:0db8:85a3:0000:0000:8a2e:0370:7334'},
+                {'addr': 'fe80::1234:5678:9abc:def0%eth0'},
+            ]
+        }
+
+        # IPv4 only
+        addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=False)
+        self.assertEqual(addresses, [
+            '1.2.3.4',
+        ])
+
+        # IPv6 only
+        addresses = ice.get_host_addresses(use_ipv4=False, use_ipv6=True)
+        self.assertEqual(addresses, [
+            '2a02:0db8:85a3:0000:0000:8a2e:0370:7334',
+        ])
+
+        # both
+        addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=True)
+        self.assertEqual(addresses, [
+            '1.2.3.4',
+            '2a02:0db8:85a3:0000:0000:8a2e:0370:7334',
+        ])
 
     def test_parse_candidate(self):
         candidate = ice.parse_candidate(
