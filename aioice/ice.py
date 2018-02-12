@@ -343,19 +343,19 @@ class Connection:
         self.turn_password = turn_password
 
         # private
-        self.__nominated = {}
+        self._check_list = []
+        self._check_list_state = asyncio.Queue()
+        self._early_checks = []
+        self._protocols = []
+        self._nominated = {}
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
-        self.check_list = []
-        self.check_list_state = asyncio.Queue()
-        self.early_checks = []
-        self.protocols = []
 
     async def get_local_candidates(self):
         """
         Gather local candidates.
 
-        You MUST call this method before calling connect().
+        You **must** call this coroutine calling connect().
         """
         if not self.local_candidates:
             addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
@@ -378,17 +378,17 @@ class Connection:
 
         # 5.7.1. Forming Candidate Pairs
         for remote_candidate in self.remote_candidates:
-            for protocol in self.protocols:
+            for protocol in self._protocols:
                 if protocol.local_candidate.can_pair_with(remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
-                    self.check_list.append(pair)
+                    self._check_list.append(pair)
         self.sort_check_list()
-        if not self.check_list:
+        if not self._check_list:
             raise exceptions.ConnectionError('No candidate pairs formed')
 
         # unfreeze first pair for component 1
         first_pair = None
-        for pair in self.check_list:
+        for pair in self._check_list:
             if pair.component == 1:
                 first_pair = pair
                 break
@@ -398,7 +398,7 @@ class Connection:
 
         # unfreeze pairs with same component but different foundations
         seen_foundations = set(first_pair.local_candidate.foundation)
-        for pair in self.check_list:
+        for pair in self._check_list:
             if (pair.component == first_pair.component and
                pair.local_candidate.foundation not in seen_foundations and
                pair.state == CandidatePair.State.FROZEN):
@@ -406,9 +406,9 @@ class Connection:
                 seen_foundations.add(pair.local_candidate.foundation)
 
         # handle early checks
-        for check in self.early_checks:
+        for check in self._early_checks:
             self.check_incoming(*check)
-        self.early_checks = []
+        self._early_checks = []
 
         # perform checks
         while True:
@@ -417,10 +417,10 @@ class Connection:
             await asyncio.sleep(0.02)
 
         # wait for completion
-        res = await self.check_list_state.get()
+        res = await self._check_list_state.get()
 
         # cancel remaining checks
-        for check in self.check_list:
+        for check in self._check_list:
             if check.handle:
                 check.handle.cancel()
 
@@ -431,9 +431,10 @@ class Connection:
         """
         Close the connection.
         """
-        for protocol in self.protocols:
+        for protocol in self._protocols:
             await protocol.close()
-        self.protocols = []
+        self._protocols = []
+        self.local_candidates = []
 
     async def recv(self):
         """
@@ -452,7 +453,7 @@ class Connection:
         bytes object representing the data received and `component` is the
         component on which the data was received.
         """
-        fs = [protocol.recv_data() for protocol in self.protocols]
+        fs = [protocol.recv_data() for protocol in self._protocols]
         done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
@@ -469,7 +470,7 @@ class Connection:
         """
         Send a datagram on the specified component.
         """
-        active_pair = self.__nominated.get(component)
+        active_pair = self._nominated.get(component)
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
 
@@ -480,14 +481,14 @@ class Connection:
 
         if pair.state == CandidatePair.State.SUCCEEDED:
             if pair.nominated:
-                self.__nominated[pair.component] = pair
+                self._nominated[pair.component] = pair
 
                 # 8.1.2.  Updating States
                 #
                 # The agent MUST remove all Waiting and Frozen pairs in the check
                 # list and triggered check queue for the same component as the
                 # nominated pairs for that media stream.
-                for p in self.check_list:
+                for p in self._check_list:
                     if (p.component == pair.component and
                        p.state in [CandidatePair.State.WAITING, CandidatePair.State.FROZEN]):
                         self.check_state(p, CandidatePair.State.FAILED)
@@ -495,28 +496,28 @@ class Connection:
             # Once there is at least one nominated pair in the valid list for
             # every component of at least one media stream and the state of the
             # check list is Running:
-            if len(self.__nominated) == len(self.components):
+            if len(self._nominated) == len(self.components):
                 self.__log_info('ICE completed')
-                asyncio.ensure_future(self.check_list_state.put(ICE_COMPLETED))
+                asyncio.ensure_future(self._check_list_state.put(ICE_COMPLETED))
                 return
 
             # 7.1.3.2.3.  Updating Pair States
-            for p in self.check_list:
+            for p in self._check_list:
                 if (p.local_candidate.foundation == pair.local_candidate.foundation and
                    p.state == CandidatePair.State.FROZEN):
                     self.check_state(p, CandidatePair.State.WAITING)
 
-        for p in self.check_list:
+        for p in self._check_list:
             if p.state not in [CandidatePair.State.SUCCEEDED, CandidatePair.State.FAILED]:
                 return
 
         if not self.ice_controlling:
-            for p in self.check_list:
+            for p in self._check_list:
                 if p.state == CandidatePair.State.SUCCEEDED:
                     return
 
         self.__log_info('ICE failed')
-        asyncio.ensure_future(self.check_list_state.put(ICE_FAILED))
+        asyncio.ensure_future(self._check_list_state.put(ICE_FAILED))
 
     def check_incoming(self, message, addr, protocol):
         """
@@ -546,14 +547,14 @@ class Connection:
 
         # find pair
         pair = None
-        for p in self.check_list:
+        for p in self._check_list:
             if (p.protocol == protocol and p.remote_candidate == remote_candidate):
                 pair = p
                 break
         if pair is None:
             pair = CandidatePair(protocol, remote_candidate)
             pair.state = CandidatePair.State.WAITING
-            self.check_list.append(pair)
+            self._check_list.append(pair)
             self.sort_check_list()
 
         # triggered check
@@ -570,13 +571,13 @@ class Connection:
 
     def check_periodic(self):
         # find the highest-priority pair that is in the waiting state
-        for pair in self.check_list:
+        for pair in self._check_list:
             if pair.state == CandidatePair.State.WAITING:
                 pair.handle = asyncio.ensure_future(self.check_start(pair))
                 return True
 
         # find the highest-priority pair that is in the frozen state
-        for pair in self.check_list:
+        for pair in self._check_list:
             if pair.state == CandidatePair.State.FROZEN:
                 pair.handle = asyncio.ensure_future(self.check_start(pair))
                 return True
@@ -646,7 +647,7 @@ class Connection:
             _, protocol = await loop.create_datagram_endpoint(
                 lambda: StunProtocol(self),
                 local_addr=(address, 0))
-            self.protocols.append(protocol)
+            self._protocols.append(protocol)
 
             # add host candidate
             candidate_address = protocol.transport.get_extra_info('sockname')
@@ -664,7 +665,7 @@ class Connection:
         if self.stun_server:
             # we query STUN server for IPv4
             fs = []
-            for protocol in self.protocols:
+            for protocol in self._protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
                     fs.append(server_reflexive_candidate(protocol, self.stun_server))
             if len(fs):
@@ -681,7 +682,7 @@ class Connection:
                 server_addr=self.turn_server,
                 username=self.turn_username,
                 password=self.turn_password)
-            self.protocols.append(protocol)
+            self._protocols.append(protocol)
 
             # add relayed candidate
             candidate_address = protocol.transport.get_extra_info('sockname')
@@ -737,8 +738,8 @@ class Connection:
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
-        if not self.check_list:
-            self.early_checks.append((message, addr, protocol))
+        if not self._check_list:
+            self._early_checks.append((message, addr, protocol))
         else:
             self.check_incoming(message, addr, protocol)
 
@@ -753,7 +754,7 @@ class Connection:
         protocol.send_stun(response, addr)
 
     def sort_check_list(self):
-        sort_candidate_pairs(self.check_list, self.ice_controlling)
+        sort_candidate_pairs(self._check_list, self.ice_controlling)
 
     def switch_role(self, ice_controlling):
         self.__log_info('Switching to %s role', ice_controlling and 'controlling' or 'controlled')
