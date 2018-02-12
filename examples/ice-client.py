@@ -14,9 +14,8 @@ WEBSOCKET_URI = 'ws://127.0.0.1:8765'
 
 async def offer(options):
     connection = aioice.Connection(ice_controlling=True,
+                                   components=options.components,
                                    stun_server=STUN_SERVER)
-    for i in range(1, options.components + 1):
-        connection.components.add(i)
     local_candidates = await connection.get_local_candidates()
 
     websocket = await websockets.connect(WEBSOCKET_URI)
@@ -54,9 +53,8 @@ async def offer(options):
 
 async def answer(options):
     connection = aioice.Connection(ice_controlling=False,
+                                   components=options.components,
                                    stun_server=STUN_SERVER)
-    for i in range(1, options.components + 1):
-        connection.components.add(i)
     local_candidates = await connection.get_local_candidates()
 
     websocket = await websockets.connect(WEBSOCKET_URI)

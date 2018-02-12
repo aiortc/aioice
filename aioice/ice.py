@@ -318,10 +318,10 @@ class Connection:
     """
     An ICE connection.
     """
-    def __init__(self, ice_controlling, stun_server=None,
+    def __init__(self, ice_controlling, components=1,
+                 stun_server=None,
                  turn_server=None, turn_username=None, turn_password=None,
                  use_ipv4=True, use_ipv6=False):
-        self.components = set([1])
         self.ice_controlling = ice_controlling
         self.id = next_connection_id()
         #: Local candidates, automatically set by get_local_candidates().
@@ -343,6 +343,7 @@ class Connection:
         self.turn_password = turn_password
 
         # private
+        self._components = set(range(1, components + 1))
         self._check_list = []
         self._check_list_state = asyncio.Queue()
         self._early_checks = []
@@ -359,7 +360,7 @@ class Connection:
         """
         if not self.local_candidates:
             addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
-            for component in self.components:
+            for component in self._components:
                 self.local_candidates += await self.get_component_candidates(
                     component=component,
                     addresses=addresses)
@@ -496,7 +497,7 @@ class Connection:
             # Once there is at least one nominated pair in the valid list for
             # every component of at least one media stream and the state of the
             # check list is Running:
-            if len(self._nominated) == len(self.components):
+            if len(self._nominated) == len(self._components):
                 self.__log_info('ICE completed')
                 asyncio.ensure_future(self._check_list_state.put(ICE_COMPLETED))
                 return

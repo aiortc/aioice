@@ -155,10 +155,8 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_b.close())
 
     def test_connect_two_components(self):
-        conn_a = ice.Connection(ice_controlling=True)
-        conn_a.components.add(2)
-        conn_b = ice.Connection(ice_controlling=False)
-        conn_b.components.add(2)
+        conn_a = ice.Connection(ice_controlling=True, components=2)
+        conn_b = ice.Connection(ice_controlling=False, components=2)
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
