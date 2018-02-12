@@ -115,7 +115,7 @@ class Candidate:
         self.generation = generation
 
     @classmethod
-    def from_sdp(cls, value):
+    def from_sdp(cls, sdp):
         """
         Parse a :class:`Candidate` from SDP.
 
@@ -124,30 +124,41 @@ class Candidate:
            Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         """
-        bits = value.split()
-        return Candidate(
-            foundation=bits[0],
-            component=int(bits[1]),
-            transport=bits[2],
-            priority=int(bits[3]),
-            host=bits[4],
-            port=int(bits[5]),
-            type=bits[7],
-            generation=int(bits[9]))
+        bits = sdp.split()
+        if len(bits) < 10:
+            raise ValueError('SDP does not have enough properties')
+
+        kwargs = {
+            'foundation': bits[0],
+            'component': int(bits[1]),
+            'transport': bits[2],
+            'priority': int(bits[3]),
+            'host': bits[4],
+            'port': int(bits[5]),
+            'type': bits[7],
+        }
+
+        for i in range(8, len(bits) - 1, 2):
+            if bits[i] == 'generation':
+                kwargs['generation'] = int(bits[i + 1])
+
+        return Candidate(**kwargs)
 
     def to_sdp(self):
         """
         Return a string representation suitable for SDP.
         """
-        return '%s %d %s %d %s %d typ %s generation %d' % (
+        sdp = '%s %d %s %d %s %d typ %s' % (
             self.foundation,
             self.component,
             self.transport,
             self.priority,
             self.host,
             self.port,
-            self.type,
-            self.generation)
+            self.type)
+        if self.generation is not None:
+            sdp += ' generation %d' % self.generation
+        return sdp
 
     def can_pair_with(self, other):
         """
