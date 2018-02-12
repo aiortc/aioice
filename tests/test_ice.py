@@ -132,7 +132,8 @@ class IceCandidateTest(unittest.TestCase):
         self.assertEqual(candidate.type, 'host')
         self.assertEqual(candidate.generation, 0)
 
-        self.assertEqual(candidate.to_sdp(),
+        self.assertEqual(
+            candidate.to_sdp(),
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
 
 
