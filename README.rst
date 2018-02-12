@@ -67,3 +67,10 @@ I/O framework.
         await connection.close()
 
     asyncio.get_event_loop().run_until_complete(connect_using_ice())
+
+License
+-------
+
+``aioice`` is released under the `BSD license`_.
+
+.. _BSD license: https://aioice.readthedocs.io/en/latest/license.html

@@ -29,3 +29,4 @@ I/O framework.
    :maxdepth: 2
 
    api
+   license
