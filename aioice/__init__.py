@@ -1,1 +1,1 @@
-from .ice import Candidate, Connection, parse_candidate  # noqa
+from .ice import Candidate, Connection  # noqa

@@ -114,10 +114,28 @@ class Candidate:
         self.type = type
         self.generation = generation
 
-    def __repr__(self):
-        return 'Candidate(%s)' % self
+    @classmethod
+    def from_sdp(cls, value):
+        """
+        Parse a :class:`Candidate` from SDP.
 
-    def __str__(self):
+        .. code-block:: python
+
+           Candidate.from_sdp(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        """
+        bits = value.split()
+        return Candidate(
+            foundation=bits[0],
+            component=int(bits[1]),
+            transport=bits[2],
+            priority=int(bits[3]),
+            host=bits[4],
+            port=int(bits[5]),
+            type=bits[7],
+            generation=int(bits[9]))
+
+    def to_sdp(self):
         """
         Return a string representation suitable for SDP.
         """
@@ -140,6 +158,9 @@ class Candidate:
         a = ipaddress.ip_address(self.host)
         b = ipaddress.ip_address(other.host)
         return self.component == other.component and a.version == b.version
+
+    def __repr__(self):
+        return 'Candidate(%s)' % self.to_sdp()
 
 
 class CandidatePair:
@@ -176,27 +197,6 @@ class CandidatePair:
         IN_PROGRESS = 2
         SUCCEEDED = 3
         FAILED = 4
-
-
-def parse_candidate(value):
-    """
-    Parse a :class:`Candidate` from SDP.
-
-    .. code-block:: python
-
-       parse_candidate(
-        '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
-    """
-    bits = value.split()
-    return Candidate(
-        foundation=bits[0],
-        component=int(bits[1]),
-        transport=bits[2],
-        priority=int(bits[3]),
-        host=bits[4],
-        port=int(bits[5]),
-        type=bits[7],
-        generation=int(bits[9]))
 
 
 def next_protocol_id():

@@ -4,7 +4,7 @@ import socket
 import unittest
 from unittest import mock
 
-from aioice import exceptions, ice, stun
+from aioice import Candidate, exceptions, ice, stun
 
 from .turnserver import TurnServerProtocol
 
@@ -33,7 +33,7 @@ def run(coro):
 
 
 class ProtocolMock:
-    local_candidate = ice.Candidate(
+    local_candidate = Candidate(
         foundation='some-foundation',
         component=1,
         transport='udp',
@@ -75,7 +75,7 @@ class IceComponentTest(unittest.TestCase):
         protocol.response_addr = ('3.4.5.6', 3456)
         protocol.response_message = 'zob'
 
-        pair = ice.CandidatePair(protocol, ice.Candidate(
+        pair = ice.CandidatePair(protocol, Candidate(
             foundation='some-foundation',
             component=1,
             transport='udp',
@@ -93,33 +93,33 @@ class IceConnectionTest(unittest.TestCase):
         stun.RETRY_MAX = 7
 
     def test_can_pair_ipv4(self):
-        candidate_a = ice.parse_candidate(
+        candidate_a = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
-        candidate_b = ice.parse_candidate(
+        candidate_b = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 12345 typ host generation 0')
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
     def test_can_pair_ipv6(self):
-        candidate_a = ice.parse_candidate(
+        candidate_a = Candidate.from_sdp(
             '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 31102'
             ' typ host generation 0')
-        candidate_b = ice.parse_candidate(
+        candidate_b = Candidate.from_sdp(
             '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345'
             ' typ host generation 0')
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
     def test_cannot_pair_ipv4_ipv6(self):
-        candidate_a = ice.parse_candidate(
+        candidate_a = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
-        candidate_b = ice.parse_candidate(
+        candidate_b = Candidate.from_sdp(
             '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 12345'
             ' typ host generation 0')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
     def test_cannot_pair_different_components(self):
-        candidate_a = ice.parse_candidate(
+        candidate_a = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
-        candidate_b = ice.parse_candidate(
+        candidate_b = Candidate.from_sdp(
             '6815297761 2 udp 659136 1.2.3.4 12345 typ host generation 0')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
@@ -158,8 +158,8 @@ class IceConnectionTest(unittest.TestCase):
             '2a02:0db8:85a3:0000:0000:8a2e:0370:7334',
         ])
 
-    def test_parse_candidate(self):
-        candidate = ice.parse_candidate(
+    def test_from_sdp(self):
+        candidate = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         self.assertEqual(candidate.foundation, '6815297761')
         self.assertEqual(candidate.component, 1)
@@ -353,7 +353,7 @@ class IceConnectionTest(unittest.TestCase):
         If local candidates have not been gathered, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
-        conn.remote_candidates = [ice.parse_candidate(
+        conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
@@ -379,7 +379,7 @@ class IceConnectionTest(unittest.TestCase):
         """
         conn = ice.Connection(ice_controlling=True)
         run(conn.get_local_candidates())
-        conn.remote_candidates = [ice.parse_candidate(
+        conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         with self.assertRaises(exceptions.ImproperlyConfigured):
             run(conn.connect())
@@ -431,7 +431,7 @@ class IceConnectionTest(unittest.TestCase):
 
         conn = ice.Connection(ice_controlling=True)
         run(conn.get_local_candidates())
-        conn.remote_candidates = [ice.parse_candidate(
+        conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'

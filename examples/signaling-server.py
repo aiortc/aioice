@@ -9,7 +9,6 @@ import secrets
 
 import websockets
 
-
 clients = {}
 
 

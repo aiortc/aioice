@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
-import aioice
 import argparse
 import asyncio
 import json
 import logging
-import websockets
 
+import aioice
+import websockets
 
 STUN_SERVER = ('stun.l.google.com', 19302)
 WEBSOCKET_URI = 'ws://127.0.0.1:8765'
@@ -23,7 +23,7 @@ async def offer(options):
 
     # send offer
     await websocket.send(json.dumps({
-        'candidates': [str(c) for c in local_candidates],
+        'candidates': [c.to_sdp() for c in local_candidates],
         'password': connection.local_password,
         'username': connection.local_username,
     }))
@@ -31,7 +31,7 @@ async def offer(options):
     # await answer
     message = json.loads(await websocket.recv())
     print('received answer', message)
-    connection.remote_candidates = ([aioice.parse_candidate(c) for c in message['candidates']])
+    connection.remote_candidates = ([aioice.Candidate.from_sdp(c) for c in message['candidates']])
     connection.remote_username = message['username']
     connection.remote_password = message['password']
 
@@ -55,13 +55,13 @@ async def answer(options):
     # await offer
     message = json.loads(await websocket.recv())
     print('received offer', message)
-    connection.remote_candidates = [aioice.parse_candidate(c) for c in message['candidates']]
+    connection.remote_candidates = [aioice.Candidate.from_sdp(c) for c in message['candidates']]
     connection.remote_username = message['username']
     connection.remote_password = message['password']
 
     # send answer
     await websocket.send(json.dumps({
-        'candidates': [str(c) for c in local_candidates],
+        'candidates': [c.to_sdp() for c in local_candidates],
         'password': connection.local_password,
         'username': connection.local_username,
     }))

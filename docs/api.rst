@@ -16,6 +16,5 @@ API Reference
 
    .. autoclass:: Candidate
 
-      .. automethod:: __str__()
-
-   .. autofunction:: parse_candidate
+      .. automethod:: from_sdp(sdp)
+      .. automethod:: to_sdp()
