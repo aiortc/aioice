@@ -347,8 +347,8 @@ class Connection:
         self._check_list = []
         self._check_list_state = asyncio.Queue()
         self._early_checks = []
-        self._protocols = []
         self._nominated = {}
+        self._protocols = []
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
 
@@ -434,8 +434,10 @@ class Connection:
         """
         for protocol in self._protocols:
             await protocol.close()
-        self._protocols = []
-        self.local_candidates = []
+        self._check_list.clear()
+        self._nominated.clear()
+        self._protocols.clear()
+        self.local_candidates.clear()
 
     async def recv(self):
         """
