@@ -6,15 +6,15 @@ API Reference
    .. autoclass:: Connection
       :members: local_candidates, local_username, local_password, remote_candidates, remote_username, remote_password
 
-      .. automethod:: get_local_candidates()
-      .. automethod:: connect()
-      .. automethod:: recv()
-      .. automethod:: recvfrom()
-      .. automethod:: send(bytes)
-      .. automethod:: sendto(bytes, component)
-      .. automethod:: close()
+      .. automethod:: get_local_candidates
+      .. automethod:: connect
+      .. automethod:: recv
+      .. automethod:: recvfrom
+      .. automethod:: send
+      .. automethod:: sendto
+      .. automethod:: close
 
    .. autoclass:: Candidate
 
-      .. automethod:: from_sdp(sdp)
-      .. automethod:: to_sdp()
+      .. automethod:: from_sdp
+      .. automethod:: to_sdp
