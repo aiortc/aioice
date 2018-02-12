@@ -333,7 +333,8 @@ class Connection:
 
         # private
         self.__nominated = {}
-        self.addresses = get_host_addresses(use_ipv4=use_ipv4, use_ipv6=use_ipv6)
+        self._use_ipv4 = use_ipv4
+        self._use_ipv6 = use_ipv6
         self.check_list = []
         self.check_list_state = asyncio.Queue()
         self.early_checks = []
@@ -346,8 +347,11 @@ class Connection:
         You MUST call this method before calling connect().
         """
         if not self.local_candidates:
+            addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
             for component in self.components:
-                self.local_candidates += await self.get_component_candidates(component)
+                self.local_candidates += await self.get_component_candidates(
+                    component=component,
+                    addresses=addresses)
         return self.local_candidates
 
     async def connect(self):
@@ -622,11 +626,11 @@ class Connection:
         self.__log_info('Check %s %s -> %s' % (repr(pair), pair.state, state))
         pair.state = state
 
-    async def get_component_candidates(self, component, timeout=5):
+    async def get_component_candidates(self, component, addresses, timeout=5):
         candidates = []
 
         loop = asyncio.get_event_loop()
-        for address in self.addresses:
+        for address in addresses:
             # create transport
             _, protocol = await loop.create_datagram_endpoint(
                 lambda: StunProtocol(self),
