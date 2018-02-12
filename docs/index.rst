@@ -25,6 +25,10 @@ aioice
 in Python. It is built on top of :mod:`asyncio`, Python's standard asynchronous
 I/O framework.
 
+Interactive Connectivity Establishment (ICE) is useful for applications that
+establish peer-to-peer UDP data streams, as it facilitates NAT traversal.
+Typical usecases include SIP and WebRTC.
+
 .. toctree::
    :maxdepth: 2
 
