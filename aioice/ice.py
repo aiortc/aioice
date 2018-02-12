@@ -259,7 +259,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         return await self.queue.get(), self.local_candidate.component
 
     async def send_data(self, data, addr):
-        self.__log_debug('%s DATA %d', addr, len(data))
+        self.__log_debug('> %s DATA %d', addr, len(data))
         self.transport.sendto(data, addr)
 
     async def request(self, request, addr, integrity_key=None):
