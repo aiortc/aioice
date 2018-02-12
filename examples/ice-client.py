@@ -39,6 +39,11 @@ async def offer(options):
 
     await connection.connect()
     print('connected')
+
+    # send data
+    connection.sendto(b'hello', 1)
+    data, component = connection.recvfrom()
+
     await asyncio.sleep(5)
     await connection.close()
 
@@ -70,6 +75,11 @@ async def answer(options):
 
     await connection.connect()
     print('connected')
+
+    # echo data back
+    data, component = connection.recvfrom()
+    connection.sendto(data, component)
+
     await asyncio.sleep(5)
     await connection.close()
 

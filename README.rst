@@ -60,8 +60,8 @@ I/O framework.
         await connection.connect()
 
         # send and receive data
-        await connection.send(b'1234')
-        data = await connection.recv()
+        await connection.sendto(b'1234', 1)
+        data, component = await connection.recvfrom()
 
         # close connection
         await connection.close()
