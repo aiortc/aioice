@@ -35,7 +35,7 @@ class CandidateTest(unittest.TestCase):
             '6815297761 2 udp 659136 1.2.3.4 12345 typ host generation 0')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
-    def test_from_to_sdp(self):
+    def test_from_sdp(self):
         candidate = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         self.assertEqual(candidate.foundation, '6815297761')
@@ -70,3 +70,10 @@ class CandidateTest(unittest.TestCase):
     def test_from_sdp_truncated(self):
         with self.assertRaises(ValueError):
             Candidate.from_sdp('6815297761 1 udp 659136 1.2.3.4 31102 typ')
+
+    def test_repr(self):
+        candidate = Candidate.from_sdp(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        self.assertEqual(
+            repr(candidate),
+            'Candidate(6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0)')
