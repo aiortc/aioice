@@ -53,11 +53,11 @@ Example
         connection = aioice.Connection(ice_controlling=True)
 
         # gather local candidates
-        local_candidates = await connection.get_local_candidates()
+        await connection.get_local_candidates()
 
         # send your information to the remote party using your signaling method
         send_local_info(
-            local_candidates,
+            connection.local_candidates,
             connection.local_username,
             connection.local_password)
 
