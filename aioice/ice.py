@@ -378,19 +378,28 @@ class Connection:
             raise exceptions.ConnectionError('Remote username or password is missing')
 
         # 5.7.1. Forming Candidate Pairs
+        seen_components = set()
         for remote_candidate in self.remote_candidates:
             for protocol in self._protocols:
                 if protocol.local_candidate.can_pair_with(remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
                     self._check_list.append(pair)
+                    seen_components.add(pair.component)
         self.sort_check_list()
         if not self._check_list:
             raise exceptions.ConnectionError('No candidate pairs formed')
 
-        # unfreeze first pair for component 1
+        # remove components which have no candidate pairs
+        missing_components = self._components - seen_components
+        if missing_components:
+            self.__log_info('Components %s have no candidate pairs' % missing_components)
+            self._components = seen_components
+
+        # unfreeze first pair for the first component
+        first_component = min(self._components)
         first_pair = None
         for pair in self._check_list:
-            if pair.component == 1:
+            if pair.component == first_component:
                 first_pair = pair
                 break
         assert first_pair is not None

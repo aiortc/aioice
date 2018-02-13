@@ -166,6 +166,8 @@ class IceConnectionTest(unittest.TestCase):
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        self.assertEqual(conn_a._components, set([1, 2]))
+        self.assertEqual(conn_b._components, set([1, 2]))
 
         # send data a -> b (component 1)
         run(conn_a.sendto(b'howdee', 1))
@@ -193,6 +195,48 @@ class IceConnectionTest(unittest.TestCase):
 
         # close
         run(conn_a.close())
+        run(conn_b.close())
+
+    def test_connect_two_components_vs_one_component(self):
+        """
+        It is possible that some of the local candidates won't get paired with
+        remote candidates, and some of the remote candidates won't get paired
+        with local candidates.  This can happen if one agent doesn't include
+        candidates for the all of the components for a media stream.  If this
+        happens, the number of components for that media stream is effectively
+        reduced, and considered to be equal to the minimum across both agents
+        of the maximum component ID provided by each agent across all
+        components for the media stream.
+        """
+        conn_a = ice.Connection(ice_controlling=True, components=2)
+        conn_b = ice.Connection(ice_controlling=False, components=1)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+        self.assertTrue(len(conn_a.local_candidates) > 0)
+        for candidate in conn_a.local_candidates:
+            self.assertEqual(candidate.type, 'host')
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        self.assertEqual(conn_a._components, set([1]))
+        self.assertEqual(conn_b._components, set([1]))
+
+        # send data a -> b (component 1)
+        run(conn_a.sendto(b'howdee', 1))
+        data, component = run(conn_b.recvfrom())
+        self.assertEqual(data, b'howdee')
+        self.assertEqual(component, 1)
+
+        # send data b -> a (component 1)
+        run(conn_b.sendto(b'gotcha', 1))
+        data, component = run(conn_a.recvfrom())
+        self.assertEqual(data, b'gotcha')
+        self.assertEqual(component, 1)
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
 
     @unittest.skipIf(os.environ.get('TRAVIS') == 'true', 'travis lacks ipv6')
     def test_connect_ipv6(self):
