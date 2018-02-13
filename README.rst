@@ -35,6 +35,10 @@ Interactive Connectivity Establishment (ICE) is useful for applications that
 establish peer-to-peer UDP data streams, as it facilitates NAT traversal.
 Typical usecases include SIP and WebRTC.
 
+To learn more about ``aioice`` please `read the documentation`_.
+
+.. _read the documentation: https://aioice.readthedocs.io/en/stable/
+
 Example
 -------
 
@@ -80,4 +84,4 @@ License
 
 ``aioice`` is released under the `BSD license`_.
 
-.. _BSD license: https://aioice.readthedocs.io/en/latest/license.html
+.. _BSD license: https://aioice.readthedocs.io/en/stable/license.html
