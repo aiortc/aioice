@@ -52,6 +52,43 @@ class ProtocolMock:
 
 
 class IceComponentTest(unittest.TestCase):
+    def test_peer_reflexive(self):
+        connection = ice.Connection(ice_controlling=True)
+        connection.remote_password = 'remote-password'
+        connection.remote_username = 'remote-username'
+        protocol = ProtocolMock()
+
+        request = stun.Message(
+            message_method=stun.Method.BINDING,
+            message_class=stun.Class.REQUEST)
+        request.attributes['PRIORITY'] = 456789
+
+        connection.check_incoming(request, ('2.3.4.5', 2345), protocol)
+        self.assertIsNone(protocol.sent_message)
+
+        # check we have discovered a peer-reflexive candidate
+        self.assertEqual(len(connection.remote_candidates), 1)
+        candidate = connection.remote_candidates[0]
+        self.assertEqual(candidate.component, 1)
+        self.assertEqual(candidate.transport, 'udp')
+        self.assertEqual(candidate.priority, 456789)
+        self.assertEqual(candidate.host, '2.3.4.5')
+        self.assertEqual(candidate.port, 2345)
+        self.assertEqual(candidate.type, 'prflx')
+        self.assertEqual(candidate.generation, None)
+
+        # check a new pair was formed
+        self.assertEqual(len(connection._check_list), 1)
+        pair = connection._check_list[0]
+        self.assertEqual(pair.protocol, protocol)
+        self.assertEqual(pair.remote_candidate, candidate)
+
+        # check a triggered check was scheduled
+        self.assertIsNotNone(pair.handle)
+        protocol.response_addr = ('2.3.4.5', 2345)
+        protocol.response_message = 'bad'
+        run(pair.handle)
+
     def test_request_with_invalid_method(self):
         connection = ice.Connection(ice_controlling=True)
         protocol = ProtocolMock()
@@ -73,7 +110,7 @@ class IceComponentTest(unittest.TestCase):
 
         protocol = ProtocolMock()
         protocol.response_addr = ('3.4.5.6', 3456)
-        protocol.response_message = 'zob'
+        protocol.response_message = 'bad'
 
         pair = ice.CandidatePair(protocol, Candidate(
             foundation='some-foundation',
