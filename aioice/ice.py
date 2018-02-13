@@ -103,8 +103,8 @@ class Candidate:
     """
     An ICE candidate.
     """
-    def __init__(self, foundation, component, transport, priority, host, port,
-                 type='host', generation=0):
+    def __init__(self, foundation, component, transport, priority, host, port, type,
+                 generation=None):
         self.foundation = foundation
         self.component = component
         self.transport = transport
@@ -125,7 +125,7 @@ class Candidate:
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         """
         bits = sdp.split()
-        if len(bits) < 10:
+        if len(bits) < 8:
             raise ValueError('SDP does not have enough properties')
 
         kwargs = {

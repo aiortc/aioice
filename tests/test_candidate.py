@@ -52,8 +52,20 @@ class CandidateTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
 
     def test_from_sdp_no_generation(self):
-        with self.assertRaises(ValueError):
-            Candidate.from_sdp('6815297761 1 udp 659136 1.2.3.4 31102 typ host')
+        candidate = Candidate.from_sdp('6815297761 1 udp 659136 1.2.3.4 31102 typ host')
+
+        self.assertEqual(candidate.foundation, '6815297761')
+        self.assertEqual(candidate.component, 1)
+        self.assertEqual(candidate.transport, 'udp')
+        self.assertEqual(candidate.priority, 659136)
+        self.assertEqual(candidate.host, '1.2.3.4')
+        self.assertEqual(candidate.port, 31102)
+        self.assertEqual(candidate.type, 'host')
+        self.assertEqual(candidate.generation, None)
+
+        self.assertEqual(
+            candidate.to_sdp(),
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host')
 
     def test_from_sdp_truncated(self):
         with self.assertRaises(ValueError):
