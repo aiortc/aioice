@@ -375,7 +375,7 @@ class Connection:
         """
         if (self.remote_username is None or
            self.remote_password is None):
-            raise exceptions.ImproperlyConfigured('Remote username or password is missing')
+            raise exceptions.ConnectionError('Remote username or password is missing')
 
         # 5.7.1. Forming Candidate Pairs
         for remote_candidate in self.remote_candidates:

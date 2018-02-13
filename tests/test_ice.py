@@ -324,8 +324,9 @@ class IceConnectionTest(unittest.TestCase):
         run(conn.get_local_candidates())
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(exceptions.ConnectionError):
+        with self.assertRaises(exceptions.ConnectionError) as cm:
             run(conn.connect())
+        self.assertEqual(str(cm.exception), 'No candidate pairs formed')
         run(conn.close())
 
     def test_connect_no_remote_credentials(self):
@@ -336,8 +337,9 @@ class IceConnectionTest(unittest.TestCase):
         run(conn.get_local_candidates())
         conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
-        with self.assertRaises(exceptions.ImproperlyConfigured):
+        with self.assertRaises(exceptions.ConnectionError) as cm:
             run(conn.connect())
+        self.assertEqual(str(cm.exception), 'Remote username or password is missing')
         run(conn.close())
 
     def test_connect_role_conflict_both_controlling(self):
