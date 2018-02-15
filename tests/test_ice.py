@@ -16,13 +16,13 @@ async def delay(coro):
 
 async def invite_accept(conn_a, conn_b):
     # invite
-    await conn_a.get_local_candidates()
+    await conn_a.gather_candidates()
     conn_b.remote_candidates = conn_a.local_candidates
     conn_b.remote_username = conn_a.local_username
     conn_b.remote_password = conn_a.local_password
 
     # accept
-    await conn_b.get_local_candidates()
+    await conn_b.gather_candidates()
     conn_a.remote_candidates = conn_b.local_candidates
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
@@ -332,13 +332,13 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite
-        run(conn_a.get_local_candidates())
+        run(conn_a.gather_candidates())
         conn_b.remote_candidates = conn_a.local_candidates
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
 
         # accept
-        run(conn_b.get_local_candidates())
+        run(conn_b.gather_candidates())
         conn_a.remote_candidates = conn_b.local_candidates
         conn_a.remote_username = conn_b.local_username
         conn_a.remote_password = 'wrong-password'
@@ -360,13 +360,13 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite
-        run(conn_a.get_local_candidates())
+        run(conn_a.gather_candidates())
         conn_b.remote_candidates = conn_a.local_candidates
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
 
         # accept
-        run(conn_b.get_local_candidates())
+        run(conn_b.gather_candidates())
         conn_a.remote_candidates = conn_b.local_candidates
         conn_a.remote_username = 'wrong-username'
         conn_a.remote_password = conn_b.local_password
@@ -402,7 +402,7 @@ class IceConnectionTest(unittest.TestCase):
         If remote candidates have not been provided, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
-        run(conn.get_local_candidates())
+        run(conn.gather_candidates())
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
         with self.assertRaises(exceptions.ConnectionError) as cm:
@@ -415,7 +415,7 @@ class IceConnectionTest(unittest.TestCase):
         If remote credentials have not been provided, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
-        run(conn.get_local_candidates())
+        run(conn.gather_candidates())
         conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         with self.assertRaises(exceptions.ConnectionError) as cm:
@@ -468,7 +468,7 @@ class IceConnectionTest(unittest.TestCase):
         stun.RETRY_MAX = 2
 
         conn = ice.Connection(ice_controlling=True)
-        run(conn.get_local_candidates())
+        run(conn.gather_candidates())
         conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'

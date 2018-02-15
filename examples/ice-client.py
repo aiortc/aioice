@@ -16,13 +16,13 @@ async def offer(options):
     connection = aioice.Connection(ice_controlling=True,
                                    components=options.components,
                                    stun_server=STUN_SERVER)
-    local_candidates = await connection.get_local_candidates()
+    await connection.gather_candidates()
 
     websocket = await websockets.connect(WEBSOCKET_URI)
 
     # send offer
     await websocket.send(json.dumps({
-        'candidates': [c.to_sdp() for c in local_candidates],
+        'candidates': [c.to_sdp() for c in connection.local_candidates],
         'password': connection.local_password,
         'username': connection.local_username,
     }))
@@ -55,7 +55,7 @@ async def answer(options):
     connection = aioice.Connection(ice_controlling=False,
                                    components=options.components,
                                    stun_server=STUN_SERVER)
-    local_candidates = await connection.get_local_candidates()
+    await connection.gather_candidates()
 
     websocket = await websockets.connect(WEBSOCKET_URI)
 
@@ -68,7 +68,7 @@ async def answer(options):
 
     # send answer
     await websocket.send(json.dumps({
-        'candidates': [c.to_sdp() for c in local_candidates],
+        'candidates': [c.to_sdp() for c in connection.local_candidates],
         'password': connection.local_password,
         'username': connection.local_username,
     }))

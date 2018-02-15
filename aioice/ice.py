@@ -316,7 +316,7 @@ next_connection_id.counter = 0
 
 class Connection:
     """
-    An ICE connection.
+    An ICE connection for a single media stream.
     """
     def __init__(self, ice_controlling, components=1,
                  stun_server=None,
@@ -324,7 +324,7 @@ class Connection:
                  use_ipv4=True, use_ipv6=False):
         self.ice_controlling = ice_controlling
         self.id = next_connection_id()
-        #: Local candidates, automatically set by get_local_candidates().
+        #: Local candidates, automatically set by gather_candidates().
         self.local_candidates = []
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
@@ -352,7 +352,7 @@ class Connection:
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
 
-    async def get_local_candidates(self):
+    async def gather_candidates(self):
         """
         Gather local candidates.
 
@@ -364,7 +364,6 @@ class Connection:
                 self.local_candidates += await self.get_component_candidates(
                     component=component,
                     addresses=addresses)
-        return self.local_candidates
 
     async def connect(self):
         """
