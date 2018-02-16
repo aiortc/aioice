@@ -365,6 +365,14 @@ class Connection:
                     component=component,
                     addresses=addresses)
 
+    def get_default_candidate(self, component):
+        """
+        Gets the default local candidate for the specified component.
+        """
+        for candidate in sorted(self.local_candidates, key=lambda x: x.priority):
+            if candidate.component == component:
+                return candidate
+
     async def connect(self):
         """
         Perform ICE handshake.

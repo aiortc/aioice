@@ -126,6 +126,10 @@ class IceComponentTest(unittest.TestCase):
 
 
 class IceConnectionTest(unittest.TestCase):
+    def assertCandidateTypes(self, conn, expected):
+        types = set([c.type for c in conn.local_candidates])
+        self.assertEqual(types, expected)
+
     def tearDown(self):
         stun.RETRY_MAX = 7
 
@@ -170,9 +174,19 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(conn_a.local_candidates) > 0)
-        for candidate in conn_a.local_candidates:
-            self.assertEqual(candidate.type, 'host')
+
+        # we should only have host candidates
+        self.assertCandidateTypes(conn_a, set(['host']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # there should be a default candidate for component 1
+        candidate = conn_a.get_default_candidate(1)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, 'host')
+
+        # there should not be a default candidate for component 2
+        candidate = conn_a.get_default_candidate(2)
+        self.assertIsNone(candidate)
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -197,9 +211,20 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(conn_a.local_candidates) > 0)
-        for candidate in conn_a.local_candidates:
-            self.assertEqual(candidate.type, 'host')
+
+        # we should only have host candidates
+        self.assertCandidateTypes(conn_a, set(['host']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # there should be a default candidate for component 1
+        candidate = conn_a.get_default_candidate(1)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, 'host')
+
+        # there should be a default candidate for component 2
+        candidate = conn_a.get_default_candidate(2)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, 'host')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -485,8 +510,15 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(conn_a.local_candidates) > 1)
-        self.assertEqual(conn_a.local_candidates[-1].type, 'srflx')
+
+        # we whould have both host and server-reflexive candidates
+        self.assertCandidateTypes(conn_a, set(['host', 'srflx']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # the default candidate should be server-reflexive
+        candidate = conn_a.get_default_candidate(1)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, 'srflx')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -513,9 +545,10 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(conn_a.local_candidates) > 0)
-        for candidate in conn_a.local_candidates:
-            self.assertEqual(candidate.type, 'host')
+
+        # we whould have only host candidates
+        self.assertCandidateTypes(conn_a, set(['host']))
+        self.assertCandidateTypes(conn_b, set(['host']))
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -585,8 +618,15 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
-        self.assertTrue(len(conn_a.local_candidates) > 1)
-        self.assertEqual(conn_a.local_candidates[-1].type, 'relay')
+
+        # we whould have both host and relayed candidates
+        self.assertCandidateTypes(conn_a, set(['host', 'relay']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # the default candidate should be relayed
+        candidate = conn_a.get_default_candidate(1)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, 'relay')
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
