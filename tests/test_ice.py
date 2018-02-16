@@ -645,3 +645,34 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
         turn_server.transport.close()
+
+    def test_set_selected_pair(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # we should only have host candidates
+        self.assertCandidateTypes(conn_a, set(['host']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # force selected pair
+        default_a = conn_a.get_default_candidate(1)
+        default_b = conn_a.get_default_candidate(1)
+        conn_a.set_selected_pair(1, default_a.foundation, default_b.foundation)
+        conn_b.set_selected_pair(1, default_b.foundation, default_a.foundation)
+
+        # send data a -> b
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())

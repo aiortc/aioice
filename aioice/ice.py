@@ -493,6 +493,30 @@ class Connection:
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
 
+    def set_selected_pair(self, component, local_foundation, remote_foundation):
+        """
+        Force the selected candidate pair.
+
+        If the remote party does not support ICE, you should using this
+        instead of calling connect().
+        """
+        # find local candidate
+        protocol = None
+        for p in self._protocols:
+            if (p.local_candidate.component == component and
+               p.local_candidate.foundation == local_foundation):
+                protocol = p
+                break
+
+        # find remote candidate
+        remote_candidate = None
+        for c in self.remote_candidates:
+            if c.component == component and c.foundation == remote_foundation:
+                remote_candidate = c
+
+        assert (protocol and remote_candidate)
+        self._nominated[component] = CandidatePair(protocol, remote_candidate)
+
     # private
 
     def check_complete(self, pair):
