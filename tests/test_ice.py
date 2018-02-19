@@ -679,10 +679,30 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_recv_not_connected(self):
         conn_a = ice.Connection(ice_controlling=True)
-        with self.assertRaises(exceptions.ConnectionError):
+        with self.assertRaises(exceptions.ConnectionError) as cm:
             run(conn_a.recv())
+        self.assertEqual(str(cm.exception), 'Cannot receive data, not connected')
+
+    def test_recv_connection_lost(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # disconnect while receiving
+        with self.assertRaises(exceptions.ConnectionError) as cm:
+            run(asyncio.gather(conn_a.recv(), delay(conn_a.close)))
+        self.assertEqual(str(cm.exception), 'Connection lost while receiving data')
+
+        # close
+        run(conn_b.close())
 
     def test_send_not_connected(self):
         conn_a = ice.Connection(ice_controlling=True)
-        with self.assertRaises(exceptions.ConnectionError):
+        with self.assertRaises(exceptions.ConnectionError) as cm:
             run(conn_a.send(b'howdee'))
+        self.assertEqual(str(cm.exception), 'Cannot send data, not connected')

@@ -230,6 +230,7 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     def connection_lost(self, exc):
         self.__log_debug('connection_lost(%s)', exc)
+        asyncio.ensure_future(self.queue.put(None))
         self.__closed.set_result(True)
 
     def connection_made(self, transport):
@@ -484,7 +485,10 @@ class Connection:
         for task in pending:
             task.cancel()
         assert len(done) == 1
-        return done.pop().result()
+        result = done.pop().result()
+        if result[0] is None:
+            raise exceptions.ConnectionError('Connection lost while receiving data')
+        return result
 
     async def send(self, data):
         """
