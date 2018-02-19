@@ -460,6 +460,8 @@ class Connection:
         Receive the next datagram.
 
         The return value is a `bytes` object representing the data received.
+
+        If the connection is not established, a `ConnectionError` is raised.
         """
         data, component = await self.recvfrom()
         return data
@@ -471,7 +473,12 @@ class Connection:
         The return value is a `(bytes, component)` tuple where `bytes` is a
         bytes object representing the data received and `component` is the
         component on which the data was received.
+
+        If the connection is not established, a `ConnectionError` is raised.
         """
+        if not len(self._nominated):
+            raise exceptions.ConnectionError('Cannot receive data, not connected')
+
         fs = [protocol.recv_data() for protocol in self._protocols]
         done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
@@ -482,16 +489,22 @@ class Connection:
     async def send(self, data):
         """
         Send a datagram on the first component.
+
+        If the connection is not established, a `ConnectionError` is raised.
         """
         await self.sendto(data, 1)
 
     async def sendto(self, data, component):
         """
         Send a datagram on the specified component.
+
+        If the connection is not established, a `ConnectionError` is raised.
         """
         active_pair = self._nominated.get(component)
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
+        else:
+            raise exceptions.ConnectionError('Cannot send data, not connected')
 
     def set_selected_pair(self, component, local_foundation, remote_foundation):
         """

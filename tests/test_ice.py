@@ -676,3 +676,13 @@ class IceConnectionTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
+
+    def test_recv_not_connected(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        with self.assertRaises(exceptions.ConnectionError):
+            run(conn_a.recv())
+
+    def test_send_not_connected(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        with self.assertRaises(exceptions.ConnectionError):
+            run(conn_a.send(b'howdee'))
