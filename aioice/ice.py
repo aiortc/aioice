@@ -767,9 +767,10 @@ class Connection:
         try:
             stun.parse_message(raw_data,
                                integrity_key=self.local_password.encode('utf8'))
-            rx_username = '%s:%s' % (self.local_username, self.remote_username)
-            if message.attributes.get('USERNAME') != rx_username:
-                raise ValueError('Wrong username')
+            if self.remote_username is not None:
+                rx_username = '%s:%s' % (self.local_username, self.remote_username)
+                if message.attributes.get('USERNAME') != rx_username:
+                    raise ValueError('Wrong username')
         except ValueError as exc:
             self.respond_error(message, addr, protocol, (400, 'Bad Request'))
             return
