@@ -14,6 +14,7 @@ API Reference
       .. autocomethod:: recvfrom
       .. autocomethod:: send
       .. autocomethod:: sendto
+      .. autocomethod:: set_selected_pair
 
    .. autoclass:: Candidate
 
