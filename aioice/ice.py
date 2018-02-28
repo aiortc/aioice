@@ -104,7 +104,7 @@ class Candidate:
     An ICE candidate.
     """
     def __init__(self, foundation, component, transport, priority, host, port, type,
-                 generation=None):
+                 tcptype=None, generation=None):
         self.foundation = foundation
         self.component = component
         self.transport = transport
@@ -112,6 +112,7 @@ class Candidate:
         self.host = host
         self.port = port
         self.type = type
+        self.tcptype = tcptype
         self.generation = generation
 
     @classmethod
@@ -139,7 +140,9 @@ class Candidate:
         }
 
         for i in range(8, len(bits) - 1, 2):
-            if bits[i] == 'generation':
+            if bits[i] == 'tcptype':
+                kwargs['tcptype'] = bits[i + 1]
+            elif bits[i] == 'generation':
                 kwargs['generation'] = int(bits[i + 1])
 
         return Candidate(**kwargs)
@@ -156,6 +159,8 @@ class Candidate:
             self.host,
             self.port,
             self.type)
+        if self.tcptype is not None:
+            sdp += ' tcptype %s' % self.tcptype
         if self.generation is not None:
             sdp += ' generation %d' % self.generation
         return sdp
