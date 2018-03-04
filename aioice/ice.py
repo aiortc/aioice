@@ -454,10 +454,10 @@ class Connection:
         """
         Close the connection.
         """
+        self._nominated.clear()
         for protocol in self._protocols:
             await protocol.close()
         self._check_list.clear()
-        self._nominated.clear()
         self._protocols.clear()
         self.local_candidates.clear()
 
