@@ -4,7 +4,7 @@ import socket
 import unittest
 from unittest import mock
 
-from aioice import Candidate, exceptions, ice, stun
+from aioice import Candidate, ice, stun
 
 from .turnserver import TurnServerProtocol
 
