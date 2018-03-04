@@ -374,7 +374,7 @@ class IceConnectionTest(unittest.TestCase):
         for task in pending:
             task.cancel()
         self.assertEqual(len(done), 1)
-        self.assertTrue(isinstance(done.pop().exception(), exceptions.ConnectionError))
+        self.assertTrue(isinstance(done.pop().exception(), ConnectionError))
 
         # close
         run(conn_a.close())
@@ -402,8 +402,8 @@ class IceConnectionTest(unittest.TestCase):
         for task in pending:
             task.cancel()
         self.assertEqual(len(done), 2)
-        self.assertTrue(isinstance(done.pop().exception(), exceptions.ConnectionError))
-        self.assertTrue(isinstance(done.pop().exception(), exceptions.ConnectionError))
+        self.assertTrue(isinstance(done.pop().exception(), ConnectionError))
+        self.assertTrue(isinstance(done.pop().exception(), ConnectionError))
 
         # close
         run(conn_a.close())
@@ -418,7 +418,7 @@ class IceConnectionTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(exceptions.ConnectionError):
+        with self.assertRaises(ConnectionError):
             run(conn.connect())
         run(conn.close())
 
@@ -430,7 +430,7 @@ class IceConnectionTest(unittest.TestCase):
         run(conn.gather_candidates())
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(exceptions.ConnectionError) as cm:
+        with self.assertRaises(ConnectionError) as cm:
             run(conn.connect())
         self.assertEqual(str(cm.exception), 'No candidate pairs formed')
         run(conn.close())
@@ -443,7 +443,7 @@ class IceConnectionTest(unittest.TestCase):
         run(conn.gather_candidates())
         conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
-        with self.assertRaises(exceptions.ConnectionError) as cm:
+        with self.assertRaises(ConnectionError) as cm:
             run(conn.connect())
         self.assertEqual(str(cm.exception), 'Remote username or password is missing')
         run(conn.close())
@@ -498,7 +498,7 @@ class IceConnectionTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(exceptions.ConnectionError):
+        with self.assertRaises(ConnectionError):
             run(conn.connect())
         run(conn.close())
 
@@ -679,7 +679,7 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_recv_not_connected(self):
         conn_a = ice.Connection(ice_controlling=True)
-        with self.assertRaises(exceptions.ConnectionError) as cm:
+        with self.assertRaises(ConnectionError) as cm:
             run(conn_a.recv())
         self.assertEqual(str(cm.exception), 'Cannot receive data, not connected')
 
@@ -694,7 +694,7 @@ class IceConnectionTest(unittest.TestCase):
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
 
         # disconnect while receiving
-        with self.assertRaises(exceptions.ConnectionError) as cm:
+        with self.assertRaises(ConnectionError) as cm:
             run(asyncio.gather(conn_a.recv(), delay(conn_a.close)))
         self.assertEqual(str(cm.exception), 'Connection lost while receiving data')
 
@@ -703,6 +703,6 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_send_not_connected(self):
         conn_a = ice.Connection(ice_controlling=True)
-        with self.assertRaises(exceptions.ConnectionError) as cm:
+        with self.assertRaises(ConnectionError) as cm:
             run(conn_a.send(b'howdee'))
         self.assertEqual(str(cm.exception), 'Cannot send data, not connected')

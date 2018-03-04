@@ -388,7 +388,7 @@ class Connection:
         """
         if (self.remote_username is None or
            self.remote_password is None):
-            raise exceptions.ConnectionError('Remote username or password is missing')
+            raise ConnectionError('Remote username or password is missing')
 
         # 5.7.1. Forming Candidate Pairs
         seen_components = set()
@@ -400,7 +400,7 @@ class Connection:
                     seen_components.add(pair.component)
         self.sort_check_list()
         if not self._check_list:
-            raise exceptions.ConnectionError('No candidate pairs formed')
+            raise ConnectionError('No candidate pairs formed')
 
         # remove components which have no candidate pairs
         missing_components = self._components - seen_components
@@ -448,7 +448,7 @@ class Connection:
                 check.handle.cancel()
 
         if res != ICE_COMPLETED:
-            raise exceptions.ConnectionError
+            raise ConnectionError
 
     async def close(self):
         """
@@ -483,7 +483,7 @@ class Connection:
         If the connection is not established, a `ConnectionError` is raised.
         """
         if not len(self._nominated):
-            raise exceptions.ConnectionError('Cannot receive data, not connected')
+            raise ConnectionError('Cannot receive data, not connected')
 
         fs = [protocol.recv_data() for protocol in self._protocols]
         done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
@@ -492,7 +492,7 @@ class Connection:
         assert len(done) == 1
         result = done.pop().result()
         if result[0] is None:
-            raise exceptions.ConnectionError('Connection lost while receiving data')
+            raise ConnectionError('Connection lost while receiving data')
         return result
 
     async def send(self, data):
@@ -513,7 +513,7 @@ class Connection:
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
         else:
-            raise exceptions.ConnectionError('Cannot send data, not connected')
+            raise ConnectionError('Cannot send data, not connected')
 
     def set_selected_pair(self, component, local_foundation, remote_foundation):
         """
