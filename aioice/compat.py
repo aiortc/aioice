@@ -8,9 +8,12 @@ except ImportError:
     secrets = None
 
 
+_system_random = random.SystemRandom()
+
+
 class CompatSecrets:
     def choice(self, sequence):
-        return random.choice(sequence)
+        return _system_random.choice(sequence)
 
     def randbits(self, k):
         assert k == 64
