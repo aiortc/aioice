@@ -1,4 +1,3 @@
-import os
 import random
 
 try:
@@ -16,9 +15,6 @@ class CompatSecrets:
 
     def randbits(self, k):
         return _system_random.getrandbits(k)
-
-    def token_bytes(self, length):
-        return os.urandom(length)
 
 
 if secrets is None:
