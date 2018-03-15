@@ -131,6 +131,8 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(types, expected)
 
     def tearDown(self):
+        ice.CONSENT_FAILURES = 6
+        ice.CONSENT_INTERVAL = 5
         stun.RETRY_MAX = 6
 
     @mock.patch('netifaces.interfaces')
@@ -645,6 +647,26 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
         turn_server.transport.close()
+
+    def test_consent_expired(self):
+        # lower consent timer
+        ice.CONSENT_FAILURES = 1
+        ice.CONSENT_INTERVAL = 1
+
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        self.assertEqual(len(conn_a._nominated), 1)
+
+        # let consent expire
+        run(conn_b.close())
+        run(asyncio.sleep(1.5))
+        self.assertEqual(len(conn_a._nominated), 0)
 
     def test_set_selected_pair(self):
         conn_a = ice.Connection(ice_controlling=True)

@@ -3,6 +3,7 @@ import enum
 import hashlib
 import ipaddress
 import logging
+import random
 import socket
 
 import netifaces
@@ -15,6 +16,9 @@ logger = logging.getLogger('ice')
 
 ICE_COMPLETED = 1
 ICE_FAILED = 2
+
+CONSENT_FAILURES = 6
+CONSENT_INTERVAL = 5
 
 
 def candidate_foundation(candidate_type, candidate_transport, base_address):
@@ -279,7 +283,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.__log_debug('> %s DATA %d', addr, len(data))
         self.transport.sendto(data, addr)
 
-    async def request(self, request, addr, integrity_key=None):
+    async def request(self, request, addr, integrity_key=None, retransmissions=None):
         """
         Execute a STUN transaction and return the response.
         """
@@ -289,7 +293,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             request.add_message_integrity(integrity_key)
             request.add_fingerprint()
 
-        transaction = stun.Transaction(request, addr, self)
+        transaction = stun.Transaction(request, addr, self, retransmissions=retransmissions)
         transaction.integrity_key = integrity_key
         self.transactions[request.transaction_id] = transaction
         try:
@@ -450,6 +454,9 @@ class Connection:
 
         if res != ICE_COMPLETED:
             raise ConnectionError
+
+        # start consent freshness tests
+        asyncio.ensure_future(self.query_consent())
 
     async def close(self):
         """
@@ -767,6 +774,36 @@ class Connection:
             candidates.append(protocol.local_candidate)
 
         return candidates
+
+    async def query_consent(self):
+        """
+        Periodically check consent (RFC 7675).
+        """
+        failures = 0
+        while True:
+            # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
+            await asyncio.sleep(CONSENT_INTERVAL * (0.8 + 0.4 * random.random()))
+            if not len(self._nominated):
+                break
+
+            tx_username = '%s:%s' % (self.remote_username, self.local_username)
+            for pair in self._nominated.values():
+                request = stun.Message(message_method=stun.Method.BINDING,
+                                       message_class=stun.Class.REQUEST)
+                request.attributes['USERNAME'] = tx_username
+
+                try:
+                    await pair.protocol.request(
+                        request, pair.remote_addr,
+                        integrity_key=self.remote_password.encode('utf8'),
+                        retransmissions=0)
+                    failures = 0
+                except exceptions.TransactionError:
+                    failures += 1
+                if failures >= CONSENT_FAILURES:
+                    self.__log_info('Consent to send expired')
+                    await self.close()
+                    return
 
     def request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
