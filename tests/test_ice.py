@@ -131,7 +131,7 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(types, expected)
 
     def tearDown(self):
-        stun.RETRY_MAX = 7
+        stun.RETRY_MAX = 6
 
     @mock.patch('netifaces.interfaces')
     @mock.patch('netifaces.ifaddresses')
@@ -490,7 +490,7 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_connect_timeout(self):
         # lower STUN retries
-        stun.RETRY_MAX = 2
+        stun.RETRY_MAX = 1
 
         conn = ice.Connection(ice_controlling=True)
         run(conn.gather_candidates())
