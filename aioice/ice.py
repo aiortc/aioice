@@ -351,6 +351,7 @@ class Connection:
         # private
         self._components = set(range(1, components + 1))
         self._check_list = []
+        self._check_list_done = False
         self._check_list_state = asyncio.Queue()
         self._early_checks = []
         self._nominated = {}
@@ -562,8 +563,10 @@ class Connection:
             # every component of at least one media stream and the state of the
             # check list is Running:
             if len(self._nominated) == len(self._components):
-                self.__log_info('ICE completed')
-                asyncio.ensure_future(self._check_list_state.put(ICE_COMPLETED))
+                if not self._check_list_done:
+                    self.__log_info('ICE completed')
+                    asyncio.ensure_future(self._check_list_state.put(ICE_COMPLETED))
+                    self._check_list_done = True
                 return
 
             # 7.1.3.2.3.  Updating Pair States
@@ -581,8 +584,10 @@ class Connection:
                 if p.state == CandidatePair.State.SUCCEEDED:
                     return
 
-        self.__log_info('ICE failed')
-        asyncio.ensure_future(self._check_list_state.put(ICE_FAILED))
+        if not self._check_list_done:
+            self.__log_info('ICE failed')
+            asyncio.ensure_future(self._check_list_state.put(ICE_FAILED))
+            self._check_list_done = True
 
     def check_incoming(self, message, addr, protocol):
         """
