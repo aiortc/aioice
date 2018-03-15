@@ -17,9 +17,6 @@ INTEGRITY_LENGTH = 24
 IPV4_PROTOCOL = 1
 IPV6_PROTOCOL = 2
 
-RETRY_INTERVAL = 0.5
-RETRY_MAX = 7
-
 
 def set_body_length(data, length):
     return data[0:2] + pack('!H', length) + data[4:]
@@ -227,13 +224,15 @@ class Message(object):
 
 
 class Transaction:
-    def __init__(self, request, addr, protocol):
+    def __init__(self, request, addr, protocol, retransmissions=6):
         self.__addr = addr
         self.__future = asyncio.Future()
         self.__request = request
+        self.__timeout_delay = 0.5
         self.__timeout_handle = None
         self.__protocol = protocol
         self.__tries = 0
+        self.__tries_max = 1 + retransmissions
 
     def response_received(self, message, addr):
         if message.message_class == Class.RESPONSE:
@@ -250,19 +249,15 @@ class Transaction:
                 self.__timeout_handle.cancel()
 
     def __retry(self):
-        if self.__tries >= RETRY_MAX:
+        if self.__tries >= self.__tries_max:
             self.__future.set_exception(exceptions.TransactionTimeout())
             return
 
         self.__protocol.send_stun(self.__request, self.__addr)
 
-        if self.__tries:
-            self.__timeout_delay = 2 * self.__timeout_delay
-        else:
-            self.__timeout_delay = RETRY_INTERVAL
-
         loop = asyncio.get_event_loop()
         self.__timeout_handle = loop.call_later(self.__timeout_delay, self.__retry)
+        self.__timeout_delay *= 2
         self.__tries += 1
 
 
