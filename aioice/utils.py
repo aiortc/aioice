@@ -1,3 +1,4 @@
+import os
 import string
 
 from .compat import secrets
@@ -9,4 +10,4 @@ def random_string(length):
 
 
 def random_transaction_id():
-    return random_string(12).encode('ascii')
+    return os.urandom(12)
