@@ -5,7 +5,7 @@
 
 import asyncio
 import binascii
-import secrets
+import os
 
 import websockets
 
@@ -13,7 +13,7 @@ clients = {}
 
 
 async def echo(websocket, path):
-    client_id = binascii.hexlify(secrets.token_bytes(8))
+    client_id = binascii.hexlify(os.urandom(8))
     clients[client_id] = websocket
 
     try:
