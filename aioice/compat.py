@@ -1,6 +1,5 @@
 import os
 import random
-import struct
 
 try:
     import secrets
@@ -16,8 +15,7 @@ class CompatSecrets:
         return _system_random.choice(sequence)
 
     def randbits(self, k):
-        assert k == 64
-        return struct.unpack('Q', self.token_bytes(8))[0]
+        return _system_random.getrandbits(k)
 
     def token_bytes(self, length):
         return os.urandom(length)
