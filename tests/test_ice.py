@@ -665,7 +665,7 @@ class IceConnectionTest(unittest.TestCase):
 
         # let consent expire
         run(conn_b.close())
-        run(asyncio.sleep(1.5))
+        run(asyncio.sleep(2))
         self.assertEqual(len(conn_a._nominated), 0)
 
     def test_set_selected_pair(self):
