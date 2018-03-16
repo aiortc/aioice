@@ -455,8 +455,8 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=True)
 
         # set tie breaker for a deterministic outcome
-        conn_a.tie_breaker = 1
-        conn_b.tie_breaker = 2
+        conn_a._tie_breaker = 1
+        conn_b._tie_breaker = 2
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))
@@ -475,8 +475,8 @@ class IceConnectionTest(unittest.TestCase):
         conn_b = ice.Connection(ice_controlling=False)
 
         # set tie breaker for a deterministic outcome
-        conn_a.tie_breaker = 1
-        conn_b.tie_breaker = 2
+        conn_a._tie_breaker = 1
+        conn_b._tie_breaker = 2
 
         # invite / accept
         run(invite_accept(conn_a, conn_b))

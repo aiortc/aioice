@@ -227,7 +227,6 @@ class Connection:
                  turn_server=None, turn_username=None, turn_password=None,
                  use_ipv4=True, use_ipv6=False):
         self.ice_controlling = ice_controlling
-        self.id = next_connection_id()
         #: Local candidates, automatically set by gather_candidates().
         self.local_candidates = []
         #: Local username, automatically set to a random value.
@@ -241,7 +240,6 @@ class Connection:
         #: Remote password, which you need to set.
         self.remote_password = None
         self.stun_server = stun_server
-        self.tie_breaker = secrets.randbits(64)
         self.turn_server = turn_server
         self.turn_username = turn_username
         self.turn_password = turn_password
@@ -252,8 +250,10 @@ class Connection:
         self._check_list_done = False
         self._check_list_state = asyncio.Queue()
         self._early_checks = []
+        self._id = next_connection_id()
         self._nominated = {}
         self._protocols = []
+        self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
 
@@ -567,10 +567,10 @@ class Connection:
         request.attributes['USERNAME'] = tx_username
         request.attributes['PRIORITY'] = candidate_priority(pair.component, 'prflx')
         if self.ice_controlling:
-            request.attributes['ICE-CONTROLLING'] = self.tie_breaker
+            request.attributes['ICE-CONTROLLING'] = self._tie_breaker
             request.attributes['USE-CANDIDATE'] = None
         else:
-            request.attributes['ICE-CONTROLLED'] = self.tie_breaker
+            request.attributes['ICE-CONTROLLED'] = self._tie_breaker
 
         try:
             response, addr = await pair.protocol.request(
@@ -719,13 +719,13 @@ class Connection:
         # 7.2.1.1. Detecting and Repairing Role Conflicts
         if self.ice_controlling and 'ICE-CONTROLLING' in message.attributes:
             self.__log_info('Role conflict, expected to be controlling')
-            if self.tie_breaker >= message.attributes['ICE-CONTROLLING']:
+            if self._tie_breaker >= message.attributes['ICE-CONTROLLING']:
                 self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
                 return
             self.switch_role(ice_controlling=False)
         elif not self.ice_controlling and 'ICE-CONTROLLED' in message.attributes:
             self.__log_info('Role conflict, expected to be controlled')
-            if self.tie_breaker < message.attributes['ICE-CONTROLLED']:
+            if self._tie_breaker < message.attributes['ICE-CONTROLLED']:
                 self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
                 return
             self.switch_role(ice_controlling=True)
@@ -767,4 +767,4 @@ class Connection:
         logger.info(repr(self) + ' ' + msg, *args)
 
     def __repr__(self):
-        return 'Connection(%s)' % self.id
+        return 'Connection(%s)' % self._id
