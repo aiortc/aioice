@@ -357,9 +357,14 @@ class Connection:
         """
         Close the connection.
         """
+        # stop consent freshness tests
         if self._query_consent_handle and not self._query_consent_handle.done():
             self._query_consent_handle.cancel()
-            self._query_consent_handle = None
+            try:
+                await self._query_consent_handle
+            except asyncio.CancelledError:
+                pass
+
         self._nominated.clear()
         for protocol in self._protocols:
             await protocol.close()
@@ -684,8 +689,6 @@ class Connection:
         while True:
             # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
             await asyncio.sleep(CONSENT_INTERVAL * (0.8 + 0.4 * random.random()))
-            if not len(self._nominated):
-                break
 
             for pair in self._nominated.values():
                 request = self.build_request(pair)
@@ -699,8 +702,7 @@ class Connection:
                     failures += 1
                 if failures >= CONSENT_FAILURES:
                     self.__log_info('Consent to send expired')
-                    await self.close()
-                    return
+                    return await self.close()
 
     def request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
