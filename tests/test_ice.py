@@ -7,6 +7,7 @@ from unittest import mock
 from aioice import Candidate, ice, stun
 
 from .turnserver import TurnServerProtocol
+from .utils import run
 
 
 async def delay(coro):
@@ -26,10 +27,6 @@ async def invite_accept(conn_a, conn_b):
     conn_a.remote_candidates = conn_b.local_candidates
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
-
-
-def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
 
 
 class ProtocolMock:

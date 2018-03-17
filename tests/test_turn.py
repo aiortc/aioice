@@ -5,10 +5,7 @@ import unittest
 from aioice import turn
 
 from .turnserver import TurnServerProtocol
-
-
-def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+from .utils import run
 
 
 class DummyClientProtocol(asyncio.DatagramProtocol):

@@ -18,6 +18,7 @@ IPV4_PROTOCOL = 1
 IPV6_PROTOCOL = 2
 
 RETRY_MAX = 6
+RETRY_RTO = 0.5
 
 
 def set_body_length(data, length):
@@ -230,17 +231,18 @@ class Transaction:
         self.__addr = addr
         self.__future = asyncio.Future()
         self.__request = request
-        self.__timeout_delay = 0.5
+        self.__timeout_delay = RETRY_RTO
         self.__timeout_handle = None
         self.__protocol = protocol
         self.__tries = 0
         self.__tries_max = 1 + (retransmissions if retransmissions is not None else RETRY_MAX)
 
     def response_received(self, message, addr):
-        if message.message_class == Class.RESPONSE:
-            self.__future.set_result((message, addr))
-        else:
-            self.__future.set_exception(exceptions.TransactionFailed(message))
+        if not self.__future.done():
+            if message.message_class == Class.RESPONSE:
+                self.__future.set_result((message, addr))
+            else:
+                self.__future.set_exception(exceptions.TransactionFailed(message))
 
     async def run(self):
         try:

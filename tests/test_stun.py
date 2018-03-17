@@ -3,7 +3,9 @@ import unittest
 from binascii import unhexlify
 from collections import OrderedDict
 
-from aioice import stun
+from aioice import exceptions, stun
+
+from .utils import run
 
 
 def read_message(name):
@@ -187,3 +189,31 @@ class MessageTest(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             stun.parse_message(b'123')
         self.assertEqual(str(cm.exception), 'STUN message length is less than 20 bytes')
+
+
+class TransactionTest(unittest.TestCase):
+    def setUp(self):
+        stun.RETRY_MAX = 0
+        stun.RETRY_RTO = 0
+
+    def tearDown(self):
+        stun.RETRY_MAX = 6
+        stun.RETRY_RTO = 0.5
+
+    def test_timeout(self):
+        class DummyProtocol:
+            def send_stun(self, message, address):
+                pass
+
+        request = stun.Message(message_method=stun.Method.BINDING,
+                               message_class=stun.Class.REQUEST)
+        transaction = stun.Transaction(request, ('127.0.0.1', 1234), DummyProtocol())
+
+        # timeout
+        with self.assertRaises(exceptions.TransactionTimeout):
+            run(transaction.run())
+
+        # receive response after timeout
+        response = stun.Message(message_method=stun.Method.BINDING,
+                                message_class=stun.Class.RESPONSE)
+        transaction.response_received(response, ('127.0.0.1', 1234))
