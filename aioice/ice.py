@@ -253,6 +253,7 @@ class Connection:
         self._id = next_connection_id()
         self._nominated = {}
         self._protocols = []
+        self._query_consent_handle = None
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
@@ -350,12 +351,15 @@ class Connection:
             raise ConnectionError
 
         # start consent freshness tests
-        asyncio.ensure_future(self.query_consent())
+        self._query_consent_handle = asyncio.ensure_future(self.query_consent())
 
     async def close(self):
         """
         Close the connection.
         """
+        if self._query_consent_handle and not self._query_consent_handle.done():
+            self._query_consent_handle.cancel()
+            self._query_consent_handle = None
         self._nominated.clear()
         for protocol in self._protocols:
             await protocol.close()
