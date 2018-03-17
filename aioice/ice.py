@@ -443,6 +443,19 @@ class Connection:
 
     # private
 
+    def build_request(self, pair):
+        tx_username = '%s:%s' % (self.remote_username, self.local_username)
+        request = stun.Message(message_method=stun.Method.BINDING,
+                               message_class=stun.Class.REQUEST)
+        request.attributes['USERNAME'] = tx_username
+        request.attributes['PRIORITY'] = candidate_priority(pair.component, 'prflx')
+        if self.ice_controlling:
+            request.attributes['ICE-CONTROLLING'] = self._tie_breaker
+            request.attributes['USE-CANDIDATE'] = None
+        else:
+            request.attributes['ICE-CONTROLLED'] = self._tie_breaker
+        return request
+
     def check_complete(self, pair):
         pair.handle = None
 
@@ -561,17 +574,7 @@ class Connection:
         """
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
-        tx_username = '%s:%s' % (self.remote_username, self.local_username)
-        request = stun.Message(message_method=stun.Method.BINDING,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['USERNAME'] = tx_username
-        request.attributes['PRIORITY'] = candidate_priority(pair.component, 'prflx')
-        if self.ice_controlling:
-            request.attributes['ICE-CONTROLLING'] = self._tie_breaker
-            request.attributes['USE-CANDIDATE'] = None
-        else:
-            request.attributes['ICE-CONTROLLED'] = self._tie_breaker
-
+        request = self.build_request(pair)
         try:
             response, addr = await pair.protocol.request(
                 request, pair.remote_addr,
@@ -680,12 +683,8 @@ class Connection:
             if not len(self._nominated):
                 break
 
-            tx_username = '%s:%s' % (self.remote_username, self.local_username)
             for pair in self._nominated.values():
-                request = stun.Message(message_method=stun.Method.BINDING,
-                                       message_class=stun.Class.REQUEST)
-                request.attributes['USERNAME'] = tx_username
-
+                request = self.build_request(pair)
                 try:
                     await pair.protocol.request(
                         request, pair.remote_addr,
