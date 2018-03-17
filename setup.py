@@ -10,7 +10,7 @@ with open(readme_file, encoding='utf-8') as f:
 
 setuptools.setup(
     name='aioice',
-    version='0.5.0',
+    version='0.5.1',
     description='An implementation of Interactive Connectivity Establishment (RFC 5245)',
     long_description=long_description,
     url='https://github.com/jlaine/aioice',
@@ -18,7 +18,7 @@ setuptools.setup(
     author_email='jeremy.laine@m4x.org',
     license='BSD',
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License',
