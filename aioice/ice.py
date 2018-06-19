@@ -301,6 +301,12 @@ class Connection:
             return
 
         self._remote_candidates.append(remote_candidate)
+        for protocol in self._protocols:
+            if (protocol.local_candidate.can_pair_with(remote_candidate) and
+               not self._find_pair(protocol, remote_candidate)):
+                pair = CandidatePair(protocol, remote_candidate)
+                self._check_list.append(pair)
+        self.sort_check_list()
 
     async def gather_candidates(self):
         """
@@ -339,7 +345,8 @@ class Connection:
         # 5.7.1. Forming Candidate Pairs
         for remote_candidate in self._remote_candidates:
             for protocol in self._protocols:
-                if protocol.local_candidate.can_pair_with(remote_candidate):
+                if (protocol.local_candidate.can_pair_with(remote_candidate) and
+                   not self._find_pair(protocol, remote_candidate)):
                     pair = CandidatePair(protocol, remote_candidate)
                     self._check_list.append(pair)
         self.sort_check_list()
@@ -591,6 +598,10 @@ class Connection:
             if pair.state == CandidatePair.State.FROZEN:
                 pair.handle = asyncio.ensure_future(self.check_start(pair))
                 return True
+
+        # if we expect more candidates, keep going
+        if not self._remote_candidates_end:
+            return not self._check_list_done
 
         return False
 
