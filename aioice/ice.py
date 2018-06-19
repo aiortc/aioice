@@ -227,14 +227,10 @@ class Connection:
                  turn_server=None, turn_username=None, turn_password=None,
                  use_ipv4=True, use_ipv6=False):
         self.ice_controlling = ice_controlling
-        #: Local candidates, automatically set by gather_candidates().
-        self.local_candidates = []
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
         #: Local password, automatically set to a random value.
         self.local_password = random_string(22)
-        #: Remote candidates, which you need to set.
-        self.remote_candidates = []
         #: Remote username, which you need to set.
         self.remote_username = None
         #: Remote password, which you need to set.
@@ -251,12 +247,32 @@ class Connection:
         self._check_list_state = asyncio.Queue()
         self._early_checks = []
         self._id = next_connection_id()
+        self._local_candidates = []
         self._nominated = {}
         self._protocols = []
+        self._remote_candidates = []
         self._query_consent_handle = None
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+
+    @property
+    def local_candidates(self):
+        """
+        Local candidates, automatically set by gather_candidates().
+        """
+        return self._local_candidates[:]
+
+    @property
+    def remote_candidates(self):
+        """
+        Remote candidates, which you need to set.
+        """
+        return self._remote_candidates[:]
+
+    @remote_candidates.setter
+    def remote_candidates(self, value):
+        self._remote_candidates = value
 
     async def gather_candidates(self):
         """
@@ -264,10 +280,10 @@ class Connection:
 
         You **must** call this coroutine calling connect().
         """
-        if not self.local_candidates:
+        if not self._local_candidates:
             addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
             for component in self._components:
-                self.local_candidates += await self.get_component_candidates(
+                self._local_candidates += await self.get_component_candidates(
                     component=component,
                     addresses=addresses)
 
@@ -275,7 +291,7 @@ class Connection:
         """
         Gets the default local candidate for the specified component.
         """
-        for candidate in sorted(self.local_candidates, key=lambda x: x.priority):
+        for candidate in sorted(self._local_candidates, key=lambda x: x.priority):
             if candidate.component == component:
                 return candidate
 
@@ -292,7 +308,7 @@ class Connection:
 
         # 5.7.1. Forming Candidate Pairs
         seen_components = set()
-        for remote_candidate in self.remote_candidates:
+        for remote_candidate in self._remote_candidates:
             for protocol in self._protocols:
                 if protocol.local_candidate.can_pair_with(remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
@@ -370,7 +386,7 @@ class Connection:
             await protocol.close()
         self._check_list.clear()
         self._protocols.clear()
-        self.local_candidates.clear()
+        self._local_candidates.clear()
 
     async def recv(self):
         """
@@ -443,7 +459,7 @@ class Connection:
 
         # find remote candidate
         remote_candidate = None
-        for c in self.remote_candidates:
+        for c in self._remote_candidates:
             if c.component == component and c.foundation == remote_foundation:
                 remote_candidate = c
 
@@ -520,7 +536,7 @@ class Connection:
 
         # find remote candidate
         remote_candidate = None
-        for c in self.remote_candidates:
+        for c in self._remote_candidates:
             if c.host == addr[0] and c.port == addr[1]:
                 remote_candidate = c
                 assert remote_candidate.component == component
@@ -535,7 +551,7 @@ class Connection:
                 host=addr[0],
                 port=addr[1],
                 type='prflx')
-            self.remote_candidates.append(remote_candidate)
+            self._remote_candidates.append(remote_candidate)
             self.__log_info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
 
         # find pair
