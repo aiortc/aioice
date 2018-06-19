@@ -1,7 +1,3 @@
-class ConnectionError(Exception):
-    pass
-
-
 class TransactionError(Exception):
     response = None
 
