@@ -259,7 +259,7 @@ class Connection:
     @property
     def local_candidates(self):
         """
-        Local candidates, automatically set by gather_candidates().
+        Local candidates, automatically set by :meth:`gather_candidates`.
         """
         return self._local_candidates[:]
 
@@ -278,7 +278,7 @@ class Connection:
         """
         Gather local candidates.
 
-        You **must** call this coroutine calling connect().
+        You **must** call this coroutine calling :meth:`connect`.
         """
         if not self._local_candidates:
             addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
@@ -447,7 +447,7 @@ class Connection:
         Force the selected candidate pair.
 
         If the remote party does not support ICE, you should using this
-        instead of calling connect().
+        instead of calling :meth:`connect`.
         """
         # find local candidate
         protocol = None
