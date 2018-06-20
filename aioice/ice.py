@@ -248,9 +248,12 @@ class Connection:
         self._early_checks = []
         self._id = next_connection_id()
         self._local_candidates = []
+        self._local_candidates_end = False
+        self._local_candidates_start = False
         self._nominated = {}
         self._protocols = []
         self._remote_candidates = []
+        self._remote_candidates_end = False
         self._query_consent_handle = None
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
@@ -272,7 +275,11 @@ class Connection:
 
     @remote_candidates.setter
     def remote_candidates(self, value):
+        if self._remote_candidates_end:
+            raise ValueError('Cannot set remote candidates after end-of-candidates.')
+
         self._remote_candidates = value
+        self._remote_candidates_end = True
 
     async def gather_candidates(self):
         """
@@ -280,12 +287,14 @@ class Connection:
 
         You **must** call this coroutine calling :meth:`connect`.
         """
-        if not self._local_candidates:
+        if not self._local_candidates_start:
+            self._local_candidates_start = True
             addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
             for component in self._components:
                 self._local_candidates += await self.get_component_candidates(
                     component=component,
                     addresses=addresses)
+            self._local_candidates_end = True
 
     def get_default_candidate(self, component):
         """

@@ -711,3 +711,11 @@ class IceConnectionTest(unittest.TestCase):
         with self.assertRaises(ConnectionError) as cm:
             run(conn_a.send(b'howdee'))
         self.assertEqual(str(cm.exception), 'Cannot send data, not connected')
+
+    def test_set_remote_candidates_twice(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.remote_candidates = []
+
+        with self.assertRaises(ValueError) as cm:
+            conn_a.remote_candidates = []
+        self.assertEqual(str(cm.exception), 'Cannot set remote candidates after end-of-candidates.')
