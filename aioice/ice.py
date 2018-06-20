@@ -271,9 +271,9 @@ class Connection:
         """
         Remote candidates, which you need to set.
 
-        Assigning :attribute:`remote_candidates` will automatically signal
-        end-of-candidates. If you will be adding more remote candidates in the
-        future, use the :meth:`add_remote_candidate` method instead.
+        Assigning this attribute will automatically signal end-of-candidates.
+        If you will be adding more remote candidates in the future, use the
+        :meth:`add_remote_candidate` method instead.
         """
         return self._remote_candidates[:]
 

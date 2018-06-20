@@ -6,6 +6,7 @@ API Reference
    .. autoclass:: Connection
       :members: local_candidates, local_username, local_password, remote_candidates, remote_username, remote_password
 
+      .. automethod:: add_remote_candidate
       .. autocomethod:: gather_candidates
       .. automethod:: get_default_candidate
       .. autocomethod:: connect
