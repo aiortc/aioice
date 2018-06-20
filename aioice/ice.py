@@ -560,11 +560,7 @@ class Connection:
             self.__log_info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
 
         # find pair
-        pair = None
-        for p in self._check_list:
-            if (p.protocol == protocol and p.remote_candidate == remote_candidate):
-                pair = p
-                break
+        pair = self._find_pair(protocol, remote_candidate)
         if pair is None:
             pair = CandidatePair(protocol, remote_candidate)
             pair.state = CandidatePair.State.WAITING
@@ -641,6 +637,15 @@ class Connection:
         """
         self.__log_info('Check %s %s -> %s' % (repr(pair), pair.state, state))
         pair.state = state
+
+    def _find_pair(self, protocol, remote_candidate):
+        """
+        Find a candidate pair in the check list.
+        """
+        for pair in self._check_list:
+            if (pair.protocol == protocol and pair.remote_candidate == remote_candidate):
+                return pair
+        return None
 
     async def get_component_candidates(self, component, addresses, timeout=5):
         candidates = []
