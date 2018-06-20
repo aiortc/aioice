@@ -712,10 +712,55 @@ class IceConnectionTest(unittest.TestCase):
             run(conn_a.send(b'howdee'))
         self.assertEqual(str(cm.exception), 'Cannot send data, not connected')
 
-    def test_set_remote_candidates_twice(self):
+    def test_add_remote_candidate(self):
         conn_a = ice.Connection(ice_controlling=True)
-        conn_a.remote_candidates = []
 
+        remote_candidate = Candidate(
+            foundation='some-foundation',
+            component=1,
+            transport='udp',
+            priority=1234,
+            host='1.2.3.4',
+            port=1234,
+            type='host')
+
+        # add candidate
+        conn_a.add_remote_candidate(remote_candidate)
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a._remote_candidates_end, False)
+
+        # end-of-candidates
+        conn_a.add_remote_candidate(None)
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a._remote_candidates_end, True)
+
+        # try adding another candidate
         with self.assertRaises(ValueError) as cm:
-            conn_a.remote_candidates = []
+            conn_a.add_remote_candidate(remote_candidate)
+        self.assertEqual(str(cm.exception), 'Cannot add remote candidate after end-of-candidates.')
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a._remote_candidates_end, True)
+
+    def test_set_remote_candidates(self):
+        conn_a = ice.Connection(ice_controlling=True)
+
+        remote_candidates = [Candidate(
+            foundation='some-foundation',
+            component=1,
+            transport='udp',
+            priority=1234,
+            host='1.2.3.4',
+            port=1234,
+            type='host')]
+
+        # set candidates
+        conn_a.remote_candidates = remote_candidates
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a._remote_candidates_end, True)
+
+        # try setting candidates again
+        with self.assertRaises(ValueError) as cm:
+            conn_a.remote_candidates = remote_candidates
         self.assertEqual(str(cm.exception), 'Cannot set remote candidates after end-of-candidates.')
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a._remote_candidates_end, True)

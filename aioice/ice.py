@@ -270,6 +270,10 @@ class Connection:
     def remote_candidates(self):
         """
         Remote candidates, which you need to set.
+
+        Assigning :attribute:`remote_candidates` will automatically signal
+        end-of-candidates. If you will be adding more remote candidates in the
+        future, use the :meth:`add_remote_candidate` method instead.
         """
         return self._remote_candidates[:]
 
@@ -278,8 +282,23 @@ class Connection:
         if self._remote_candidates_end:
             raise ValueError('Cannot set remote candidates after end-of-candidates.')
 
-        self._remote_candidates = value
+        self._remote_candidates = value[:]
         self._remote_candidates_end = True
+
+    def add_remote_candidate(self, remote_candidate):
+        """
+        Add a remote candidate or signal end-of-candidates.
+
+        To signal end-of-candidates, pass `None`.
+        """
+        if self._remote_candidates_end:
+            raise ValueError('Cannot add remote candidate after end-of-candidates.')
+
+        if remote_candidate is None:
+            self._remote_candidates_end = True
+            return
+
+        self._remote_candidates.append(remote_candidate)
 
     async def gather_candidates(self):
         """
