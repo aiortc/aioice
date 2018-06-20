@@ -283,6 +283,7 @@ class Connection:
             raise ValueError('Cannot set remote candidates after end-of-candidates.')
 
         self._remote_candidates = value[:]
+        self._prune_components()
         self._remote_candidates_end = True
 
     def add_remote_candidate(self, remote_candidate):
@@ -295,6 +296,7 @@ class Connection:
             raise ValueError('Cannot add remote candidate after end-of-candidates.')
 
         if remote_candidate is None:
+            self._prune_components()
             self._remote_candidates_end = True
             return
 
@@ -341,13 +343,6 @@ class Connection:
                     pair = CandidatePair(protocol, remote_candidate)
                     self._check_list.append(pair)
         self.sort_check_list()
-
-        # remove components which have no candidate pairs
-        seen_components = set(map(lambda x: x.component, self._check_list))
-        missing_components = self._components - seen_components
-        if missing_components:
-            self.__log_info('Components %s have no candidate pairs' % missing_components)
-            self._components = seen_components
 
         self._unfreeze_initial()
 
@@ -706,6 +701,18 @@ class Connection:
             candidates.append(protocol.local_candidate)
 
         return candidates
+
+    def _prune_components(self):
+        """
+        Remove components for which the remote party did not provide any candidates.
+
+        This can only be determined after end-of-candidates.
+        """
+        seen_components = set(map(lambda x: x.component, self._remote_candidates))
+        missing_components = self._components - seen_components
+        if missing_components:
+            self.__log_info('Components %s have no candidate pairs' % missing_components)
+            self._components = seen_components
 
     async def query_consent(self):
         """
