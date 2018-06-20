@@ -341,8 +341,6 @@ class Connection:
                     pair = CandidatePair(protocol, remote_candidate)
                     self._check_list.append(pair)
         self.sort_check_list()
-        if not self._check_list:
-            raise ConnectionError('No candidate pairs formed')
 
         # remove components which have no candidate pairs
         seen_components = set(map(lambda x: x.component, self._check_list))
@@ -351,25 +349,7 @@ class Connection:
             self.__log_info('Components %s have no candidate pairs' % missing_components)
             self._components = seen_components
 
-        # unfreeze first pair for the first component
-        first_component = min(self._components)
-        first_pair = None
-        for pair in self._check_list:
-            if pair.component == first_component:
-                first_pair = pair
-                break
-        assert first_pair is not None
-        if first_pair.state == CandidatePair.State.FROZEN:
-            self.check_state(first_pair, CandidatePair.State.WAITING)
-
-        # unfreeze pairs with same component but different foundations
-        seen_foundations = set(first_pair.local_candidate.foundation)
-        for pair in self._check_list:
-            if (pair.component == first_pair.component and
-               pair.local_candidate.foundation not in seen_foundations and
-               pair.state == CandidatePair.State.FROZEN):
-                self.check_state(pair, CandidatePair.State.WAITING)
-                seen_foundations.add(pair.local_candidate.foundation)
+        self._unfreeze_initial()
 
         # handle early checks
         for check in self._early_checks:
@@ -383,7 +363,10 @@ class Connection:
             await asyncio.sleep(0.02)
 
         # wait for completion
-        res = await self._check_list_state.get()
+        if self._check_list:
+            res = await self._check_list_state.get()
+        else:
+            res = ICE_FAILED
 
         # cancel remaining checks
         for check in self._check_list:
@@ -810,6 +793,27 @@ class Connection:
         self.__log_info('Switching to %s role', ice_controlling and 'controlling' or 'controlled')
         self.ice_controlling = ice_controlling
         self.sort_check_list()
+
+    def _unfreeze_initial(self):
+        # unfreeze first pair for the first component
+        first_pair = None
+        for pair in self._check_list:
+            if pair.component == min(self._components):
+                first_pair = pair
+                break
+        if first_pair is None:
+            return
+        if first_pair.state == CandidatePair.State.FROZEN:
+            self.check_state(first_pair, CandidatePair.State.WAITING)
+
+        # unfreeze pairs with same component but different foundations
+        seen_foundations = set(first_pair.local_candidate.foundation)
+        for pair in self._check_list:
+            if (pair.component == first_pair.component and
+               pair.local_candidate.foundation not in seen_foundations and
+               pair.state == CandidatePair.State.FROZEN):
+                self.check_state(pair, CandidatePair.State.WAITING)
+                seen_foundations.add(pair.local_candidate.foundation)
 
     def __log_info(self, msg, *args):
         logger.info(repr(self) + ' ' + msg, *args)
