@@ -398,6 +398,7 @@ class IceConnectionTest(unittest.TestCase):
         If local candidates have not been gathered, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
+        conn._local_candidates_end = True
         conn.remote_candidates = [Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
@@ -412,11 +413,11 @@ class IceConnectionTest(unittest.TestCase):
         """
         conn = ice.Connection(ice_controlling=True)
         run(conn.gather_candidates())
+        conn.remote_candidates = []
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(ConnectionError) as cm:
+        with self.assertRaises(ConnectionError):
             run(conn.connect())
-        self.assertEqual(str(cm.exception), 'No candidate pairs formed')
         run(conn.close())
 
     def test_connect_no_remote_credentials(self):
