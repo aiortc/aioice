@@ -306,7 +306,7 @@ class Connection:
         """
         Gather local candidates.
 
-        You **must** call this coroutine calling :meth:`connect`.
+        You **must** call this coroutine before calling :meth:`connect`.
         """
         if not self._local_candidates_start:
             self._local_candidates_start = True
