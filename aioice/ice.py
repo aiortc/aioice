@@ -338,6 +338,9 @@ class Connection:
         This coroutine returns if a candidate pair was successfuly nominated
         and raises an exception otherwise.
         """
+        if not self._local_candidates_end:
+            raise ConnectionError('Local candidates gathering was not performed')
+
         if (self.remote_username is None or
            self.remote_password is None):
             raise ConnectionError('Remote username or password is missing')
@@ -376,7 +379,7 @@ class Connection:
                 check.handle.cancel()
 
         if res != ICE_COMPLETED:
-            raise ConnectionError
+            raise ConnectionError('ICE negotiation failed')
 
         # start consent freshness tests
         self._query_consent_handle = asyncio.ensure_future(self.query_consent())

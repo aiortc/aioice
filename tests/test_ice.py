@@ -393,9 +393,23 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    def test_connect_no_gather(self):
+        """
+        If local candidates gathering was not performed, connect fails.
+        """
+        conn = ice.Connection(ice_controlling=True)
+        conn.remote_candidates = [Candidate.from_sdp(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
+        conn.remote_username = 'foo'
+        conn.remote_password = 'bar'
+        with self.assertRaises(ConnectionError) as cm:
+            run(conn.connect())
+        self.assertEqual(str(cm.exception), 'Local candidates gathering was not performed')
+        run(conn.close())
+
     def test_connect_no_local_candidates(self):
         """
-        If local candidates have not been gathered, connect fails.
+        If local candidates gathering yielded no candidates, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
         conn._local_candidates_end = True
@@ -403,21 +417,23 @@ class IceConnectionTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(ConnectionError):
+        with self.assertRaises(ConnectionError) as cm:
             run(conn.connect())
+        self.assertEqual(str(cm.exception), 'ICE negotiation failed')
         run(conn.close())
 
     def test_connect_no_remote_candidates(self):
         """
-        If remote candidates have not been provided, connect fails.
+        If no remote candidates were provided, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
         run(conn.gather_candidates())
         conn.remote_candidates = []
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(ConnectionError):
+        with self.assertRaises(ConnectionError) as cm:
             run(conn.connect())
+        self.assertEqual(str(cm.exception), 'ICE negotiation failed')
         run(conn.close())
 
     def test_connect_no_remote_credentials(self):
@@ -483,8 +499,9 @@ class IceConnectionTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')]
         conn.remote_username = 'foo'
         conn.remote_password = 'bar'
-        with self.assertRaises(ConnectionError):
+        with self.assertRaises(ConnectionError) as cm:
             run(conn.connect())
+        self.assertEqual(str(cm.exception), 'ICE negotiation failed')
         run(conn.close())
 
     def test_connect_with_stun_server(self):
