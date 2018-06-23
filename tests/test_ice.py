@@ -807,3 +807,9 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(str(cm.exception), 'Cannot set remote candidates after end-of-candidates.')
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
+
+
+class StunProtocolTest(unittest.TestCase):
+    def test_error_received(self):
+        protocol = ice.StunProtocol(None)
+        protocol.error_received(OSError('foo'))
