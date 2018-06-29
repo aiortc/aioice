@@ -146,7 +146,7 @@ class StunProtocol(asyncio.DatagramProtocol):
 
         try:
             message = stun.parse_message(data)
-            self.__log_debug('< %s %s', addr, repr(message))
+            self.__log_debug('< %s %s', addr, message)
         except ValueError:
             self.__log_debug('< %s DATA %d', addr, len(data))
             coro = self.queue.put(data)
@@ -199,11 +199,11 @@ class StunProtocol(asyncio.DatagramProtocol):
         """
         Send a STUN message.
         """
-        self.__log_debug('> %s %s', addr, repr(message))
+        self.__log_debug('> %s %s', addr, message)
         self.transport.sendto(bytes(message), addr)
 
     def __log_debug(self, msg, *args):
-        logger.debug(repr(self.receiver) + ' ' + repr(self) + ' ' + msg, *args)
+        logger.debug('%s %s ' + msg, self.receiver, self, *args)
 
     def __repr__(self):
         return 'protocol(%s)' % self.id
@@ -567,7 +567,7 @@ class Connection:
                 port=addr[1],
                 type='prflx')
             self._remote_candidates.append(remote_candidate)
-            self.__log_info('Discovered peer reflexive candidate %s' % repr(remote_candidate))
+            self.__log_info('Discovered peer reflexive candidate %s', remote_candidate)
 
         # find pair
         pair = self._find_pair(protocol, remote_candidate)
@@ -634,7 +634,7 @@ class Connection:
 
         # check remote address matches
         if addr != pair.remote_addr:
-            self.__log_info('Check %s failed : source address mismatch' % repr(pair))
+            self.__log_info('Check %s failed : source address mismatch', pair)
             self.check_state(pair, CandidatePair.State.FAILED)
             self.check_complete(pair)
             return
@@ -649,7 +649,7 @@ class Connection:
         """
         Updates the state of a check.
         """
-        self.__log_info('Check %s %s -> %s' % (repr(pair), pair.state, state))
+        self.__log_info('Check %s %s -> %s', pair, pair.state, state)
         pair.state = state
 
     def _find_pair(self, protocol, remote_candidate):
@@ -842,7 +842,7 @@ class Connection:
                 seen_foundations.add(pair.local_candidate.foundation)
 
     def __log_info(self, msg, *args):
-        logger.info(repr(self) + ' ' + msg, *args)
+        logger.info('%s ' + msg, self, *args)
 
     def __repr__(self):
         return 'Connection(%s)' % self._id

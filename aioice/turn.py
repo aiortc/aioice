@@ -25,7 +25,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         self.username = username
 
     def connection_made(self, transport):
-        logger.debug('%s connection_made(%s)', repr(self), transport)
+        logger.debug('%s connection_made(%s)', self, transport)
         self.transport = transport
 
     async def channel_bind(self, channel_number, addr):
@@ -35,7 +35,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         request.attributes['XOR-PEER-ADDRESS'] = addr
         self.__add_authentication(request)
         await self.request(request, self.server)
-        logger.info('TURN channel bound %d %s' % (channel_number, repr(addr)))
+        logger.info('TURN channel bound %d %s', channel_number, addr)
 
     async def connect(self):
         """
@@ -63,7 +63,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
                 response, _ = await self.request(request, self.server)
 
         relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
-        logger.info('TURN allocation created %s' % repr(relayed_address))
+        logger.info('TURN allocation created %s', relayed_address)
 
         # periodically refresh allocation
         self.refresh_handle = asyncio.ensure_future(self.refresh())
@@ -114,7 +114,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
 
         try:
             message = stun.parse_message(data)
-            logger.debug('%s < %s %s', repr(self), addr, repr(message))
+            logger.debug('%s < %s %s', self, addr, message)
         except ValueError:
             return
 
@@ -154,7 +154,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         """
         Send a STUN message.
         """
-        logger.debug('%s > %s %s', repr(self), addr, repr(message))
+        logger.debug('%s > %s %s', self, addr, message)
         self.transport.sendto(bytes(message), addr)
 
     def __add_authentication(self, request):
