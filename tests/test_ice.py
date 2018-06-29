@@ -103,6 +103,7 @@ class IceComponentTest(unittest.TestCase):
             host='2.3.4.5',
             port=2345,
             type='host'))
+        self.assertEqual(repr(pair), "CandidatePair(('1.2.3.4', 1234) -> ('2.3.4.5', 2345))")
 
         run(connection.check_start(pair))
         self.assertEqual(pair.state, ice.CandidatePair.State.FAILED)
@@ -808,8 +809,18 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
 
+    def test_repr(self):
+        conn = ice.Connection(ice_controlling=True)
+        conn._id = 1
+        self.assertEqual(repr(conn), 'Connection(1)')
+
 
 class StunProtocolTest(unittest.TestCase):
     def test_error_received(self):
         protocol = ice.StunProtocol(None)
         protocol.error_received(OSError('foo'))
+
+    def test_repr(self):
+        protocol = ice.StunProtocol(None)
+        protocol.id = 1
+        self.assertEqual(repr(protocol), 'protocol(1)')

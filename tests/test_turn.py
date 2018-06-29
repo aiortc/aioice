@@ -20,6 +20,12 @@ class DummyClientProtocol(asyncio.DatagramProtocol):
         self.received_addr = addr
 
 
+class TurnClientProtocolTest(unittest.TestCase):
+    def test_repr(self):
+        protocol = turn.TurnClientProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
+        self.assertEqual(repr(protocol), 'turn')
+
+
 class TurnTest(unittest.TestCase):
     def setUp(self):
         # create turn server

@@ -113,6 +113,9 @@ class MessageTest(unittest.TestCase):
         self.assertEqual(message.attributes, OrderedDict())
 
         self.assertEqual(bytes(message), data)
+        self.assertEqual(repr(message),
+                         "Message(message_method=Method.BINDING, message_class=Class.REQUEST, "
+                         "transaction_id=b'Nvfx3lU7FUBF')")
 
     def test_binding_request_ice_controlled(self):
         data = read_message('binding_request_ice_controlled.bin')
