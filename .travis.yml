@@ -16,6 +16,7 @@ matrix:
     os: osx
   - python: "3.5"
   - python: "3.6"
+  - python: "3.7-dev"
   - python: "pypy3"
 script:
   - flake8 aioice examples tests
