@@ -8,7 +8,7 @@ install:
       python3 -m venv env
       source env/bin/activate
     fi
-  - pip install coveralls flake8 netifaces
+  - pip3 install coveralls flake8 netifaces
 language: python
 matrix:
   include:
@@ -18,6 +18,17 @@ matrix:
   - python: "3.6"
   - python: "3.7-dev"
   - python: "pypy3"
+  - env: BUILD=sdist
+    python: "3.6"
 script:
-  - flake8 aioice examples tests
-  - coverage run setup.py test
+  - |
+    if [ "$BUILD" = "sdist" ]; then
+      python3 setup.py sdist bdist_wheel
+      if [ -n "$TRAVIS_TAG" ]; then
+        pip3 install twine
+        python3 -m twine upload --skip-existing dist/*
+      fi
+    else
+      flake8 aioice examples tests
+      coverage run setup.py test
+    fi
