@@ -754,6 +754,7 @@ class Connection:
                     failures += 1
                 if failures >= CONSENT_FAILURES:
                     self.__log_info('Consent to send expired')
+                    self._query_consent_handle = None
                     return await self.close()
 
     def request_received(self, message, addr, protocol, raw_data):
