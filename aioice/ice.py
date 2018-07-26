@@ -225,7 +225,7 @@ class Connection:
     def __init__(self, ice_controlling, components=1,
                  stun_server=None,
                  turn_server=None, turn_username=None, turn_password=None,
-                 use_ipv4=True, use_ipv6=False):
+                 use_ipv4=True, use_ipv6=True):
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
