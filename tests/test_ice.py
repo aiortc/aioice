@@ -809,6 +809,17 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
 
+    @mock.patch('asyncio.base_events.BaseEventLoop.create_datagram_endpoint')
+    def test_gather_candidates_oserror(self, mock_create):
+        exc = OSError()
+        exc.errno = 99
+        exc.strerror = 'Cannot assign requested address'
+        mock_create.side_effect = exc
+
+        conn = ice.Connection(ice_controlling=True)
+        run(conn.gather_candidates())
+        self.assertEqual(conn.local_candidates, [])
+
     def test_repr(self):
         conn = ice.Connection(ice_controlling=True)
         conn._id = 1

@@ -671,9 +671,13 @@ class Connection:
         loop = asyncio.get_event_loop()
         for address in addresses:
             # create transport
-            _, protocol = await loop.create_datagram_endpoint(
-                lambda: StunProtocol(self),
-                local_addr=(address, 0))
+            try:
+                _, protocol = await loop.create_datagram_endpoint(
+                    lambda: StunProtocol(self),
+                    local_addr=(address, 0))
+            except OSError as exc:
+                self.__log_info('Could not bind to %s - %s', address, exc)
+                continue
             self._protocols.append(protocol)
 
             # add host candidate
