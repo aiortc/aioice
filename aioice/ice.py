@@ -252,6 +252,7 @@ class Connection:
         self._local_candidates_start = False
         self._nominated = {}
         self._protocols = []
+        self._received = []
         self._remote_candidates = []
         self._remote_candidates_end = False
         self._query_consent_handle = None
@@ -427,15 +428,18 @@ class Connection:
         if not len(self._nominated):
             raise ConnectionError('Cannot receive data, not connected')
 
-        fs = [protocol.recv_data() for protocol in self._protocols]
-        done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        assert len(done) == 1
-        result = done.pop().result()
-        if result[0] is None:
-            raise ConnectionError('Connection lost while receiving data')
-        return result
+        if not self._received:
+            fs = [protocol.recv_data() for protocol in self._protocols]
+            done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            for task in done:
+                result = task.result()
+                if result[0] is None:
+                    raise ConnectionError('Connection lost while receiving data')
+                self._received.append(result)
+
+        return self._received.pop(0)
 
     async def send(self, data):
         """
