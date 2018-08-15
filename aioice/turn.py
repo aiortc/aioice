@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import logging
-import socket
 import struct
 
 from . import exceptions, stun
@@ -10,10 +9,11 @@ from .utils import random_transaction_id
 logger = logging.getLogger('turn')
 
 
-class TurnClientProtocol(asyncio.DatagramProtocol):
+class TurnClientMixin:
     def __init__(self, server, username, password, lifetime):
         self.channels = {}
         self.channel_number = 0x4000
+        self.integrity_key = None
         self.lifetime = lifetime
         self.nonce = None
         self.password = password
@@ -24,17 +24,12 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         self.transactions = {}
         self.username = username
 
-    def connection_made(self, transport):
-        logger.debug('%s connection_made(%s)', self, transport)
-        self.transport = transport
-
     async def channel_bind(self, channel_number, addr):
         request = stun.Message(message_method=stun.Method.CHANNEL_BIND,
                                message_class=stun.Class.REQUEST)
         request.attributes['CHANNEL-NUMBER'] = channel_number
         request.attributes['XOR-PEER-ADDRESS'] = addr
-        self.__add_authentication(request)
-        await self.request(request, self.server)
+        await self.request(request)
         logger.info('TURN channel bound %d %s', channel_number, addr)
 
     async def connect(self):
@@ -47,7 +42,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         request.attributes['REQUESTED-TRANSPORT'] = 0x11000000
 
         try:
-            response, _ = await self.request(request, self.server)
+            response, _ = await self.request(request)
         except exceptions.TransactionFailed as e:
             response = e.response
             if response.attributes['ERROR-CODE'][0] == 401:
@@ -59,8 +54,7 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
 
                 # retry request with authentication
                 request.transaction_id = random_transaction_id()
-                self.__add_authentication(request)
-                response, _ = await self.request(request, self.server)
+                response, _ = await self.request(request)
 
         relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
         logger.info('TURN allocation created %s', relayed_address)
@@ -70,40 +64,13 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
 
         return relayed_address
 
-    async def refresh(self):
-        """
-        Periodically refresh the TURN allocation.
-        """
-        while True:
-            await asyncio.sleep(5/6 * self.lifetime)
-
-            request = stun.Message(message_method=stun.Method.REFRESH,
-                                   message_class=stun.Class.REQUEST)
-            request.attributes['LIFETIME'] = self.lifetime
-            self.__add_authentication(request)
-            await self.request(request, self.server)
-
-    async def release(self):
-        """
-        Releases the TURN allocation.
-        """
-        if self.refresh_handle:
-            self.refresh_handle.cancel()
-            self.refresh_handle = None
-
-        request = stun.Message(message_method=stun.Method.REFRESH,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['LIFETIME'] = 0
-        self.__add_authentication(request)
-        await self.request(request, self.server)
-
-        logger.info('TURN allocation released')
-        if self.receiver:
-            self.receiver.connection_lost(None)
+    def connection_made(self, transport):
+        logger.debug('%s connection_made(%s)', self, transport)
+        self.transport = transport
 
     def datagram_received(self, data, addr):
         # demultiplex channel data
-        if len(data) >= 4 and (data[0]) & 0xc0 == 0x40:
+        if len(data) >= 4 and (data[0] & 0xc0) == 0x40:
             channel, length = struct.unpack('!HH', data[0:4])
             if len(data) >= length + 4 and self.receiver:
                 for channel_addr, channel_number in self.channels.items():
@@ -124,13 +91,45 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
 
-    async def request(self, request, addr):
+    async def refresh(self):
+        """
+        Periodically refresh the TURN allocation.
+        """
+        while True:
+            await asyncio.sleep(5/6 * self.lifetime)
+
+            request = stun.Message(message_method=stun.Method.REFRESH,
+                                   message_class=stun.Class.REQUEST)
+            request.attributes['LIFETIME'] = self.lifetime
+            await self.request(request)
+
+    async def release(self):
+        """
+        Releases the TURN allocation.
+        """
+        if self.refresh_handle:
+            self.refresh_handle.cancel()
+            self.refresh_handle = None
+
+        request = stun.Message(message_method=stun.Method.REFRESH,
+                               message_class=stun.Class.REQUEST)
+        request.attributes['LIFETIME'] = 0
+        await self.request(request)
+
+        logger.info('TURN allocation released')
+        if self.receiver:
+            self.receiver.connection_lost(None)
+
+    async def request(self, request):
         """
         Execute a STUN transaction and return the response.
         """
         assert request.transaction_id not in self.transactions
 
-        transaction = stun.Transaction(request, addr, self)
+        if self.integrity_key:
+            self.__add_authentication(request)
+
+        transaction = stun.Transaction(request, self.server, self)
         self.transactions[request.transaction_id] = transaction
         try:
             return await transaction.run()
@@ -138,6 +137,9 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
             del self.transactions[request.transaction_id]
 
     async def send_data(self, data, addr):
+        """
+        Send data to a remote host via the TURN server.
+        """
         channel = self.channels.get(addr)
         if channel is None:
             channel = self.channel_number
@@ -148,14 +150,14 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
             await self.channel_bind(channel, addr)
 
         header = struct.pack('!HH', channel, len(data))
-        self.transport.sendto(header + data, self.server)
+        self._send(header + data)
 
     def send_stun(self, message, addr):
         """
-        Send a STUN message.
+        Send a STUN message to the TURN server.
         """
         logger.debug('%s > %s %s', self, addr, message)
-        self.transport.sendto(bytes(message), addr)
+        self._send(bytes(message))
 
     def __add_authentication(self, request):
         request.attributes['USERNAME'] = self.username
@@ -164,8 +166,30 @@ class TurnClientProtocol(asyncio.DatagramProtocol):
         request.add_message_integrity(self.integrity_key)
         request.add_fingerprint()
 
+
+class TurnClientTcpProtocol(TurnClientMixin, asyncio.Protocol):
+    """
+    Protocol for handling TURN over TCP.
+    """
+    def data_received(self, data):
+        self.datagram_received(data, self.server)
+
+    def _send(self, data):
+        self.transport.write(data)
+
     def __repr__(self):
-        return 'turn'
+        return 'turn/tcp'
+
+
+class TurnClientUdpProtocol(TurnClientMixin, asyncio.DatagramProtocol):
+    """
+    Protocol for handling TURN over UDP.
+    """
+    def _send(self, data):
+        self.transport.sendto(data)
+
+    def __repr__(self):
+        return 'turn/udp'
 
 
 class TurnTransport:
@@ -210,17 +234,27 @@ class TurnTransport:
         self.protocol.connection_made(self)
 
 
-async def create_turn_endpoint(protocol_factory, server_addr, username, password, lifetime=600):
+async def create_turn_endpoint(protocol_factory, server_addr, username, password,
+                               lifetime=600, transport='udp'):
     """
     Create datagram connection relayed over TURN.
     """
     loop = asyncio.get_event_loop()
-    _, inner_protocol = await loop.create_datagram_endpoint(
-        lambda: TurnClientProtocol(server_addr,
-                                   username=username,
-                                   password=password,
-                                   lifetime=lifetime),
-        family=socket.AF_INET)
+    if transport == 'tcp':
+        _, inner_protocol = await loop.create_connection(
+            lambda: TurnClientTcpProtocol(server_addr,
+                                          username=username,
+                                          password=password,
+                                          lifetime=lifetime),
+            host=server_addr[0],
+            port=server_addr[1])
+    else:
+        _, inner_protocol = await loop.create_datagram_endpoint(
+            lambda: TurnClientUdpProtocol(server_addr,
+                                          username=username,
+                                          password=password,
+                                          lifetime=lifetime),
+            remote_addr=server_addr)
 
     protocol = protocol_factory()
     transport = TurnTransport(protocol, inner_protocol)

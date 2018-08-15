@@ -4,7 +4,7 @@ import unittest
 
 from aioice import turn
 
-from .turnserver import TurnServerProtocol
+from .turnserver import TurnServerUdpProtocol
 from .utils import run
 
 
@@ -20,10 +20,16 @@ class DummyClientProtocol(asyncio.DatagramProtocol):
         self.received_addr = addr
 
 
-class TurnClientProtocolTest(unittest.TestCase):
+class TurnClientTcpProtocolTest(unittest.TestCase):
     def test_repr(self):
-        protocol = turn.TurnClientProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
-        self.assertEqual(repr(protocol), 'turn')
+        protocol = turn.TurnClientTcpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
+        self.assertEqual(repr(protocol), 'turn/tcp')
+
+
+class TurnClientUdpProtocolTest(unittest.TestCase):
+    def test_repr(self):
+        protocol = turn.TurnClientUdpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
+        self.assertEqual(repr(protocol), 'turn/udp')
 
 
 class TurnTest(unittest.TestCase):
@@ -31,7 +37,7 @@ class TurnTest(unittest.TestCase):
         # create turn server
         loop = asyncio.get_event_loop()
         transport, protocol = run(loop.create_datagram_endpoint(
-            lambda: TurnServerProtocol(realm='test', users={'foo': 'bar'}),
+            lambda: TurnServerUdpProtocol(realm='test', users={'foo': 'bar'}),
             local_addr=('127.0.0.1', 0),
             family=socket.AF_INET))
         self.server = protocol

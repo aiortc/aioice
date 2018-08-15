@@ -9,7 +9,7 @@ from aioice.utils import random_string
 logger = logging.getLogger('turn')
 
 
-class TurnServerProtocol(asyncio.DatagramProtocol):
+class TurnServerMixin:
     def __init__(self, realm, users={}):
         self.realm = realm
         self.users = users
@@ -19,17 +19,17 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         # demultiplex channel data
-        if len(data) >= 4 and (data[0]) & 0xc0 == 0x40:
+        if len(data) >= 4 and (data[0] & 0xc0) == 0x40:
             channel, length = struct.unpack('!HH', data[0:4])
             assert len(data) >= length + 4
 
             # echo test
             if data[4:] == b'ping':
                 response = b'pong'
-                self.transport.sendto(struct.pack('!HH', channel, len(response)) + response, addr)
+                self._send(struct.pack('!HH', channel, len(response)) + response, addr)
 
             # send back some junk too
-            self.transport.sendto(b'\x00\x00', addr)
+            self._send(b'\x00\x00', addr)
             return
 
         try:
@@ -47,7 +47,7 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
             response.attributes['ERROR-CODE'] = (401, 'Unauthorized')
             response.attributes['NONCE'] = random_string(16).encode('ascii')
             response.attributes['REALM'] = self.realm
-            self.transport.sendto(bytes(response), addr)
+            self._send(bytes(response), addr)
             return
 
         # check credentials
@@ -70,7 +70,7 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
             response.attributes['XOR-RELAYED-ADDRESS'] = ('1.2.3.4', 1234)
             response.add_message_integrity(integrity_key)
             response.add_fingerprint()
-            self.transport.sendto(bytes(response), addr)
+            self._send(bytes(response), addr)
         elif message.message_method == stun.Method.REFRESH:
             response = stun.Message(
                 message_method=message.message_method,
@@ -79,7 +79,7 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
             response.attributes['LIFETIME'] = message.attributes['LIFETIME']
             response.add_message_integrity(integrity_key)
             response.add_fingerprint()
-            self.transport.sendto(bytes(response), addr)
+            self._send(bytes(response), addr)
         elif message.message_method == stun.Method.CHANNEL_BIND:
             response = stun.Message(
                 message_method=message.message_method,
@@ -87,4 +87,18 @@ class TurnServerProtocol(asyncio.DatagramProtocol):
                 transaction_id=message.transaction_id)
             response.add_message_integrity(integrity_key)
             response.add_fingerprint()
-            self.transport.sendto(bytes(response), addr)
+            self._send(bytes(response), addr)
+
+
+class TurnServerTcpProtocol(TurnServerMixin, asyncio.Protocol):
+    def data_received(self, data):
+        addr = self.transport.get_extra_info('peername')
+        self.datagram_received(data, addr)
+
+    def _send(self, data, addr):
+        self.transport.write(data)
+
+
+class TurnServerUdpProtocol(TurnServerMixin, asyncio.DatagramProtocol):
+    def _send(self, data, addr):
+        self.transport.sendto(data, addr)

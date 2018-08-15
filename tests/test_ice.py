@@ -6,7 +6,7 @@ from unittest import mock
 
 from aioice import Candidate, ice, stun
 
-from .turnserver import TurnServerProtocol
+from .turnserver import TurnServerTcpProtocol, TurnServerUdpProtocol
 from .utils import invite_accept, run
 
 
@@ -607,7 +607,7 @@ class IceConnectionTest(unittest.TestCase):
         # start turn server
         loop = asyncio.get_event_loop()
         transport, turn_server = run(loop.create_datagram_endpoint(
-            lambda: TurnServerProtocol(realm='test', users={'foo': 'bar'}),
+            lambda: TurnServerUdpProtocol(realm='test', users={'foo': 'bar'}),
             local_addr=('127.0.0.1', 0),
             family=socket.AF_INET))
         turn_server_addr = transport.get_extra_info('sockname')
@@ -648,6 +648,53 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
         turn_server.transport.close()
+
+    def test_connect_with_turn_server_tcp(self):
+        # start turn server
+        loop = asyncio.get_event_loop()
+        turn_server = run(loop.create_server(
+            lambda: TurnServerTcpProtocol(realm='test', users={'foo': 'bar'}),
+            host='127.0.0.1'))
+        turn_server_addr = turn_server.sockets[0].getsockname()
+
+        # create connections
+        conn_a = ice.Connection(ice_controlling=True,
+                                turn_server=turn_server_addr,
+                                turn_username='foo',
+                                turn_password='bar',
+                                turn_transport='tcp')
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # we whould have both host and relayed candidates
+        self.assertCandidateTypes(conn_a, set(['host', 'relay']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # the default candidate should be relayed
+        candidate = conn_a.get_default_candidate(1)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, 'relay')
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data a -> b
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+        turn_server.close()
+        run(turn_server.wait_closed())
 
     def test_consent_expired(self):
         # lower consent timer

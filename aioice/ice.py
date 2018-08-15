@@ -224,7 +224,7 @@ class Connection:
     """
     def __init__(self, ice_controlling, components=1,
                  stun_server=None,
-                 turn_server=None, turn_username=None, turn_password=None,
+                 turn_server=None, turn_username=None, turn_password=None, turn_transport='udp',
                  use_ipv4=True, use_ipv6=True):
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
@@ -239,6 +239,7 @@ class Connection:
         self.turn_server = turn_server
         self.turn_username = turn_username
         self.turn_password = turn_password
+        self.turn_transport = turn_transport
 
         # private
         self._components = set(range(1, components + 1))
@@ -712,15 +713,16 @@ class Connection:
                 lambda: StunProtocol(self),
                 server_addr=self.turn_server,
                 username=self.turn_username,
-                password=self.turn_password)
+                password=self.turn_password,
+                transport=self.turn_transport)
             self._protocols.append(protocol)
 
             # add relayed candidate
             candidate_address = protocol.transport.get_extra_info('sockname')
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
+                foundation=candidate_foundation('relay', self.turn_transport, candidate_address[0]),
                 component=component,
-                transport='udp',
+                transport=self.turn_transport,
                 priority=candidate_priority(component, 'relay'),
                 host=candidate_address[0],
                 port=candidate_address[1],
