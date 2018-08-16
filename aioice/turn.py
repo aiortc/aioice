@@ -9,6 +9,11 @@ from .utils import random_transaction_id
 logger = logging.getLogger('turn')
 
 
+def make_integrity_key(username, realm, password):
+    return hashlib.md5(
+            ':'.join([username, realm, password]).encode('utf8')).digest()
+
+
 class TurnClientMixin:
     def __init__(self, server, username, password, lifetime):
         self.channels = {}
@@ -49,8 +54,7 @@ class TurnClientMixin:
                 # update long-term credentials
                 self.nonce = response.attributes['NONCE']
                 self.realm = response.attributes['REALM']
-                self.integrity_key = hashlib.md5(
-                    ':'.join([self.username, self.realm, self.password]).encode('utf8')).digest()
+                self.integrity_key = make_integrity_key(self.username, self.realm, self.password)
 
                 # retry request with authentication
                 request.transaction_id = random_transaction_id()

@@ -1,10 +1,9 @@
 import asyncio
-import socket
 import unittest
 
 from aioice import turn
 
-from .turnserver import TurnServerUdpProtocol
+from .turnserver import TurnServer
 from .utils import run
 
 
@@ -34,25 +33,26 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
 
 class TurnTest(unittest.TestCase):
     def setUp(self):
-        # create turn server
-        loop = asyncio.get_event_loop()
-        transport, protocol = run(loop.create_datagram_endpoint(
-            lambda: TurnServerUdpProtocol(realm='test', users={'foo': 'bar'}),
-            local_addr=('127.0.0.1', 0),
-            family=socket.AF_INET))
-        self.server = protocol
-        self.server_addr = transport.get_extra_info('sockname')
+        self.server = TurnServer(realm='test', users={'foo': 'bar'})
+        run(self.server.listen())
 
     def tearDown(self):
-        self.server.transport.close()
+        run(self.server.close())
 
-    def test_transport(self):
+    def test_tcp_transport(self):
+        self._test_transport('tcp', self.server.tcp_addr)
+
+    def test_udp_transport(self):
+        self._test_transport('udp', self.server.udp_addr)
+
+    def _test_transport(self, transport, server_addr):
         transport, protocol = run(turn.create_turn_endpoint(
             DummyClientProtocol,
-            server_addr=self.server_addr,
+            server_addr=server_addr,
             username='foo',
             password='bar',
-            lifetime=6))
+            lifetime=6,
+            transport=transport))
         self.assertEqual(transport.get_extra_info('peername'), None)
         self.assertEqual(transport.get_extra_info('sockname'), ('1.2.3.4', 1234))
         run(asyncio.sleep(10))
