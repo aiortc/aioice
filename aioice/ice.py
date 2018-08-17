@@ -398,10 +398,13 @@ class Connection:
             except asyncio.CancelledError:
                 pass
 
+        # stop check list
+        if self._check_list and not self._check_list_done:
+            await self._check_list_state.put(ICE_FAILED)
+
         self._nominated.clear()
         for protocol in self._protocols:
             await protocol.close()
-        self._check_list.clear()
         self._protocols.clear()
         self._local_candidates.clear()
 
