@@ -239,10 +239,10 @@ class TurnServer:
             lambda: TurnServerTcpProtocol(server=self),
             host='127.0.0.1',
             port=port)
-        self.tcp_addr = self.tcp_server.sockets[0].getsockname()
+        self.tcp_address = self.tcp_server.sockets[0].getsockname()
 
         # listen for UDP
         transport, self.udp_server = await loop.create_datagram_endpoint(
             lambda: TurnServerUdpProtocol(server=self),
             local_addr=('127.0.0.1', port))
-        self.udp_addr = transport.get_extra_info('sockname')
+        self.udp_address = transport.get_extra_info('sockname')

@@ -78,10 +78,10 @@ class TurnTest(unittest.TestCase):
         self.ping_server.transport.close()
 
     def test_tcp_transport(self):
-        self._test_transport('tcp', self.turn_server.tcp_addr)
+        self._test_transport('tcp', self.turn_server.tcp_address)
 
     def test_udp_transport(self):
-        self._test_transport('udp', self.turn_server.udp_addr)
+        self._test_transport('udp', self.turn_server.udp_address)
 
     def _test_transport(self, transport, server_addr):
         transport, protocol = run(turn.create_turn_endpoint(

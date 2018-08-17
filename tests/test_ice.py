@@ -6,6 +6,7 @@ from unittest import mock
 
 from aioice import Candidate, ice, stun
 
+from .stunserver import StunServer
 from .turnserver import TurnServer
 from .utils import invite_accept, run
 
@@ -518,9 +519,11 @@ class IceConnectionTest(unittest.TestCase):
         run(conn.close())
 
     def test_connect_with_stun_server(self):
-        stun_server = ('stun.l.google.com', 19302)
+        # start turn server
+        stun_server = StunServer()
+        run(stun_server.listen())
 
-        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server)
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.address)
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
@@ -551,11 +554,15 @@ class IceConnectionTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
+        run(stun_server.close())
 
     def test_connect_with_stun_server_timeout(self):
-        stun_server = ('1.2.3.4', 19302)
+        # start and immediately stop turn server
+        stun_server = StunServer()
+        run(stun_server.listen())
+        run(stun_server.close())
 
-        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server)
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.address)
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
@@ -584,9 +591,11 @@ class IceConnectionTest(unittest.TestCase):
 
     @unittest.skipIf(os.environ.get('TRAVIS') == 'true', 'travis lacks ipv6')
     def test_connect_with_stun_server_ipv6(self):
-        stun_server = ('stun.l.google.com', 19302)
+        # start turn server
+        stun_server = StunServer()
+        run(stun_server.listen())
 
-        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server,
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.address,
                                 use_ipv4=False, use_ipv6=True)
         conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
 
@@ -614,15 +623,16 @@ class IceConnectionTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
+        run(stun_server.close())
 
     def test_connect_with_turn_server_tcp(self):
         # start turn server
-        server = TurnServer(realm='test', users={'foo': 'bar'})
-        run(server.listen())
+        turn_server = TurnServer(realm='test', users={'foo': 'bar'})
+        run(turn_server.listen())
 
         # create connections
         conn_a = ice.Connection(ice_controlling=True,
-                                turn_server=server.tcp_addr,
+                                turn_server=turn_server.tcp_address,
                                 turn_username='foo',
                                 turn_password='bar',
                                 turn_transport='tcp')
@@ -656,16 +666,16 @@ class IceConnectionTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
-        run(server.close())
+        run(turn_server.close())
 
     def test_connect_with_turn_server_udp(self):
         # start turn server
-        server = TurnServer(realm='test', users={'foo': 'bar'})
-        run(server.listen())
+        turn_server = TurnServer(realm='test', users={'foo': 'bar'})
+        run(turn_server.listen())
 
         # create connections
         conn_a = ice.Connection(ice_controlling=True,
-                                turn_server=server.udp_addr,
+                                turn_server=turn_server.udp_address,
                                 turn_username='foo',
                                 turn_password='bar')
         conn_b = ice.Connection(ice_controlling=False)
@@ -698,7 +708,7 @@ class IceConnectionTest(unittest.TestCase):
         # close
         run(conn_a.close())
         run(conn_b.close())
-        run(server.close())
+        run(turn_server.close())
 
     def test_consent_expired(self):
         # lower consent timer
