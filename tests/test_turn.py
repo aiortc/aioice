@@ -11,12 +11,19 @@ class DummyClientProtocol(asyncio.DatagramProtocol):
     received_addr = None
     received_data = None
 
-    def connection_made(self, transport):
-        transport.sendto(b'ping', ('8.8.8.8', 53))
-
     def datagram_received(self, data, addr):
         self.received_data = data
         self.received_addr = addr
+
+
+class DummyServerProtocol(asyncio.DatagramProtocol):
+    def connection_made(self, transport):
+        self.address = transport.get_extra_info('sockname')
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        if data == b'ping':
+            self.transport.sendto(b'pong', addr)
 
 
 class TurnClientTcpProtocolTest(unittest.TestCase):
@@ -33,17 +40,28 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
 
 class TurnTest(unittest.TestCase):
     def setUp(self):
-        self.server = TurnServer(realm='test', users={'foo': 'bar'})
-        run(self.server.listen())
+        # start turn server
+        self.turn_server = TurnServer(realm='test', users={'foo': 'bar'})
+        run(self.turn_server.listen())
+
+        # start ping server
+        loop = asyncio.get_event_loop()
+        _, self.ping_server = run(loop.create_datagram_endpoint(
+            DummyServerProtocol,
+            local_addr=('127.0.0.1', 0)))
 
     def tearDown(self):
-        run(self.server.close())
+        # stop turn server
+        run(self.turn_server.close())
+
+        # stop ping server
+        self.ping_server.transport.close()
 
     def test_tcp_transport(self):
-        self._test_transport('tcp', self.server.tcp_addr)
+        self._test_transport('tcp', self.turn_server.tcp_addr)
 
     def test_udp_transport(self):
-        self._test_transport('udp', self.server.udp_addr)
+        self._test_transport('udp', self.turn_server.udp_addr)
 
     def _test_transport(self, transport, server_addr):
         transport, protocol = run(turn.create_turn_endpoint(
@@ -53,9 +71,18 @@ class TurnTest(unittest.TestCase):
             password='bar',
             lifetime=6,
             transport=transport))
-        self.assertEqual(transport.get_extra_info('peername'), None)
-        self.assertEqual(transport.get_extra_info('sockname'), ('1.2.3.4', 1234))
-        run(asyncio.sleep(10))
-        self.assertEqual(protocol.received_addr, ('8.8.8.8', 53))
+        self.assertIsNone(transport.get_extra_info('peername'))
+        self.assertIsNotNone(transport.get_extra_info('sockname'))
+
+        # send ping, expect pong
+        transport.sendto(b'ping', self.ping_server.address)
+        run(asyncio.sleep(1))
+        self.assertEqual(protocol.received_addr, self.ping_server.address)
         self.assertEqual(protocol.received_data, b'pong')
+
+        # wait some more to allow allocation refresh
+        run(asyncio.sleep(5))
+
+        # close
         transport.close()
+        run(asyncio.sleep(0))

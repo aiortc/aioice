@@ -8,6 +8,9 @@ from .utils import random_transaction_id
 
 logger = logging.getLogger('turn')
 
+TCP_TRANSPORT = 0x06000000
+UDP_TRANSPORT = 0x11000000
+
 
 def make_integrity_key(username, realm, password):
     return hashlib.md5(
@@ -16,7 +19,9 @@ def make_integrity_key(username, realm, password):
 
 class TurnClientMixin:
     def __init__(self, server, username, password, lifetime):
-        self.channels = {}
+        self.channel_to_peer = {}
+        self.peer_to_channel = {}
+
         self.channel_number = 0x4000
         self.integrity_key = None
         self.lifetime = lifetime
@@ -44,7 +49,7 @@ class TurnClientMixin:
         request = stun.Message(message_method=stun.Method.ALLOCATE,
                                message_class=stun.Class.REQUEST)
         request.attributes['LIFETIME'] = self.lifetime
-        request.attributes['REQUESTED-TRANSPORT'] = 0x11000000
+        request.attributes['REQUESTED-TRANSPORT'] = UDP_TRANSPORT
 
         try:
             response, _ = await self.request(request)
@@ -76,11 +81,13 @@ class TurnClientMixin:
         # demultiplex channel data
         if len(data) >= 4 and (data[0] & 0xc0) == 0x40:
             channel, length = struct.unpack('!HH', data[0:4])
+
             if len(data) >= length + 4 and self.receiver:
-                for channel_addr, channel_number in self.channels.items():
-                    if channel_number == channel:
-                        self.receiver.datagram_received(data[4:4 + length], channel_addr)
-                        break
+                peer_address = self.channel_to_peer.get(channel)
+                if peer_address:
+                    payload = data[4:4 + length]
+                    self.receiver.datagram_received(payload, peer_address)
+
             return
 
         try:
@@ -144,11 +151,12 @@ class TurnClientMixin:
         """
         Send data to a remote host via the TURN server.
         """
-        channel = self.channels.get(addr)
+        channel = self.peer_to_channel.get(addr)
         if channel is None:
             channel = self.channel_number
             self.channel_number += 1
-            self.channels[addr] = channel
+            self.channel_to_peer[channel] = addr
+            self.peer_to_channel[addr] = channel
 
             # bind channel
             await self.channel_bind(channel, addr)
