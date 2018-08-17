@@ -33,6 +33,10 @@ class TurnClientTcpProtocolTest(unittest.TestCase):
 
 
 class TurnClientUdpProtocolTest(unittest.TestCase):
+    def test_junk(self):
+        protocol = turn.TurnClientUdpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
+        protocol.datagram_received(b'\x00\x00', ('1.2.3.4', 1234))
+
     def test_repr(self):
         protocol = turn.TurnClientUdpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
         self.assertEqual(repr(protocol), 'turn/udp')
