@@ -1,17 +1,10 @@
-import os
 import unittest
 from binascii import unhexlify
 from collections import OrderedDict
 
 from aioice import exceptions, stun
 
-from .utils import run
-
-
-def read_message(name):
-    path = os.path.join(os.path.dirname(__file__), 'data', name)
-    with open(path, 'rb') as fp:
-        return fp.read()
+from .utils import read_message, run
 
 
 class AttributeTest(unittest.TestCase):

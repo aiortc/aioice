@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 
 async def invite_accept(conn_a, conn_b):
@@ -13,6 +14,12 @@ async def invite_accept(conn_a, conn_b):
     conn_a.remote_candidates = conn_b.local_candidates
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
+
+
+def read_message(name):
+    path = os.path.join(os.path.dirname(__file__), 'data', name)
+    with open(path, 'rb') as fp:
+        return fp.read()
 
 
 def run(coro):

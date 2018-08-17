@@ -4,7 +4,7 @@ import unittest
 from aioice import turn
 
 from .turnserver import TurnServer
-from .utils import run
+from .utils import read_message, run
 
 
 class DummyClientProtocol(asyncio.DatagramProtocol):
@@ -27,19 +27,35 @@ class DummyServerProtocol(asyncio.DatagramProtocol):
 
 
 class TurnClientTcpProtocolTest(unittest.TestCase):
+    def setUp(self):
+        class MockProtocol:
+            def get_extra_info(self, name):
+                return ('1.2.3.4', 1234)
+
+        self.protocol = turn.TurnClientTcpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
+        self.protocol.connection_made(MockProtocol())
+
+    def test_receive_stun_fragmented(self):
+        data = read_message('binding_request.bin')
+        self.protocol.data_received(data[0:10])
+        self.protocol.data_received(data[10:])
+
+    def test_receive_junk(self):
+        self.protocol.data_received(b'\x00' * 20)
+
     def test_repr(self):
-        protocol = turn.TurnClientTcpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
-        self.assertEqual(repr(protocol), 'turn/tcp')
+        self.assertEqual(repr(self.protocol), 'turn/tcp')
 
 
 class TurnClientUdpProtocolTest(unittest.TestCase):
-    def test_junk(self):
-        protocol = turn.TurnClientUdpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
-        protocol.datagram_received(b'\x00\x00', ('1.2.3.4', 1234))
+    def setUp(self):
+        self.protocol = turn.TurnClientUdpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
+
+    def test_receive_junk(self):
+        self.protocol.datagram_received(b'\x00' * 20, ('1.2.3.4', 1234))
 
     def test_repr(self):
-        protocol = turn.TurnClientUdpProtocol(('1.2.3.4', 1234), 'foo', 'bar', 600)
-        self.assertEqual(repr(protocol), 'turn/udp')
+        self.assertEqual(repr(self.protocol), 'turn/udp')
 
 
 class TurnTest(unittest.TestCase):

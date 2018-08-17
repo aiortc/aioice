@@ -12,9 +12,33 @@ TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
 
 
+def is_channel_data(data):
+    return (data[0] & 0xc0) == 0x40
+
+
 def make_integrity_key(username, realm, password):
     return hashlib.md5(
             ':'.join([username, realm, password]).encode('utf8')).digest()
+
+
+class TurnStreamMixin:
+    def data_received(self, data):
+        if not hasattr(self, 'buffer'):
+            self.buffer = b''
+        self.buffer += data
+
+        while len(self.buffer) >= 4:
+            _, length = struct.unpack('!HH', self.buffer[0:4])
+            if is_channel_data(self.buffer):
+                full_length = 4 + length
+            else:
+                full_length = 20 + length
+            if len(self.buffer) < full_length:
+                break
+
+            addr = self.transport.get_extra_info('peername')
+            self.datagram_received(self.buffer[0:full_length], addr)
+            self.buffer = self.buffer[full_length:]
 
 
 class TurnClientMixin:
@@ -79,7 +103,7 @@ class TurnClientMixin:
 
     def datagram_received(self, data, addr):
         # demultiplex channel data
-        if len(data) >= 4 and (data[0] & 0xc0) == 0x40:
+        if len(data) >= 4 and is_channel_data(data):
             channel, length = struct.unpack('!HH', data[0:4])
 
             if len(data) >= length + 4 and self.receiver:
@@ -179,13 +203,10 @@ class TurnClientMixin:
         request.add_fingerprint()
 
 
-class TurnClientTcpProtocol(TurnClientMixin, asyncio.Protocol):
+class TurnClientTcpProtocol(TurnClientMixin, TurnStreamMixin, asyncio.Protocol):
     """
     Protocol for handling TURN over TCP.
     """
-    def data_received(self, data):
-        self.datagram_received(data, self.server)
-
     def _send(self, data):
         self.transport.write(data)
 

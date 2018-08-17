@@ -4,7 +4,8 @@ import struct
 import time
 
 from aioice import stun
-from aioice.turn import UDP_TRANSPORT, make_integrity_key
+from aioice.turn import (UDP_TRANSPORT, TurnStreamMixin, is_channel_data,
+                         make_integrity_key)
 from aioice.utils import random_string
 
 logger = logging.getLogger('turn')
@@ -45,7 +46,7 @@ class TurnServerMixin:
 
     def datagram_received(self, data, addr):
         # demultiplex channel data
-        if len(data) >= 4 and (data[0] & 0xc0) == 0x40:
+        if len(data) >= 4 and is_channel_data(data):
             channel, length = struct.unpack('!HH', data[0:4])
             allocation = self.server.allocations.get((self, addr))
 
@@ -207,11 +208,7 @@ class TurnServerMixin:
         return response
 
 
-class TurnServerTcpProtocol(TurnServerMixin, asyncio.Protocol):
-    def data_received(self, data):
-        addr = self.transport.get_extra_info('peername')
-        self.datagram_received(data, addr)
-
+class TurnServerTcpProtocol(TurnServerMixin, TurnStreamMixin, asyncio.Protocol):
     def _send(self, data, addr):
         self.transport.write(data)
 
