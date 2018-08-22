@@ -224,7 +224,11 @@ class Connection:
     """
     def __init__(self, ice_controlling, components=1,
                  stun_server=None,
-                 turn_server=None, turn_username=None, turn_password=None, turn_transport='udp',
+                 turn_server=None,
+                 turn_username=None,
+                 turn_password=None,
+                 turn_ssl=False,
+                 turn_transport='udp',
                  use_ipv4=True, use_ipv6=True):
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
@@ -235,10 +239,12 @@ class Connection:
         self.remote_username = None
         #: Remote password, which you need to set.
         self.remote_password = None
+
         self.stun_server = stun_server
         self.turn_server = turn_server
         self.turn_username = turn_username
         self.turn_password = turn_password
+        self.turn_ssl = turn_ssl
         self.turn_transport = turn_transport
 
         # private
@@ -717,6 +723,7 @@ class Connection:
                 server_addr=self.turn_server,
                 username=self.turn_username,
                 password=self.turn_password,
+                ssl=self.turn_ssl,
                 transport=self.turn_transport)
             self._protocols.append(protocol)
 

@@ -1,4 +1,5 @@
 import asyncio
+import ssl
 import unittest
 
 from aioice import turn
@@ -80,16 +81,23 @@ class TurnTest(unittest.TestCase):
     def test_tcp_transport(self):
         self._test_transport('tcp', self.turn_server.tcp_address)
 
+    def test_tls_transport(self):
+        ssl_context = ssl.SSLContext()
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        self._test_transport('tcp', self.turn_server.tls_address, ssl=ssl_context)
+
     def test_udp_transport(self):
         self._test_transport('udp', self.turn_server.udp_address)
 
-    def _test_transport(self, transport, server_addr):
+    def _test_transport(self, transport, server_addr, ssl=False):
         transport, protocol = run(turn.create_turn_endpoint(
             DummyClientProtocol,
             server_addr=server_addr,
             username='foo',
             password='bar',
             lifetime=6,
+            ssl=ssl,
             transport=transport))
         self.assertIsNone(transport.get_extra_info('peername'))
         self.assertIsNotNone(transport.get_extra_info('sockname'))

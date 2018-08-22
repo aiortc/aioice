@@ -268,7 +268,7 @@ class TurnTransport:
 
 
 async def create_turn_endpoint(protocol_factory, server_addr, username, password,
-                               lifetime=600, transport='udp'):
+                               lifetime=600, ssl=False, transport='udp'):
     """
     Create datagram connection relayed over TURN.
     """
@@ -280,7 +280,8 @@ async def create_turn_endpoint(protocol_factory, server_addr, username, password
                                           password=password,
                                           lifetime=lifetime),
             host=server_addr[0],
-            port=server_addr[1])
+            port=server_addr[1],
+            ssl=ssl)
     else:
         _, inner_protocol = await loop.create_datagram_endpoint(
             lambda: TurnClientUdpProtocol(server_addr,

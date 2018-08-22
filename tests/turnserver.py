@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import ssl
 import struct
 import time
 
@@ -11,6 +13,33 @@ from aioice.utils import random_string
 logger = logging.getLogger('turn')
 
 CHANNEL_RANGE = range(0x4000, 0x7FFF)
+
+ROOT = os.path.dirname(__file__)
+CERT_FILE = os.path.join(ROOT, 'turnserver.crt')
+KEY_FILE = os.path.join(ROOT, 'turnserver.key')
+
+
+def create_self_signed_cert(name):
+    from OpenSSL import crypto
+
+    # create key pair
+    key = crypto.PKey()
+    key.generate_key(crypto.TYPE_RSA, 1024)
+
+    # create self-signed certificate
+    cert = crypto.X509()
+    cert.get_subject().CN = name
+    cert.set_serial_number(1000)
+    cert.gmtime_adj_notBefore(0)
+    cert.gmtime_adj_notAfter(10 * 365 * 86400)
+    cert.set_issuer(cert.get_subject())
+    cert.set_pubkey(key)
+    cert.sign(key, 'sha1')
+
+    with open(CERT_FILE, 'wb') as fp:
+        fp.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+    with open(KEY_FILE, 'wb') as fp:
+        fp.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
 
 
 class Allocation(asyncio.DatagramProtocol):
@@ -231,18 +260,31 @@ class TurnServer:
         self.udp_server.transport.close()
         await self.tcp_server.wait_closed()
 
-    async def listen(self, port=0):
+    async def listen(self, port=0, tls_port=0):
         loop = asyncio.get_event_loop()
+        hostaddr = '127.0.0.1'
+        hostname = 'localhost'
 
         # listen for TCP
         self.tcp_server = await loop.create_server(
             lambda: TurnServerTcpProtocol(server=self),
-            host='127.0.0.1',
+            host=hostaddr,
             port=port)
         self.tcp_address = self.tcp_server.sockets[0].getsockname()
+
+        # listen for TLS
+        ssl_context = ssl.SSLContext()
+        ssl_context.load_cert_chain(CERT_FILE, KEY_FILE)
+        # create_self_signed_cert(hostname)
+        self.tls_server = await loop.create_server(
+            lambda: TurnServerTcpProtocol(server=self),
+            host=hostaddr,
+            port=tls_port,
+            ssl=ssl_context)
+        self.tls_address = (hostname, self.tls_server.sockets[0].getsockname()[1])
 
         # listen for UDP
         transport, self.udp_server = await loop.create_datagram_endpoint(
             lambda: TurnServerUdpProtocol(server=self),
-            local_addr=('127.0.0.1', port))
+            local_addr=(hostaddr, port))
         self.udp_address = transport.get_extra_info('sockname')
