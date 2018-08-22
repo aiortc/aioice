@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 import os
@@ -91,18 +92,20 @@ class TurnServerMixin:
             message = stun.parse_message(data)
         except ValueError:
             return
+        logger.debug('< %s %s', addr, message)
 
         assert message.message_class == stun.Class.REQUEST
 
+        if message.message_method == stun.Method.BINDING:
+            response = self.handle_binding(message, addr)
+            self.send_stun(response, addr)
+            return
+
         if 'USERNAME' not in message.attributes:
-            response = stun.Message(
-                message_method=message.message_method,
-                message_class=stun.Class.ERROR,
-                transaction_id=message.transaction_id)
-            response.attributes['ERROR-CODE'] = (401, 'Unauthorized')
+            response = self.error_response(message, 401, 'Unauthorized')
             response.attributes['NONCE'] = random_string(16).encode('ascii')
             response.attributes['REALM'] = self.server.realm
-            self._send(bytes(response), addr)
+            self.send_stun(response, addr)
             return
 
         # check credentials
@@ -126,7 +129,7 @@ class TurnServerMixin:
 
         response.add_message_integrity(integrity_key)
         response.add_fingerprint()
-        self._send(bytes(response), addr)
+        self.send_stun(response, addr)
 
     async def handle_allocate(self, message, addr, integrity_key):
         key = (self, addr)
@@ -163,7 +166,15 @@ class TurnServerMixin:
         # send response
         response.add_message_integrity(integrity_key)
         response.add_fingerprint()
-        self._send(bytes(response), addr)
+        self.send_stun(response, addr)
+
+    def handle_binding(self, message, addr):
+        response = stun.Message(
+            message_method=message.message_method,
+            message_class=stun.Class.RESPONSE,
+            transaction_id=message.transaction_id)
+        response.attributes['XOR-MAPPED-ADDRESS'] = addr
+        return response
 
     def handle_channel_bind(self, message, addr):
         try:
@@ -236,6 +247,10 @@ class TurnServerMixin:
         response.attributes['ERROR-CODE'] = (code, message)
         return response
 
+    def send_stun(self, message, addr):
+        logger.debug('> %s %s', addr, message)
+        self._send(bytes(message), addr)
+
 
 class TurnServerTcpProtocol(TurnServerMixin, TurnStreamMixin, asyncio.Protocol):
     def _send(self, data, addr):
@@ -248,7 +263,10 @@ class TurnServerUdpProtocol(TurnServerMixin, asyncio.DatagramProtocol):
 
 
 class TurnServer:
-    def __init__(self, realm, users):
+    """
+    STUN / TURN server.
+    """
+    def __init__(self, realm='test', users={}):
         self.allocations = {}
         self.default_lifetime = 600
         self.maximum_lifetime = 3600
@@ -271,6 +289,14 @@ class TurnServer:
             host=hostaddr,
             port=port)
         self.tcp_address = self.tcp_server.sockets[0].getsockname()
+        logger.info('Listening for TCP on %s', self.tcp_address)
+
+        # listen for UDP
+        transport, self.udp_server = await loop.create_datagram_endpoint(
+            lambda: TurnServerUdpProtocol(server=self),
+            local_addr=(hostaddr, port))
+        self.udp_address = transport.get_extra_info('sockname')
+        logger.info('Listening for UDP on %s', self.udp_address)
 
         # listen for TLS
         ssl_context = ssl.SSLContext()
@@ -282,9 +308,18 @@ class TurnServer:
             port=tls_port,
             ssl=ssl_context)
         self.tls_address = (hostname, self.tls_server.sockets[0].getsockname()[1])
+        logger.info('Listening for TLS on %s', self.tls_address)
 
-        # listen for UDP
-        transport, self.udp_server = await loop.create_datagram_endpoint(
-            lambda: TurnServerUdpProtocol(server=self),
-            local_addr=(hostaddr, port))
-        self.udp_address = transport.get_extra_info('sockname')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='STUN / TURN server')
+    parser.add_argument('--verbose', '-v', action='count')
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+
+    srv = TurnServer(realm='test', users={'foo': 'bar'})
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(srv.listen(port=3478, tls_port=5349))
+    loop.run_forever()

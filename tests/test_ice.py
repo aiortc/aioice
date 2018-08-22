@@ -6,7 +6,6 @@ from unittest import mock
 
 from aioice import Candidate, ice, stun
 
-from .stunserver import StunServer
 from .turnserver import TurnServer
 from .utils import invite_accept, run
 
@@ -520,10 +519,10 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_connect_with_stun_server(self):
         # start turn server
-        stun_server = StunServer()
+        stun_server = TurnServer()
         run(stun_server.listen())
 
-        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.address)
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.udp_address)
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
@@ -558,11 +557,11 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_connect_with_stun_server_timeout(self):
         # start and immediately stop turn server
-        stun_server = StunServer()
+        stun_server = TurnServer()
         run(stun_server.listen())
         run(stun_server.close())
 
-        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.address)
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.udp_address)
         conn_b = ice.Connection(ice_controlling=False)
 
         # invite / accept
@@ -592,10 +591,10 @@ class IceConnectionTest(unittest.TestCase):
     @unittest.skipIf(os.environ.get('TRAVIS') == 'true', 'travis lacks ipv6')
     def test_connect_with_stun_server_ipv6(self):
         # start turn server
-        stun_server = StunServer()
+        stun_server = TurnServer()
         run(stun_server.listen())
 
-        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.address,
+        conn_a = ice.Connection(ice_controlling=True, stun_server=stun_server.udp_address,
                                 use_ipv4=False, use_ipv6=True)
         conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
 
@@ -627,7 +626,7 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_connect_with_turn_server_tcp(self):
         # start turn server
-        turn_server = TurnServer(realm='test', users={'foo': 'bar'})
+        turn_server = TurnServer(users={'foo': 'bar'})
         run(turn_server.listen())
 
         # create connections
@@ -670,7 +669,7 @@ class IceConnectionTest(unittest.TestCase):
 
     def test_connect_with_turn_server_udp(self):
         # start turn server
-        turn_server = TurnServer(realm='test', users={'foo': 'bar'})
+        turn_server = TurnServer(users={'foo': 'bar'})
         run(turn_server.listen())
 
         # create connections
