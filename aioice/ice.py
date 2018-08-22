@@ -126,14 +126,13 @@ class StunProtocol(asyncio.DatagramProtocol):
     def __init__(self, receiver):
         self.__closed = asyncio.Future()
         self.id = next_protocol_id()
-        self.queue = asyncio.Queue()
         self.receiver = receiver
         self.transport = None
         self.transactions = {}
 
     def connection_lost(self, exc):
         self.__log_debug('connection_lost(%s)', exc)
-        asyncio.ensure_future(self.queue.put(None))
+        self.receiver.data_received(None, self.local_candidate.component)
         self.__closed.set_result(True)
 
     def connection_made(self, transport):
@@ -149,8 +148,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             self.__log_debug('< %s %s', addr, message)
         except ValueError:
             self.__log_debug('< %s DATA %d', addr, len(data))
-            coro = self.queue.put(data)
-            asyncio.ensure_future(coro)
+            self.receiver.data_received(data, self.local_candidate.component)
             return
 
         if ((message.message_class == stun.Class.RESPONSE or
@@ -170,13 +168,6 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.transport.close()
         await self.__closed
 
-    async def recv_data(self):
-        return await self.queue.get(), self.local_candidate.component
-
-    async def send_data(self, data, addr):
-        self.__log_debug('> %s DATA %d', addr, len(data))
-        self.transport.sendto(data, addr)
-
     async def request(self, request, addr, integrity_key=None, retransmissions=None):
         """
         Execute a STUN transaction and return the response.
@@ -194,6 +185,10 @@ class StunProtocol(asyncio.DatagramProtocol):
             return await transaction.run()
         finally:
             del self.transactions[request.transaction_id]
+
+    async def send_data(self, data, addr):
+        self.__log_debug('> %s DATA %d', addr, len(data))
+        self.transport.sendto(data, addr)
 
     def send_stun(self, message, addr):
         """
@@ -259,10 +254,10 @@ class Connection:
         self._local_candidates_start = False
         self._nominated = {}
         self._protocols = []
-        self._received = []
         self._remote_candidates = []
         self._remote_candidates_end = False
         self._query_consent_handle = None
+        self._queue = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
@@ -438,18 +433,10 @@ class Connection:
         if not len(self._nominated):
             raise ConnectionError('Cannot receive data, not connected')
 
-        if not self._received:
-            fs = [protocol.recv_data() for protocol in self._protocols]
-            done, pending = await asyncio.wait(fs, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
-            for task in done:
-                result = task.result()
-                if result[0] is None:
-                    raise ConnectionError('Connection lost while receiving data')
-                self._received.append(result)
-
-        return self._received.pop(0)
+        result = await self._queue.get()
+        if result[0] is None:
+            raise ConnectionError('Connection lost while receiving data')
+        return result
 
     async def send(self, data):
         """
@@ -776,6 +763,9 @@ class Connection:
                     self.__log_info('Consent to send expired')
                     self._query_consent_handle = None
                     return await self.close()
+
+    def data_received(self, data, component):
+        asyncio.ensure_future(self._queue.put((data, component)))
 
     def request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
