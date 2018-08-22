@@ -4,6 +4,7 @@ import unittest
 
 from aioice import turn
 
+from .echoserver import EchoServer
 from .turnserver import TurnServer
 from .utils import read_message, run
 
@@ -15,16 +16,6 @@ class DummyClientProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         self.received_data = data
         self.received_addr = addr
-
-
-class DummyServerProtocol(asyncio.DatagramProtocol):
-    def connection_made(self, transport):
-        self.address = transport.get_extra_info('sockname')
-        self.transport = transport
-
-    def datagram_received(self, data, addr):
-        if data == b'ping':
-            self.transport.sendto(b'pong', addr)
 
 
 class TurnClientTcpProtocolTest(unittest.TestCase):
@@ -65,18 +56,16 @@ class TurnTest(unittest.TestCase):
         self.turn_server = TurnServer(realm='test', users={'foo': 'bar'})
         run(self.turn_server.listen())
 
-        # start ping server
-        loop = asyncio.get_event_loop()
-        _, self.ping_server = run(loop.create_datagram_endpoint(
-            DummyServerProtocol,
-            local_addr=('127.0.0.1', 0)))
+        # start echo server
+        self.echo_server = EchoServer()
+        run(self.echo_server.listen())
 
     def tearDown(self):
         # stop turn server
         run(self.turn_server.close())
 
-        # stop ping server
-        self.ping_server.transport.close()
+        # stop echo server
+        run(self.echo_server.close())
 
     def test_tcp_transport(self):
         self._test_transport('tcp', self.turn_server.tcp_address)
@@ -103,10 +92,10 @@ class TurnTest(unittest.TestCase):
         self.assertIsNotNone(transport.get_extra_info('sockname'))
 
         # send ping, expect pong
-        transport.sendto(b'ping', self.ping_server.address)
+        transport.sendto(b'ping', self.echo_server.udp_address)
         run(asyncio.sleep(1))
-        self.assertEqual(protocol.received_addr, self.ping_server.address)
-        self.assertEqual(protocol.received_data, b'pong')
+        self.assertEqual(protocol.received_addr, self.echo_server.udp_address)
+        self.assertEqual(protocol.received_data, b'ping')
 
         # wait some more to allow allocation refresh
         run(asyncio.sleep(5))
