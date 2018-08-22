@@ -723,9 +723,9 @@ class Connection:
             # add relayed candidate
             candidate_address = protocol.transport.get_extra_info('sockname')
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('relay', self.turn_transport, candidate_address[0]),
+                foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
                 component=component,
-                transport=self.turn_transport,
+                transport='udp',
                 priority=candidate_priority(component, 'relay'),
                 host=candidate_address[0],
                 port=candidate_address[1],
