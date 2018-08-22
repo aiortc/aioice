@@ -202,7 +202,7 @@ class IceConnectionTest(unittest.TestCase):
         # close
         run(conn_b.close())
         with self.assertRaises(ConnectionError):
-            run(asyncio.gather(conn_a.connect(), conn_a.close()))
+            run(asyncio.gather(conn_a.connect(), delay(conn_a.close)))
 
     def test_connect_two_components(self):
         conn_a = ice.Connection(ice_controlling=True, components=2)
