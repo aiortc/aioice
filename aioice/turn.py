@@ -54,6 +54,7 @@ class TurnClientMixin:
         self.receiver = None
         self.realm = None
         self.refresh_handle = None
+        self.relayed_address = None
         self.server = server
         self.transactions = {}
         self.username = username
@@ -89,13 +90,13 @@ class TurnClientMixin:
                 request.transaction_id = random_transaction_id()
                 response, _ = await self.request(request)
 
-        relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
-        logger.info('TURN allocation created %s', relayed_address)
+        self.relayed_address = response.attributes['XOR-RELAYED-ADDRESS']
+        logger.info('TURN allocation created %s', self.relayed_address)
 
         # periodically refresh allocation
         self.refresh_handle = asyncio.ensure_future(self.refresh())
 
-        return relayed_address
+        return self.relayed_address
 
     def connection_made(self, transport):
         logger.debug('%s connection_made(%s)', self, transport)
@@ -126,6 +127,23 @@ class TurnClientMixin:
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
 
+    async def delete(self):
+        """
+        Delete the TURN allocation.
+        """
+        if self.refresh_handle:
+            self.refresh_handle.cancel()
+            self.refresh_handle = None
+
+        request = stun.Message(message_method=stun.Method.REFRESH,
+                               message_class=stun.Class.REQUEST)
+        request.attributes['LIFETIME'] = 0
+        await self.request(request)
+
+        logger.info('TURN allocation deleted %s', self.relayed_address)
+        if self.receiver:
+            self.receiver.connection_lost(None)
+
     async def refresh(self):
         """
         Periodically refresh the TURN allocation.
@@ -138,22 +156,7 @@ class TurnClientMixin:
             request.attributes['LIFETIME'] = self.lifetime
             await self.request(request)
 
-    async def release(self):
-        """
-        Releases the TURN allocation.
-        """
-        if self.refresh_handle:
-            self.refresh_handle.cancel()
-            self.refresh_handle = None
-
-        request = stun.Message(message_method=stun.Method.REFRESH,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['LIFETIME'] = 0
-        await self.request(request)
-
-        logger.info('TURN allocation released')
-        if self.receiver:
-            self.receiver.connection_lost(None)
+            logger.info('TURN allocation refreshed %s', self.relayed_address)
 
     async def request(self, request):
         """
@@ -239,10 +242,10 @@ class TurnTransport:
         """
         Close the transport.
 
-        After the TURN allocation has been released, the protocol's
+        After the TURN allocation has been deleted, the protocol's
         `connection_lost()` method will be called with None as its argument.
         """
-        asyncio.ensure_future(self.__inner_protocol.release())
+        asyncio.ensure_future(self.__inner_protocol.delete())
 
     def get_extra_info(self, name, default=None):
         """

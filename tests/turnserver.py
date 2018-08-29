@@ -154,6 +154,8 @@ class TurnServerMixin:
                 local_addr=('127.0.0.1', 0))
             self.server.allocations[key] = allocation
 
+            logger.info('Allocation created %s', allocation.relayed_address)
+
             # build response
             response = stun.Message(
                 message_method=message.message_method,
@@ -226,7 +228,12 @@ class TurnServerMixin:
 
         # refresh allocation
         lifetime = min(message.attributes['LIFETIME'], self.server.maximum_lifetime)
-        allocation.expiry = time.time() + lifetime
+        if lifetime:
+            logger.info('Allocation refreshed %s', allocation.relayed_address)
+            allocation.expiry = time.time() + lifetime
+        else:
+            logger.info('Allocation deleted %s', allocation.relayed_address)
+            self.server.allocations.pop(key)
 
         # build response
         response = stun.Message(
