@@ -233,7 +233,7 @@ class TurnServerMixin:
             allocation.expiry = time.time() + lifetime
         else:
             logger.info('Allocation deleted %s', allocation.relayed_address)
-            self.server.allocations.pop(key)
+            del self.server.allocations[key]
 
         # build response
         response = stun.Message(
@@ -280,7 +280,12 @@ class TurnServer:
         self.realm = realm
         self.users = users
 
+        self._expire_handle = None
+
     async def close(self):
+        # start expiry loop
+        self._expire_handle.cancel()
+
         self.tcp_server.close()
         self.udp_server.transport.close()
         await self.tcp_server.wait_closed()
@@ -316,6 +321,19 @@ class TurnServer:
             ssl=ssl_context)
         self.tls_address = (hostname, self.tls_server.sockets[0].getsockname()[1])
         logger.info('Listening for TLS on %s', self.tls_address)
+
+        # start expiry loop
+        self._expire_handle = asyncio.ensure_future(self._expire_allocations())
+
+    async def _expire_allocations(self):
+        while True:
+            now = time.time()
+            for key, allocation in self.allocations.items():
+                if allocation.expiry < now:
+                    logger.info('Allocation expired %s', allocation.relayed_address)
+                    del self.allocations[key]
+
+            await asyncio.sleep(1)
 
 
 if __name__ == '__main__':
