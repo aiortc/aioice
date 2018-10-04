@@ -6,7 +6,7 @@ def candidate_foundation(candidate_type, candidate_transport, base_address):
     """
     See RFC 5245 - 4.1.1.3. Computing Foundations
     """
-    key = '%s|%s|%s' % (type, candidate_transport, base_address)
+    key = '%s|%s|%s' % (candidate_type, candidate_transport, base_address)
     return hashlib.md5(key.encode('ascii')).hexdigest()
 
 
