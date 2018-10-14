@@ -62,7 +62,9 @@ async def server_reflexive_candidate(protocol, stun_server):
         priority=candidate_priority(local_candidate.component, 'srflx'),
         host=response.attributes['XOR-MAPPED-ADDRESS'][0],
         port=response.attributes['XOR-MAPPED-ADDRESS'][1],
-        type='srflx')
+        type='srflx',
+        related_address=local_candidate.host,
+        related_port=local_candidate.port)
 
 
 def sort_candidate_pairs(pairs, ice_controlling):
@@ -716,6 +718,7 @@ class Connection:
 
             # add relayed candidate
             candidate_address = protocol.transport.get_extra_info('sockname')
+            related_address = protocol.transport.get_extra_info('related_address')
             protocol.local_candidate = Candidate(
                 foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
                 component=component,
@@ -723,7 +726,9 @@ class Connection:
                 priority=candidate_priority(component, 'relay'),
                 host=candidate_address[0],
                 port=candidate_address[1],
-                type='relay')
+                type='relay',
+                related_address=related_address[0],
+                related_port=related_address[1])
             candidates.append(protocol.local_candidate)
 
         return candidates

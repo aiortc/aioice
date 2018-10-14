@@ -536,6 +536,8 @@ class IceConnectionTest(unittest.TestCase):
         candidate = conn_a.get_default_candidate(1)
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.type, 'srflx')
+        self.assertIsNotNone(candidate.related_address)
+        self.assertIsNotNone(candidate.related_port)
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -648,6 +650,8 @@ class IceConnectionTest(unittest.TestCase):
         candidate = conn_a.get_default_candidate(1)
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.type, 'relay')
+        self.assertIsNotNone(candidate.related_address)
+        self.assertIsNotNone(candidate.related_port)
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))
@@ -690,6 +694,8 @@ class IceConnectionTest(unittest.TestCase):
         candidate = conn_a.get_default_candidate(1)
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate.type, 'relay')
+        self.assertIsNotNone(candidate.related_address)
+        self.assertIsNotNone(candidate.related_port)
 
         # connect
         run(asyncio.gather(conn_a.connect(), conn_b.connect()))

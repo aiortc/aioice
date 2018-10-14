@@ -251,9 +251,12 @@ class TurnTransport:
         """
         Return optional transport information.
 
+        - `'related_address'`: the related address
         - `'sockname'`: the relayed address
         """
-        if name == 'sockname':
+        if name == 'related_address':
+            return self.__inner_protocol.transport.get_extra_info('sockname')
+        elif name == 'sockname':
             return self.__relayed_address
         return default
 
