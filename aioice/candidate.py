@@ -33,7 +33,7 @@ class Candidate:
     An ICE candidate.
     """
     def __init__(self, foundation, component, transport, priority, host, port, type,
-                 tcptype=None, generation=None):
+                 related_address=None, related_port=None, tcptype=None, generation=None):
         self.foundation = foundation
         self.component = component
         self.transport = transport
@@ -41,6 +41,8 @@ class Candidate:
         self.host = host
         self.port = port
         self.type = type
+        self.related_address = related_address
+        self.related_port = related_port
         self.tcptype = tcptype
         self.generation = generation
 
@@ -69,7 +71,11 @@ class Candidate:
         }
 
         for i in range(8, len(bits) - 1, 2):
-            if bits[i] == 'tcptype':
+            if bits[i] == 'raddr':
+                kwargs['related_address'] = bits[i + 1]
+            elif bits[i] == 'rport':
+                kwargs['related_port'] = int(bits[i + 1])
+            elif bits[i] == 'tcptype':
                 kwargs['tcptype'] = bits[i + 1]
             elif bits[i] == 'generation':
                 kwargs['generation'] = int(bits[i + 1])
@@ -88,6 +94,10 @@ class Candidate:
             self.host,
             self.port,
             self.type)
+        if self.related_address is not None:
+            sdp += ' raddr %s' % self.related_address
+        if self.related_port is not None:
+            sdp += ' rport %s' % self.related_port
         if self.tcptype is not None:
             sdp += ' tcptype %s' % self.tcptype
         if self.generation is not None:

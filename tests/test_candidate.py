@@ -35,7 +35,7 @@ class CandidateTest(unittest.TestCase):
             '6815297761 2 udp 659136 1.2.3.4 12345 typ host generation 0')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
-    def test_from_sdp(self):
+    def test_from_sdp_udp(self):
         candidate = Candidate.from_sdp(
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         self.assertEqual(candidate.foundation, '6815297761')
@@ -50,6 +50,24 @@ class CandidateTest(unittest.TestCase):
         self.assertEqual(
             candidate.to_sdp(),
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+
+    def test_from_sdp_udp_srflx(self):
+        candidate = Candidate.from_sdp(
+            '1 1 UDP 1686052863 1.2.3.4 42705 typ srflx raddr 192.168.1.101 rport 42705')
+        self.assertEqual(candidate.foundation, '1')
+        self.assertEqual(candidate.component, 1)
+        self.assertEqual(candidate.transport, 'UDP')
+        self.assertEqual(candidate.priority, 1686052863)
+        self.assertEqual(candidate.host, '1.2.3.4')
+        self.assertEqual(candidate.port, 42705)
+        self.assertEqual(candidate.type, 'srflx')
+        self.assertEqual(candidate.related_address, '192.168.1.101')
+        self.assertEqual(candidate.related_port, 42705)
+        self.assertEqual(candidate.generation, None)
+
+        self.assertEqual(
+            candidate.to_sdp(),
+            '1 1 UDP 1686052863 1.2.3.4 42705 typ srflx raddr 192.168.1.101 rport 42705')
 
     def test_from_sdp_tcp(self):
         candidate = Candidate.from_sdp(
