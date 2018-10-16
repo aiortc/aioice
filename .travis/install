@@ -1,0 +1,10 @@
+#!/bin/sh
+
+set -e
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    brew update
+    brew upgrade python3
+fi
+
+pip3 install coverage flake8 netifaces

@@ -1,14 +1,5 @@
-after_success: coveralls
 dist: trusty
-install:
-  - |
-    if [[ "$(uname -s)" == 'Darwin' ]]; then
-      brew update
-      brew upgrade python3
-      python3 -m venv env
-      source env/bin/activate
-    fi
-  - pip3 install coveralls flake8 netifaces
+install: .travis/install
 language: python
 matrix:
   include:
@@ -19,21 +10,7 @@ matrix:
   - python: "3.7"
     dist: xenial
     sudo: true
-  - python: "3.8-dev"
-    dist: xenial
-    sudo: true
   - python: "pypy3"
   - env: BUILD=sdist
     python: "3.6"
-script:
-  - |
-    if [ "$BUILD" = "sdist" ]; then
-      python3 setup.py sdist bdist_wheel
-      if [ -n "$TRAVIS_TAG" ]; then
-        pip3 install twine
-        python3 -m twine upload --skip-existing dist/*
-      fi
-    else
-      flake8 aioice examples tests
-      coverage run setup.py test
-    fi
+script: .travis/script
