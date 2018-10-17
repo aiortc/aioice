@@ -112,7 +112,11 @@ class Candidate:
         """
         a = ipaddress.ip_address(self.host)
         b = ipaddress.ip_address(other.host)
-        return self.component == other.component and a.version == b.version
+        return (
+            self.component == other.component and
+            self.transport.lower() == other.transport.lower() and
+            a.version == b.version
+        )
 
     def __repr__(self):
         return 'Candidate(%s)' % self.to_sdp()

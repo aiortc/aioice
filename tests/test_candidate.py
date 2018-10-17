@@ -11,6 +11,13 @@ class CandidateTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 12345 typ host generation 0')
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
+    def test_can_pair_ipv4_case_insensitive(self):
+        candidate_a = Candidate.from_sdp(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        candidate_b = Candidate.from_sdp(
+            '6815297761 1 UDP 659136 1.2.3.4 12345 typ host generation 0')
+        self.assertTrue(candidate_a.can_pair_with(candidate_b))
+
     def test_can_pair_ipv6(self):
         candidate_a = Candidate.from_sdp(
             '6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 31102'
@@ -33,6 +40,13 @@ class CandidateTest(unittest.TestCase):
             '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
         candidate_b = Candidate.from_sdp(
             '6815297761 2 udp 659136 1.2.3.4 12345 typ host generation 0')
+        self.assertFalse(candidate_a.can_pair_with(candidate_b))
+
+    def test_cannot_pair_different_transports(self):
+        candidate_a = Candidate.from_sdp(
+            '6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0')
+        candidate_b = Candidate.from_sdp(
+            '6815297761 1 tcp 659136 1.2.3.4 12345 typ host generation 0 tcptype active')
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
     def test_from_sdp_udp(self):
