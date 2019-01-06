@@ -783,7 +783,7 @@ class Connection:
                 rx_username = '%s:%s' % (self.local_username, self.remote_username)
                 if message.attributes.get('USERNAME') != rx_username:
                     raise ValueError('Wrong username')
-        except ValueError as exc:
+        except ValueError:
             self.respond_error(message, addr, protocol, (400, 'Bad Request'))
             return
 
