@@ -149,7 +149,6 @@ class StunProtocol(asyncio.DatagramProtocol):
             message = stun.parse_message(data)
             self.__log_debug('< %s %s', addr, message)
         except ValueError:
-            self.__log_debug('< %s DATA %d', addr, len(data))
             self.receiver.data_received(data, self.local_candidate.component)
             return
 
@@ -189,7 +188,6 @@ class StunProtocol(asyncio.DatagramProtocol):
             del self.transactions[request.transaction_id]
 
     async def send_data(self, data, addr):
-        self.__log_debug('> %s DATA %d', addr, len(data))
         self.transport.sendto(data, addr)
 
     def send_stun(self, message, addr):
