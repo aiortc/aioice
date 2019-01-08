@@ -768,7 +768,7 @@ class Connection:
                     return await self.close()
 
     def data_received(self, data, component):
-        asyncio.ensure_future(self._queue.put((data, component)))
+        self._queue.put_nowait((data, component))
 
     def request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
