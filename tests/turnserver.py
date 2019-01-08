@@ -25,7 +25,7 @@ def create_self_signed_cert(name):
 
     # create key pair
     key = crypto.PKey()
-    key.generate_key(crypto.TYPE_RSA, 1024)
+    key.generate_key(crypto.TYPE_RSA, 2048)
 
     # create self-signed certificate
     cert = crypto.X509()
