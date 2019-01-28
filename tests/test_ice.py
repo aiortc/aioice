@@ -557,6 +557,34 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_b.close())
         run(stun_server.close())
 
+    def test_connect_with_stun_server_dns_lookup_error(self):
+        conn_a = ice.Connection(ice_controlling=True, stun_server=('invalid.', 1234))
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # we whould have only host candidates
+        self.assertCandidateTypes(conn_a, set(['host']))
+        self.assertCandidateTypes(conn_b, set(['host']))
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data a -> b
+        run(conn_a.send(b'howdee'))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b'howdee')
+
+        # send data b -> a
+        run(conn_b.send(b'gotcha'))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b'gotcha')
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
     def test_connect_with_stun_server_timeout(self):
         # start and immediately stop turn server
         stun_server = TurnServer()

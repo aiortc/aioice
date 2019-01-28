@@ -50,6 +50,13 @@ async def server_reflexive_candidate(protocol, stun_server):
     """
     Query STUN server to obtain a server-reflexive candidate.
     """
+    # lookup address
+    loop = asyncio.get_event_loop()
+    stun_server = (
+        await loop.run_in_executor(None, socket.gethostbyname, stun_server[0]),
+        stun_server[1])
+
+    # perform STUN query
     request = stun.Message(message_method=stun.Method.BINDING,
                            message_class=stun.Class.REQUEST)
     response, _ = await protocol.request(request, stun_server)
@@ -689,9 +696,8 @@ class Connection:
                 type='host')
             candidates.append(protocol.local_candidate)
 
-        # query STUN server for server-reflexive candidates
+        # query STUN server for server-reflexive candidates (IPv4 only)
         if self.stun_server:
-            # we query STUN server for IPv4
             fs = []
             for protocol in self._protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
