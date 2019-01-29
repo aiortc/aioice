@@ -13,7 +13,7 @@ setuptools.setup(
     version='0.6.13',
     description='An implementation of Interactive Connectivity Establishment (RFC 5245)',
     long_description=long_description,
-    url='https://github.com/jlaine/aioice',
+    url='https://github.com/aiortc/aioice',
     author='Jeremy Lainé',
     author_email='jeremy.laine@m4x.org',
     license='BSD',

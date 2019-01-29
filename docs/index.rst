@@ -15,11 +15,11 @@ aioice
 .. |pypi-wheel| image:: https://img.shields.io/pypi/wheel/aioice.svg
     :target: https://pypi.python.org/pypi/aioice
 
-.. |travis| image:: https://img.shields.io/travis/jlaine/aioice.svg
-    :target: https://travis-ci.org/jlaine/aioice
+.. |travis| image:: https://img.shields.io/travis/com/aiortc/aioice.svg
+    :target: https://travis-ci.com/aiortc/aioice
 
-.. |codecov| image:: https://img.shields.io/codecov/c/github/jlaine/aioice.svg
-    :target: https://codecov.io/gh/jlaine/aioice
+.. |codecov| image:: https://img.shields.io/codecov/c/github/aiortc/aioice.svg
+    :target: https://codecov.io/gh/aiortc/aioice
 
 ``aioice`` is a library for Interactive Connectivity Establishment (RFC 5245)
 in Python. It is built on top of :mod:`asyncio`, Python's standard asynchronous

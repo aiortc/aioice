@@ -90,7 +90,7 @@ html_theme = 'alabaster'
 #
 html_theme_options = {
     'github_button': True,
-    'github_user': 'jlaine',
+    'github_user': 'aiortc',
     'github_repo': 'aioice',
 }
 
