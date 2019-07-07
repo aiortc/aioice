@@ -86,6 +86,18 @@ def sort_candidate_pairs(pairs, ice_controlling):
     pairs.sort(key=pair_priority)
 
 
+def validate_remote_candidate(candidate):
+    """
+    Check the remote candidate is supported.
+
+    mDNS candidates are not supported yet.
+    """
+    if candidate.type not in ['host', 'relay', 'srflx']:
+        raise ValueError('Unexpected candidate type "%s"' % candidate.type)
+    ipaddress.ip_address(candidate.host)
+    return candidate
+
+
 class CandidatePair:
     def __init__(self, protocol, remote_candidate):
         self.handle = None
@@ -292,7 +304,16 @@ class Connection:
         if self._remote_candidates_end:
             raise ValueError('Cannot set remote candidates after end-of-candidates.')
 
-        self._remote_candidates = value[:]
+        # validate the remote candidates
+        self._remote_candidates = []
+        for remote_candidate in value:
+            try:
+                validate_remote_candidate(remote_candidate)
+            except ValueError:
+                continue
+            self._remote_candidates.append(remote_candidate)
+
+        # end-of-candidates
         self._prune_components()
         self._remote_candidates_end = True
 
@@ -305,12 +326,20 @@ class Connection:
         if self._remote_candidates_end:
             raise ValueError('Cannot add remote candidate after end-of-candidates.')
 
+        # end-of-candidates
         if remote_candidate is None:
             self._prune_components()
             self._remote_candidates_end = True
             return
 
+        # validate the remote candidate
+        try:
+            validate_remote_candidate(remote_candidate)
+        except ValueError:
+            return
         self._remote_candidates.append(remote_candidate)
+
+        # pair the remote candidate
         for protocol in self._protocols:
             if (protocol.local_candidate.can_pair_with(remote_candidate) and
                not self._find_pair(protocol, remote_candidate)):

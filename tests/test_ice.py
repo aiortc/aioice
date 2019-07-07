@@ -860,11 +860,13 @@ class IceConnectionTest(unittest.TestCase):
             priority=1234,
             host='1.2.3.4',
             port=1234,
-            type='host')
+            type='host',
+        )
 
         # add candidate
         conn_a.add_remote_candidate(remote_candidate)
         self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a.remote_candidates[0].host, '1.2.3.4')
         self.assertEqual(conn_a._remote_candidates_end, False)
 
         # end-of-candidates
@@ -878,6 +880,43 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(str(cm.exception), 'Cannot add remote candidate after end-of-candidates.')
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
+
+    def test_add_remote_candidate_mdns(self):
+        """
+        mDNS is not supported yet, ignore such candidates.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+
+        conn_a.add_remote_candidate(
+            Candidate(
+                foundation='some-foundation',
+                component=1,
+                transport='udp',
+                priority=1234,
+                host='a64e1aa4-8c7e-4671-ab02-e6a3483b1cd9.local',
+                port=1234,
+                type='host',
+            )
+        )
+        self.assertEqual(len(conn_a.remote_candidates), 0)
+        self.assertEqual(conn_a._remote_candidates_end, False)
+
+    def test_add_remote_candidate_unknown_type(self):
+        conn_a = ice.Connection(ice_controlling=True)
+
+        conn_a.add_remote_candidate(
+            Candidate(
+                foundation='some-foundation',
+                component=1,
+                transport='udp',
+                priority=1234,
+                host='1.2.3.4',
+                port=1234,
+                type='bogus',
+            )
+        )
+        self.assertEqual(len(conn_a.remote_candidates), 0)
+        self.assertEqual(conn_a._remote_candidates_end, False)
 
     def test_set_remote_candidates(self):
         conn_a = ice.Connection(ice_controlling=True)
@@ -894,6 +933,7 @@ class IceConnectionTest(unittest.TestCase):
         # set candidates
         conn_a.remote_candidates = remote_candidates
         self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a.remote_candidates[0].host, '1.2.3.4')
         self.assertEqual(conn_a._remote_candidates_end, True)
 
         # try setting candidates again
@@ -901,6 +941,33 @@ class IceConnectionTest(unittest.TestCase):
             conn_a.remote_candidates = remote_candidates
         self.assertEqual(str(cm.exception), 'Cannot set remote candidates after end-of-candidates.')
         self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a._remote_candidates_end, True)
+
+    def test_set_remote_candidates_mdns(self):
+        conn_a = ice.Connection(ice_controlling=True)
+
+        conn_a.remote_candidates = [
+            Candidate(
+                foundation='some-foundation',
+                component=1,
+                transport='udp',
+                priority=1234,
+                host='a64e1aa4-8c7e-4671-ab02-e6a3483b1cd9.local',
+                port=1234,
+                type='host',
+            ),
+            Candidate(
+                foundation='some-foundation',
+                component=1,
+                transport='udp',
+                priority=1234,
+                host='1.2.3.4',
+                port=1234,
+                type='host',
+            )
+        ]
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a.remote_candidates[0].host, '1.2.3.4')
         self.assertEqual(conn_a._remote_candidates_end, True)
 
     @mock.patch('asyncio.base_events.BaseEventLoop.create_datagram_endpoint')
