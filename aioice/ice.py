@@ -12,7 +12,7 @@ from .candidate import Candidate, candidate_foundation, candidate_priority
 from .compat import secrets
 from .utils import random_string
 
-logger = logging.getLogger('ice')
+logger = logging.getLogger("ice")
 
 ICE_COMPLETED = 1
 ICE_FAILED = 2
@@ -38,11 +38,11 @@ def get_host_addresses(use_ipv4, use_ipv6):
     for interface in netifaces.interfaces():
         ifaddresses = netifaces.ifaddresses(interface)
         for address in ifaddresses.get(socket.AF_INET, []):
-            if use_ipv4 and address['addr'] != '127.0.0.1':
-                addresses.append(address['addr'])
+            if use_ipv4 and address["addr"] != "127.0.0.1":
+                addresses.append(address["addr"])
         for address in ifaddresses.get(socket.AF_INET6, []):
-            if use_ipv6 and address['addr'] != '::1' and '%' not in address['addr']:
-                addresses.append(address['addr'])
+            if use_ipv6 and address["addr"] != "::1" and "%" not in address["addr"]:
+                addresses.append(address["addr"])
     return addresses
 
 
@@ -54,34 +54,38 @@ async def server_reflexive_candidate(protocol, stun_server):
     loop = asyncio.get_event_loop()
     stun_server = (
         await loop.run_in_executor(None, socket.gethostbyname, stun_server[0]),
-        stun_server[1])
+        stun_server[1],
+    )
 
     # perform STUN query
-    request = stun.Message(message_method=stun.Method.BINDING,
-                           message_class=stun.Class.REQUEST)
+    request = stun.Message(
+        message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+    )
     response, _ = await protocol.request(request, stun_server)
 
     local_candidate = protocol.local_candidate
     return Candidate(
-        foundation=candidate_foundation('srflx', 'udp', local_candidate.host),
+        foundation=candidate_foundation("srflx", "udp", local_candidate.host),
         component=local_candidate.component,
         transport=local_candidate.transport,
-        priority=candidate_priority(local_candidate.component, 'srflx'),
-        host=response.attributes['XOR-MAPPED-ADDRESS'][0],
-        port=response.attributes['XOR-MAPPED-ADDRESS'][1],
-        type='srflx',
+        priority=candidate_priority(local_candidate.component, "srflx"),
+        host=response.attributes["XOR-MAPPED-ADDRESS"][0],
+        port=response.attributes["XOR-MAPPED-ADDRESS"][1],
+        type="srflx",
         related_address=local_candidate.host,
-        related_port=local_candidate.port)
+        related_port=local_candidate.port,
+    )
 
 
 def sort_candidate_pairs(pairs, ice_controlling):
     """
     Sort a list of candidate pairs.
     """
+
     def pair_priority(pair):
-        return -candidate_pair_priority(pair.local_candidate,
-                                        pair.remote_candidate,
-                                        ice_controlling)
+        return -candidate_pair_priority(
+            pair.local_candidate, pair.remote_candidate, ice_controlling
+        )
 
     pairs.sort(key=pair_priority)
 
@@ -92,7 +96,7 @@ def validate_remote_candidate(candidate):
 
     mDNS candidates are not supported yet.
     """
-    if candidate.type not in ['host', 'relay', 'srflx']:
+    if candidate.type not in ["host", "relay", "srflx"]:
         raise ValueError('Unexpected candidate type "%s"' % candidate.type)
     ipaddress.ip_address(candidate.host)
     return candidate
@@ -108,7 +112,7 @@ class CandidatePair:
         self.state = CandidatePair.State.FROZEN
 
     def __repr__(self):
-        return 'CandidatePair(%s -> %s)' % (self.local_addr, self.remote_addr)
+        return "CandidatePair(%s -> %s)" % (self.local_addr, self.remote_addr)
 
     @property
     def component(self):
@@ -152,12 +156,12 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.transactions = {}
 
     def connection_lost(self, exc):
-        self.__log_debug('connection_lost(%s)', exc)
+        self.__log_debug("connection_lost(%s)", exc)
         self.receiver.data_received(None, self.local_candidate.component)
         self.__closed.set_result(True)
 
     def connection_made(self, transport):
-        self.__log_debug('connection_made(%s)', transport)
+        self.__log_debug("connection_made(%s)", transport)
         self.transport = transport
 
     def datagram_received(self, data, addr):
@@ -166,21 +170,22 @@ class StunProtocol(asyncio.DatagramProtocol):
 
         try:
             message = stun.parse_message(data)
-            self.__log_debug('< %s %s', addr, message)
+            self.__log_debug("< %s %s", addr, message)
         except ValueError:
             self.receiver.data_received(data, self.local_candidate.component)
             return
 
-        if ((message.message_class == stun.Class.RESPONSE or
-             message.message_class == stun.Class.ERROR) and
-           message.transaction_id in self.transactions):
+        if (
+            message.message_class == stun.Class.RESPONSE
+            or message.message_class == stun.Class.ERROR
+        ) and message.transaction_id in self.transactions:
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
         elif message.message_class == stun.Class.REQUEST:
             self.receiver.request_received(message, addr, self, data)
 
     def error_received(self, exc):
-        self.__log_debug('error_received(%s)', exc)
+        self.__log_debug("error_received(%s)", exc)
 
     # custom
 
@@ -198,7 +203,9 @@ class StunProtocol(asyncio.DatagramProtocol):
             request.add_message_integrity(integrity_key)
             request.add_fingerprint()
 
-        transaction = stun.Transaction(request, addr, self, retransmissions=retransmissions)
+        transaction = stun.Transaction(
+            request, addr, self, retransmissions=retransmissions
+        )
         transaction.integrity_key = integrity_key
         self.transactions[request.transaction_id] = transaction
         try:
@@ -213,14 +220,14 @@ class StunProtocol(asyncio.DatagramProtocol):
         """
         Send a STUN message.
         """
-        self.__log_debug('> %s %s', addr, message)
+        self.__log_debug("> %s %s", addr, message)
         self.transport.sendto(bytes(message), addr)
 
     def __log_debug(self, msg, *args):
-        logger.debug('%s %s ' + msg, self.receiver, self, *args)
+        logger.debug("%s %s " + msg, self.receiver, self, *args)
 
     def __repr__(self):
-        return 'protocol(%s)' % self.id
+        return "protocol(%s)" % self.id
 
 
 def next_connection_id():
@@ -236,14 +243,20 @@ class Connection:
     """
     An ICE connection for a single media stream.
     """
-    def __init__(self, ice_controlling, components=1,
-                 stun_server=None,
-                 turn_server=None,
-                 turn_username=None,
-                 turn_password=None,
-                 turn_ssl=False,
-                 turn_transport='udp',
-                 use_ipv4=True, use_ipv6=True):
+
+    def __init__(
+        self,
+        ice_controlling,
+        components=1,
+        stun_server=None,
+        turn_server=None,
+        turn_username=None,
+        turn_password=None,
+        turn_ssl=False,
+        turn_transport="udp",
+        use_ipv4=True,
+        use_ipv6=True,
+    ):
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
@@ -302,7 +315,7 @@ class Connection:
     @remote_candidates.setter
     def remote_candidates(self, value):
         if self._remote_candidates_end:
-            raise ValueError('Cannot set remote candidates after end-of-candidates.')
+            raise ValueError("Cannot set remote candidates after end-of-candidates.")
 
         # validate the remote candidates
         self._remote_candidates = []
@@ -324,7 +337,7 @@ class Connection:
         To signal end-of-candidates, pass `None`.
         """
         if self._remote_candidates_end:
-            raise ValueError('Cannot add remote candidate after end-of-candidates.')
+            raise ValueError("Cannot add remote candidate after end-of-candidates.")
 
         # end-of-candidates
         if remote_candidate is None:
@@ -341,8 +354,9 @@ class Connection:
 
         # pair the remote candidate
         for protocol in self._protocols:
-            if (protocol.local_candidate.can_pair_with(remote_candidate) and
-               not self._find_pair(protocol, remote_candidate)):
+            if protocol.local_candidate.can_pair_with(
+                remote_candidate
+            ) and not self._find_pair(protocol, remote_candidate):
                 pair = CandidatePair(protocol, remote_candidate)
                 self._check_list.append(pair)
         self.sort_check_list()
@@ -355,11 +369,13 @@ class Connection:
         """
         if not self._local_candidates_start:
             self._local_candidates_start = True
-            addresses = get_host_addresses(use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6)
+            addresses = get_host_addresses(
+                use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
+            )
             for component in self._components:
                 self._local_candidates += await self.get_component_candidates(
-                    component=component,
-                    addresses=addresses)
+                    component=component, addresses=addresses
+                )
             self._local_candidates_end = True
 
     def get_default_candidate(self, component):
@@ -378,17 +394,17 @@ class Connection:
         and raises an exception otherwise.
         """
         if not self._local_candidates_end:
-            raise ConnectionError('Local candidates gathering was not performed')
+            raise ConnectionError("Local candidates gathering was not performed")
 
-        if (self.remote_username is None or
-           self.remote_password is None):
-            raise ConnectionError('Remote username or password is missing')
+        if self.remote_username is None or self.remote_password is None:
+            raise ConnectionError("Remote username or password is missing")
 
         # 5.7.1. Forming Candidate Pairs
         for remote_candidate in self._remote_candidates:
             for protocol in self._protocols:
-                if (protocol.local_candidate.can_pair_with(remote_candidate) and
-                   not self._find_pair(protocol, remote_candidate)):
+                if protocol.local_candidate.can_pair_with(
+                    remote_candidate
+                ) and not self._find_pair(protocol, remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
                     self._check_list.append(pair)
         self.sort_check_list()
@@ -418,7 +434,7 @@ class Connection:
                 check.handle.cancel()
 
         if res != ICE_COMPLETED:
-            raise ConnectionError('ICE negotiation failed')
+            raise ConnectionError("ICE negotiation failed")
 
         # start consent freshness tests
         self._query_consent_handle = asyncio.ensure_future(self.query_consent())
@@ -467,11 +483,11 @@ class Connection:
         If the connection is not established, a `ConnectionError` is raised.
         """
         if not len(self._nominated):
-            raise ConnectionError('Cannot receive data, not connected')
+            raise ConnectionError("Cannot receive data, not connected")
 
         result = await self._queue.get()
         if result[0] is None:
-            raise ConnectionError('Connection lost while receiving data')
+            raise ConnectionError("Connection lost while receiving data")
         return result
 
     async def send(self, data):
@@ -492,7 +508,7 @@ class Connection:
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
         else:
-            raise ConnectionError('Cannot send data, not connected')
+            raise ConnectionError("Cannot send data, not connected")
 
     def set_selected_pair(self, component, local_foundation, remote_foundation):
         """
@@ -504,8 +520,10 @@ class Connection:
         # find local candidate
         protocol = None
         for p in self._protocols:
-            if (p.local_candidate.component == component and
-               p.local_candidate.foundation == local_foundation):
+            if (
+                p.local_candidate.component == component
+                and p.local_candidate.foundation == local_foundation
+            ):
                 protocol = p
                 break
 
@@ -515,22 +533,23 @@ class Connection:
             if c.component == component and c.foundation == remote_foundation:
                 remote_candidate = c
 
-        assert (protocol and remote_candidate)
+        assert protocol and remote_candidate
         self._nominated[component] = CandidatePair(protocol, remote_candidate)
 
     # private
 
     def build_request(self, pair):
-        tx_username = '%s:%s' % (self.remote_username, self.local_username)
-        request = stun.Message(message_method=stun.Method.BINDING,
-                               message_class=stun.Class.REQUEST)
-        request.attributes['USERNAME'] = tx_username
-        request.attributes['PRIORITY'] = candidate_priority(pair.component, 'prflx')
+        tx_username = "%s:%s" % (self.remote_username, self.local_username)
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.attributes["USERNAME"] = tx_username
+        request.attributes["PRIORITY"] = candidate_priority(pair.component, "prflx")
         if self.ice_controlling:
-            request.attributes['ICE-CONTROLLING'] = self._tie_breaker
-            request.attributes['USE-CANDIDATE'] = None
+            request.attributes["ICE-CONTROLLING"] = self._tie_breaker
+            request.attributes["USE-CANDIDATE"] = None
         else:
-            request.attributes['ICE-CONTROLLED'] = self._tie_breaker
+            request.attributes["ICE-CONTROLLED"] = self._tie_breaker
         return request
 
     def check_complete(self, pair):
@@ -546,8 +565,10 @@ class Connection:
                 # list and triggered check queue for the same component as the
                 # nominated pairs for that media stream.
                 for p in self._check_list:
-                    if (p.component == pair.component and
-                       p.state in [CandidatePair.State.WAITING, CandidatePair.State.FROZEN]):
+                    if p.component == pair.component and p.state in [
+                        CandidatePair.State.WAITING,
+                        CandidatePair.State.FROZEN,
+                    ]:
                         self.check_state(p, CandidatePair.State.FAILED)
 
             # Once there is at least one nominated pair in the valid list for
@@ -555,19 +576,24 @@ class Connection:
             # check list is Running:
             if len(self._nominated) == len(self._components):
                 if not self._check_list_done:
-                    self.__log_info('ICE completed')
+                    self.__log_info("ICE completed")
                     asyncio.ensure_future(self._check_list_state.put(ICE_COMPLETED))
                     self._check_list_done = True
                 return
 
             # 7.1.3.2.3.  Updating Pair States
             for p in self._check_list:
-                if (p.local_candidate.foundation == pair.local_candidate.foundation and
-                   p.state == CandidatePair.State.FROZEN):
+                if (
+                    p.local_candidate.foundation == pair.local_candidate.foundation
+                    and p.state == CandidatePair.State.FROZEN
+                ):
                     self.check_state(p, CandidatePair.State.WAITING)
 
         for p in self._check_list:
-            if p.state not in [CandidatePair.State.SUCCEEDED, CandidatePair.State.FAILED]:
+            if p.state not in [
+                CandidatePair.State.SUCCEEDED,
+                CandidatePair.State.FAILED,
+            ]:
                 return
 
         if not self.ice_controlling:
@@ -576,7 +602,7 @@ class Connection:
                     return
 
         if not self._check_list_done:
-            self.__log_info('ICE failed')
+            self.__log_info("ICE failed")
             asyncio.ensure_future(self._check_list_state.put(ICE_FAILED))
             self._check_list_done = True
 
@@ -598,13 +624,14 @@ class Connection:
             remote_candidate = Candidate(
                 foundation=random_string(10),
                 component=component,
-                transport='udp',
-                priority=message.attributes['PRIORITY'],
+                transport="udp",
+                priority=message.attributes["PRIORITY"],
                 host=addr[0],
                 port=addr[1],
-                type='prflx')
+                type="prflx",
+            )
             self._remote_candidates.append(remote_candidate)
-            self.__log_info('Discovered peer reflexive candidate %s', remote_candidate)
+            self.__log_info("Discovered peer reflexive candidate %s", remote_candidate)
 
         # find pair
         pair = self._find_pair(protocol, remote_candidate)
@@ -619,7 +646,7 @@ class Connection:
             pair.handle = asyncio.ensure_future(self.check_start(pair))
 
         # 7.2.1.5. Updating the Nominated Flag
-        if 'USE-CANDIDATE' in message.attributes and not self.ice_controlling:
+        if "USE-CANDIDATE" in message.attributes and not self.ice_controlling:
             pair.remote_nominated = True
 
             if pair.state == CandidatePair.State.SUCCEEDED:
@@ -654,14 +681,19 @@ class Connection:
         request = self.build_request(pair)
         try:
             response, addr = await pair.protocol.request(
-                request, pair.remote_addr,
-                integrity_key=self.remote_password.encode('utf8'))
+                request,
+                pair.remote_addr,
+                integrity_key=self.remote_password.encode("utf8"),
+            )
         except exceptions.TransactionError as exc:
             # 7.1.3.1. Failure Cases
-            if exc.response and exc.response.attributes.get('ERROR-CODE', (None, None))[0] == 487:
-                if 'ICE-CONTROLLING' in request.attributes:
+            if (
+                exc.response
+                and exc.response.attributes.get("ERROR-CODE", (None, None))[0] == 487
+            ):
+                if "ICE-CONTROLLING" in request.attributes:
                     self.switch_role(ice_controlling=False)
-                elif 'ICE-CONTROLLED' in request.attributes:
+                elif "ICE-CONTROLLED" in request.attributes:
                     self.switch_role(ice_controlling=True)
                 return await self.check_start(pair)
             else:
@@ -671,7 +703,7 @@ class Connection:
 
         # check remote address matches
         if addr != pair.remote_addr:
-            self.__log_info('Check %s failed : source address mismatch', pair)
+            self.__log_info("Check %s failed : source address mismatch", pair)
             self.check_state(pair, CandidatePair.State.FAILED)
             self.check_complete(pair)
             return
@@ -686,7 +718,7 @@ class Connection:
         """
         Updates the state of a check.
         """
-        self.__log_info('Check %s %s -> %s', pair, pair.state, state)
+        self.__log_info("Check %s %s -> %s", pair, pair.state, state)
         pair.state = state
 
     def _find_pair(self, protocol, remote_candidate):
@@ -694,7 +726,7 @@ class Connection:
         Find a candidate pair in the check list.
         """
         for pair in self._check_list:
-            if (pair.protocol == protocol and pair.remote_candidate == remote_candidate):
+            if pair.protocol == protocol and pair.remote_candidate == remote_candidate:
                 return pair
         return None
 
@@ -706,23 +738,24 @@ class Connection:
             # create transport
             try:
                 _, protocol = await loop.create_datagram_endpoint(
-                    lambda: StunProtocol(self),
-                    local_addr=(address, 0))
+                    lambda: StunProtocol(self), local_addr=(address, 0)
+                )
             except OSError as exc:
-                self.__log_info('Could not bind to %s - %s', address, exc)
+                self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
             self._protocols.append(protocol)
 
             # add host candidate
-            candidate_address = protocol.transport.get_extra_info('sockname')
+            candidate_address = protocol.transport.get_extra_info("sockname")
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('host', 'udp', candidate_address[0]),
+                foundation=candidate_foundation("host", "udp", candidate_address[0]),
                 component=component,
-                transport='udp',
-                priority=candidate_priority(component, 'host'),
+                transport="udp",
+                priority=candidate_priority(component, "host"),
                 host=candidate_address[0],
                 port=candidate_address[1],
-                type='host')
+                type="host",
+            )
             candidates.append(protocol.local_candidate)
 
         # query STUN server for server-reflexive candidates (IPv4 only)
@@ -733,7 +766,9 @@ class Connection:
                     fs.append(server_reflexive_candidate(protocol, self.stun_server))
             if len(fs):
                 done, pending = await asyncio.wait(fs, timeout=timeout)
-                candidates += [task.result() for task in done if task.exception() is None]
+                candidates += [
+                    task.result() for task in done if task.exception() is None
+                ]
                 for task in pending:
                     task.cancel()
 
@@ -746,22 +781,24 @@ class Connection:
                 username=self.turn_username,
                 password=self.turn_password,
                 ssl=self.turn_ssl,
-                transport=self.turn_transport)
+                transport=self.turn_transport,
+            )
             self._protocols.append(protocol)
 
             # add relayed candidate
-            candidate_address = protocol.transport.get_extra_info('sockname')
-            related_address = protocol.transport.get_extra_info('related_address')
+            candidate_address = protocol.transport.get_extra_info("sockname")
+            related_address = protocol.transport.get_extra_info("related_address")
             protocol.local_candidate = Candidate(
-                foundation=candidate_foundation('relay', 'udp', candidate_address[0]),
+                foundation=candidate_foundation("relay", "udp", candidate_address[0]),
                 component=component,
-                transport='udp',
-                priority=candidate_priority(component, 'relay'),
+                transport="udp",
+                priority=candidate_priority(component, "relay"),
                 host=candidate_address[0],
                 port=candidate_address[1],
-                type='relay',
+                type="relay",
                 related_address=related_address[0],
-                related_port=related_address[1])
+                related_port=related_address[1],
+            )
             candidates.append(protocol.local_candidate)
 
         return candidates
@@ -775,7 +812,9 @@ class Connection:
         seen_components = set(map(lambda x: x.component, self._remote_candidates))
         missing_components = self._components - seen_components
         if missing_components:
-            self.__log_info('Components %s have no candidate pairs' % missing_components)
+            self.__log_info(
+                "Components %s have no candidate pairs" % missing_components
+            )
             self._components = seen_components
 
     async def query_consent(self):
@@ -791,14 +830,16 @@ class Connection:
                 request = self.build_request(pair)
                 try:
                     await pair.protocol.request(
-                        request, pair.remote_addr,
-                        integrity_key=self.remote_password.encode('utf8'),
-                        retransmissions=0)
+                        request,
+                        pair.remote_addr,
+                        integrity_key=self.remote_password.encode("utf8"),
+                        retransmissions=0,
+                    )
                     failures = 0
                 except exceptions.TransactionError:
                     failures += 1
                 if failures >= CONSENT_FAILURES:
-                    self.__log_info('Consent to send expired')
+                    self.__log_info("Consent to send expired")
                     self._query_consent_handle = None
                     return await self.close()
 
@@ -807,32 +848,33 @@ class Connection:
 
     def request_received(self, message, addr, protocol, raw_data):
         if message.message_method != stun.Method.BINDING:
-            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
+            self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
 
         # authenticate request
         try:
-            stun.parse_message(raw_data,
-                               integrity_key=self.local_password.encode('utf8'))
+            stun.parse_message(
+                raw_data, integrity_key=self.local_password.encode("utf8")
+            )
             if self.remote_username is not None:
-                rx_username = '%s:%s' % (self.local_username, self.remote_username)
-                if message.attributes.get('USERNAME') != rx_username:
-                    raise ValueError('Wrong username')
+                rx_username = "%s:%s" % (self.local_username, self.remote_username)
+                if message.attributes.get("USERNAME") != rx_username:
+                    raise ValueError("Wrong username")
         except ValueError:
-            self.respond_error(message, addr, protocol, (400, 'Bad Request'))
+            self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
 
         # 7.2.1.1. Detecting and Repairing Role Conflicts
-        if self.ice_controlling and 'ICE-CONTROLLING' in message.attributes:
-            self.__log_info('Role conflict, expected to be controlling')
-            if self._tie_breaker >= message.attributes['ICE-CONTROLLING']:
-                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
+        if self.ice_controlling and "ICE-CONTROLLING" in message.attributes:
+            self.__log_info("Role conflict, expected to be controlling")
+            if self._tie_breaker >= message.attributes["ICE-CONTROLLING"]:
+                self.respond_error(message, addr, protocol, (487, "Role Conflict"))
                 return
             self.switch_role(ice_controlling=False)
-        elif not self.ice_controlling and 'ICE-CONTROLLED' in message.attributes:
-            self.__log_info('Role conflict, expected to be controlled')
-            if self._tie_breaker < message.attributes['ICE-CONTROLLED']:
-                self.respond_error(message, addr, protocol, (487, 'Role Conflict'))
+        elif not self.ice_controlling and "ICE-CONTROLLED" in message.attributes:
+            self.__log_info("Role conflict, expected to be controlled")
+            if self._tie_breaker < message.attributes["ICE-CONTROLLED"]:
+                self.respond_error(message, addr, protocol, (487, "Role Conflict"))
                 return
             self.switch_role(ice_controlling=True)
 
@@ -840,9 +882,10 @@ class Connection:
         response = stun.Message(
             message_method=stun.Method.BINDING,
             message_class=stun.Class.RESPONSE,
-            transaction_id=message.transaction_id)
-        response.attributes['XOR-MAPPED-ADDRESS'] = addr
-        response.add_message_integrity(self.local_password.encode('utf8'))
+            transaction_id=message.transaction_id,
+        )
+        response.attributes["XOR-MAPPED-ADDRESS"] = addr
+        response.add_message_integrity(self.local_password.encode("utf8"))
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
@@ -855,9 +898,10 @@ class Connection:
         response = stun.Message(
             message_method=request.message_method,
             message_class=stun.Class.ERROR,
-            transaction_id=request.transaction_id)
-        response.attributes['ERROR-CODE'] = error_code
-        response.add_message_integrity(self.local_password.encode('utf8'))
+            transaction_id=request.transaction_id,
+        )
+        response.attributes["ERROR-CODE"] = error_code
+        response.add_message_integrity(self.local_password.encode("utf8"))
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
@@ -865,7 +909,9 @@ class Connection:
         sort_candidate_pairs(self._check_list, self.ice_controlling)
 
     def switch_role(self, ice_controlling):
-        self.__log_info('Switching to %s role', ice_controlling and 'controlling' or 'controlled')
+        self.__log_info(
+            "Switching to %s role", ice_controlling and "controlling" or "controlled"
+        )
         self.ice_controlling = ice_controlling
         self.sort_check_list()
 
@@ -884,14 +930,16 @@ class Connection:
         # unfreeze pairs with same component but different foundations
         seen_foundations = set(first_pair.local_candidate.foundation)
         for pair in self._check_list:
-            if (pair.component == first_pair.component and
-               pair.local_candidate.foundation not in seen_foundations and
-               pair.state == CandidatePair.State.FROZEN):
+            if (
+                pair.component == first_pair.component
+                and pair.local_candidate.foundation not in seen_foundations
+                and pair.state == CandidatePair.State.FROZEN
+            ):
                 self.check_state(pair, CandidatePair.State.WAITING)
                 seen_foundations.add(pair.local_candidate.foundation)
 
     def __log_info(self, msg, *args):
-        logger.info('%s ' + msg, self, *args)
+        logger.info("%s " + msg, self, *args)
 
     def __repr__(self):
-        return 'Connection(%s)' % self._id
+        return "Connection(%s)" % self._id

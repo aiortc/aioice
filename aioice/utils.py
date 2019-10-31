@@ -6,7 +6,7 @@ from .compat import secrets
 
 def random_string(length):
     allchar = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(allchar) for x in range(length))
+    return "".join(secrets.choice(allchar) for x in range(length))
 
 
 def random_transaction_id():

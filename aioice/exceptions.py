@@ -7,12 +7,12 @@ class TransactionFailed(TransactionError):
         self.response = response
 
     def __str__(self):
-        out = 'STUN transaction failed'
-        if 'ERROR-CODE' in self.response.attributes:
-            out += ' (%s - %s)' % self.response.attributes['ERROR-CODE']
+        out = "STUN transaction failed"
+        if "ERROR-CODE" in self.response.attributes:
+            out += " (%s - %s)" % self.response.attributes["ERROR-CODE"]
         return out
 
 
 class TransactionTimeout(TransactionError):
     def __str__(self):
-        return 'STUN transaction timed out'
+        return "STUN transaction timed out"
