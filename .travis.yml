@@ -1,5 +1,5 @@
 dist: xenial
-install: .travis/install
+install: pip3 install coverage
 language: python
 matrix:
   include:
@@ -20,6 +20,7 @@ matrix:
   - env: BUILD=test
     python: "pypy3"
   - env: BUILD=sdist
+    install: pip install twine
 python: "3.7"
 script: .travis/script
 sudo: true

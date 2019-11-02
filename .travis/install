@@ -1,5 +1,0 @@
-#!/bin/sh
-
-set -e
-
-pip3 install coverage flake8 netifaces
