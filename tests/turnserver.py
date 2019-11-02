@@ -7,17 +7,21 @@ import struct
 import time
 
 from aioice import stun
-from aioice.turn import (UDP_TRANSPORT, TurnStreamMixin, is_channel_data,
-                         make_integrity_key)
+from aioice.turn import (
+    UDP_TRANSPORT,
+    TurnStreamMixin,
+    is_channel_data,
+    make_integrity_key,
+)
 from aioice.utils import random_string
 
-logger = logging.getLogger('turn')
+logger = logging.getLogger("turn")
 
 CHANNEL_RANGE = range(0x4000, 0x7FFF)
 
 ROOT = os.path.dirname(__file__)
-CERT_FILE = os.path.join(ROOT, 'turnserver.crt')
-KEY_FILE = os.path.join(ROOT, 'turnserver.key')
+CERT_FILE = os.path.join(ROOT, "turnserver.crt")
+KEY_FILE = os.path.join(ROOT, "turnserver.key")
 
 
 def create_self_signed_cert(name):
@@ -35,11 +39,11 @@ def create_self_signed_cert(name):
     cert.gmtime_adj_notAfter(10 * 365 * 86400)
     cert.set_issuer(cert.get_subject())
     cert.set_pubkey(key)
-    cert.sign(key, 'sha1')
+    cert.sign(key, "sha1")
 
-    with open(CERT_FILE, 'wb') as fp:
+    with open(CERT_FILE, "wb") as fp:
         fp.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-    with open(KEY_FILE, 'wb') as fp:
+    with open(KEY_FILE, "wb") as fp:
         fp.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
 
 
@@ -54,7 +58,7 @@ class Allocation(asyncio.DatagramProtocol):
         self.username = username
 
     def connection_made(self, transport):
-        self.relayed_address = transport.get_extra_info('sockname')
+        self.relayed_address = transport.get_extra_info("sockname")
         self.transport = transport
 
     def datagram_received(self, data, addr):
@@ -63,8 +67,9 @@ class Allocation(asyncio.DatagramProtocol):
         """
         channel = self.peer_to_channel.get(addr)
         if channel:
-            self.client_protocol._send(struct.pack('!HH', channel, len(data)) + data,
-                                       self.client_address)
+            self.client_protocol._send(
+                struct.pack("!HH", channel, len(data)) + data, self.client_address
+            )
 
 
 class TurnServerMixin:
@@ -77,13 +82,13 @@ class TurnServerMixin:
     def datagram_received(self, data, addr):
         # demultiplex channel data
         if len(data) >= 4 and is_channel_data(data):
-            channel, length = struct.unpack('!HH', data[0:4])
+            channel, length = struct.unpack("!HH", data[0:4])
             allocation = self.server.allocations.get((self, addr))
 
             if len(data) >= length + 4 and allocation:
                 peer_address = allocation.channel_to_peer.get(channel)
                 if peer_address:
-                    payload = data[4:4 + length]
+                    payload = data[4 : 4 + length]
                     allocation.transport.sendto(payload, peer_address)
 
             return
@@ -92,7 +97,7 @@ class TurnServerMixin:
             message = stun.parse_message(data)
         except ValueError:
             return
-        logger.debug('< %s %s', addr, message)
+        logger.debug("< %s %s", addr, message)
 
         assert message.message_class == stun.Class.REQUEST
 
@@ -101,15 +106,15 @@ class TurnServerMixin:
             self.send_stun(response, addr)
             return
 
-        if 'USERNAME' not in message.attributes:
-            response = self.error_response(message, 401, 'Unauthorized')
-            response.attributes['NONCE'] = random_string(16).encode('ascii')
-            response.attributes['REALM'] = self.server.realm
+        if "USERNAME" not in message.attributes:
+            response = self.error_response(message, 401, "Unauthorized")
+            response.attributes["NONCE"] = random_string(16).encode("ascii")
+            response.attributes["REALM"] = self.server.realm
             self.send_stun(response, addr)
             return
 
         # check credentials
-        username = message.attributes['USERNAME']
+        username = message.attributes["USERNAME"]
         password = self.server.users[username]
         integrity_key = make_integrity_key(username, self.server.realm, password)
         try:
@@ -125,7 +130,9 @@ class TurnServerMixin:
         elif message.message_method == stun.Method.CHANNEL_BIND:
             response = self.handle_channel_bind(message, addr)
         else:
-            response = self.error_response(message, 400, 'Unsupported STUN request method')
+            response = self.error_response(
+                message, 400, "Unsupported STUN request method"
+            )
 
         response.add_message_integrity(integrity_key)
         response.add_fingerprint()
@@ -134,13 +141,17 @@ class TurnServerMixin:
     async def handle_allocate(self, message, addr, integrity_key):
         key = (self, addr)
         if key in self.server.allocations:
-            response = self.error_response(message, 437, 'Allocation already exists')
-        elif 'REQUESTED-TRANSPORT' not in message.attributes:
-            response = self.error_response(message, 400, 'Missing REQUESTED-TRANSPORT attribute')
-        elif message.attributes['REQUESTED-TRANSPORT'] != UDP_TRANSPORT:
-            response = self.error_response(message, 442, 'Unsupported transport protocol')
+            response = self.error_response(message, 437, "Allocation already exists")
+        elif "REQUESTED-TRANSPORT" not in message.attributes:
+            response = self.error_response(
+                message, 400, "Missing REQUESTED-TRANSPORT attribute"
+            )
+        elif message.attributes["REQUESTED-TRANSPORT"] != UDP_TRANSPORT:
+            response = self.error_response(
+                message, 442, "Unsupported transport protocol"
+            )
         else:
-            lifetime = message.attributes.get('LIFETIME', self.server.default_lifetime)
+            lifetime = message.attributes.get("LIFETIME", self.server.default_lifetime)
             lifetime = min(lifetime, self.server.maximum_lifetime)
 
             # create allocation
@@ -150,20 +161,23 @@ class TurnServerMixin:
                     client_address=addr,
                     client_protocol=self,
                     expiry=time.time() + lifetime,
-                    username=message.attributes['USERNAME']),
-                local_addr=('127.0.0.1', 0))
+                    username=message.attributes["USERNAME"],
+                ),
+                local_addr=("127.0.0.1", 0),
+            )
             self.server.allocations[key] = allocation
 
-            logger.info('Allocation created %s', allocation.relayed_address)
+            logger.info("Allocation created %s", allocation.relayed_address)
 
             # build response
             response = stun.Message(
                 message_method=message.message_method,
                 message_class=stun.Class.RESPONSE,
-                transaction_id=message.transaction_id)
-            response.attributes['LIFETIME'] = lifetime
-            response.attributes['XOR-MAPPED-ADDRESS'] = addr
-            response.attributes['XOR-RELAYED-ADDRESS'] = allocation.relayed_address
+                transaction_id=message.transaction_id,
+            )
+            response.attributes["LIFETIME"] = lifetime
+            response.attributes["XOR-MAPPED-ADDRESS"] = addr
+            response.attributes["XOR-RELAYED-ADDRESS"] = allocation.relayed_address
 
         # send response
         response.add_message_integrity(integrity_key)
@@ -174,8 +188,9 @@ class TurnServerMixin:
         response = stun.Message(
             message_method=message.message_method,
             message_class=stun.Class.RESPONSE,
-            transaction_id=message.transaction_id)
-        response.attributes['XOR-MAPPED-ADDRESS'] = addr
+            transaction_id=message.transaction_id,
+        )
+        response.attributes["XOR-MAPPED-ADDRESS"] = addr
         return response
 
     def handle_channel_bind(self, message, addr):
@@ -183,24 +198,30 @@ class TurnServerMixin:
             key = (self, addr)
             allocation = self.server.allocations[key]
         except KeyError:
-            return self.error_response(message, 437, 'Allocation does not exist')
+            return self.error_response(message, 437, "Allocation does not exist")
 
-        if message.attributes['USERNAME'] != allocation.username:
-            return self.error_response(message, 441, 'Wrong credentials')
+        if message.attributes["USERNAME"] != allocation.username:
+            return self.error_response(message, 441, "Wrong credentials")
 
-        for attr in ['CHANNEL-NUMBER', 'XOR-PEER-ADDRESS']:
+        for attr in ["CHANNEL-NUMBER", "XOR-PEER-ADDRESS"]:
             if attr not in message.attributes:
-                return self.error_response(message, 400, 'Missing %s attribute' % attr)
+                return self.error_response(message, 400, "Missing %s attribute" % attr)
 
-        channel = message.attributes['CHANNEL-NUMBER']
-        peer_address = message.attributes['XOR-PEER-ADDRESS']
+        channel = message.attributes["CHANNEL-NUMBER"]
+        peer_address = message.attributes["XOR-PEER-ADDRESS"]
         if channel not in CHANNEL_RANGE:
-            return self.error_response(message, 400, 'Channel number is outside valid range')
+            return self.error_response(
+                message, 400, "Channel number is outside valid range"
+            )
 
         if allocation.channel_to_peer.get(channel) not in [None, peer_address]:
-            return self.error_response(message, 400, 'Channel is already bound to another peer')
+            return self.error_response(
+                message, 400, "Channel is already bound to another peer"
+            )
         if allocation.peer_to_channel.get(peer_address) not in [None, channel]:
-            return self.error_response(message, 400, 'Peer is already bound to another channel')
+            return self.error_response(
+                message, 400, "Peer is already bound to another channel"
+            )
 
         # register channel
         allocation.channel_to_peer[channel] = peer_address
@@ -210,7 +231,8 @@ class TurnServerMixin:
         response = stun.Message(
             message_method=message.message_method,
             message_class=stun.Class.RESPONSE,
-            transaction_id=message.transaction_id)
+            transaction_id=message.transaction_id,
+        )
         return response
 
     def handle_refresh(self, message, addr):
@@ -218,29 +240,30 @@ class TurnServerMixin:
             key = (self, addr)
             allocation = self.server.allocations[key]
         except KeyError:
-            return self.error_response(message, 437, 'Allocation does not exist')
+            return self.error_response(message, 437, "Allocation does not exist")
 
-        if message.attributes['USERNAME'] != allocation.username:
-            return self.error_response(message, 441, 'Wrong credentials')
+        if message.attributes["USERNAME"] != allocation.username:
+            return self.error_response(message, 441, "Wrong credentials")
 
-        if 'LIFETIME' not in message.attributes:
-            return self.error_response(message, 400, 'Missing LIFETIME attribute')
+        if "LIFETIME" not in message.attributes:
+            return self.error_response(message, 400, "Missing LIFETIME attribute")
 
         # refresh allocation
-        lifetime = min(message.attributes['LIFETIME'], self.server.maximum_lifetime)
+        lifetime = min(message.attributes["LIFETIME"], self.server.maximum_lifetime)
         if lifetime:
-            logger.info('Allocation refreshed %s', allocation.relayed_address)
+            logger.info("Allocation refreshed %s", allocation.relayed_address)
             allocation.expiry = time.time() + lifetime
         else:
-            logger.info('Allocation deleted %s', allocation.relayed_address)
+            logger.info("Allocation deleted %s", allocation.relayed_address)
             del self.server.allocations[key]
 
         # build response
         response = stun.Message(
             message_method=message.message_method,
             message_class=stun.Class.RESPONSE,
-            transaction_id=message.transaction_id)
-        response.attributes['LIFETIME'] = lifetime
+            transaction_id=message.transaction_id,
+        )
+        response.attributes["LIFETIME"] = lifetime
         return response
 
     def error_response(self, request, code, message):
@@ -250,12 +273,13 @@ class TurnServerMixin:
         response = stun.Message(
             message_method=request.message_method,
             message_class=stun.Class.ERROR,
-            transaction_id=request.transaction_id)
-        response.attributes['ERROR-CODE'] = (code, message)
+            transaction_id=request.transaction_id,
+        )
+        response.attributes["ERROR-CODE"] = (code, message)
         return response
 
     def send_stun(self, message, addr):
-        logger.debug('> %s %s', addr, message)
+        logger.debug("> %s %s", addr, message)
         self._send(bytes(message), addr)
 
 
@@ -273,7 +297,8 @@ class TurnServer:
     """
     STUN / TURN server.
     """
-    def __init__(self, realm='test', users={}):
+
+    def __init__(self, realm="test", users={}):
         self.allocations = {}
         self.default_lifetime = 600
         self.maximum_lifetime = 3600
@@ -292,23 +317,22 @@ class TurnServer:
 
     async def listen(self, port=0, tls_port=0):
         loop = asyncio.get_event_loop()
-        hostaddr = '127.0.0.1'
-        hostname = 'localhost'
+        hostaddr = "127.0.0.1"
+        hostname = "localhost"
 
         # listen for TCP
         self.tcp_server = await loop.create_server(
-            lambda: TurnServerTcpProtocol(server=self),
-            host=hostaddr,
-            port=port)
+            lambda: TurnServerTcpProtocol(server=self), host=hostaddr, port=port
+        )
         self.tcp_address = self.tcp_server.sockets[0].getsockname()
-        logger.info('Listening for TCP on %s', self.tcp_address)
+        logger.info("Listening for TCP on %s", self.tcp_address)
 
         # listen for UDP
         transport, self.udp_server = await loop.create_datagram_endpoint(
-            lambda: TurnServerUdpProtocol(server=self),
-            local_addr=(hostaddr, port))
-        self.udp_address = transport.get_extra_info('sockname')
-        logger.info('Listening for UDP on %s', self.udp_address)
+            lambda: TurnServerUdpProtocol(server=self), local_addr=(hostaddr, port)
+        )
+        self.udp_address = transport.get_extra_info("sockname")
+        logger.info("Listening for UDP on %s", self.udp_address)
 
         # listen for TLS
         ssl_context = ssl.SSLContext()
@@ -318,9 +342,10 @@ class TurnServer:
             lambda: TurnServerTcpProtocol(server=self),
             host=hostaddr,
             port=tls_port,
-            ssl=ssl_context)
+            ssl=ssl_context,
+        )
         self.tls_address = (hostname, self.tls_server.sockets[0].getsockname()[1])
-        logger.info('Listening for TLS on %s', self.tls_address)
+        logger.info("Listening for TLS on %s", self.tls_address)
 
         # start expiry loop
         self._expire_handle = asyncio.ensure_future(self._expire_allocations())
@@ -330,21 +355,21 @@ class TurnServer:
             now = time.time()
             for key, allocation in self.allocations.items():
                 if allocation.expiry < now:
-                    logger.info('Allocation expired %s', allocation.relayed_address)
+                    logger.info("Allocation expired %s", allocation.relayed_address)
                     del self.allocations[key]
 
             await asyncio.sleep(1)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='STUN / TURN server')
-    parser.add_argument('--verbose', '-v', action='count')
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="STUN / TURN server")
+    parser.add_argument("--verbose", "-v", action="count")
     args = parser.parse_args()
 
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    srv = TurnServer(realm='test', users={'foo': 'bar'})
+    srv = TurnServer(realm="test", users={"foo": "bar"})
     loop = asyncio.get_event_loop()
     loop.run_until_complete(srv.listen(port=3478, tls_port=5349))
     loop.run_forever()

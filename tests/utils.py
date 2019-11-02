@@ -17,8 +17,8 @@ async def invite_accept(conn_a, conn_b):
 
 
 def read_message(name):
-    path = os.path.join(os.path.dirname(__file__), 'data', name)
-    with open(path, 'rb') as fp:
+    path = os.path.join(os.path.dirname(__file__), "data", name)
+    with open(path, "rb") as fp:
         return fp.read()
 
 
