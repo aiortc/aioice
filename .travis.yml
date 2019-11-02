@@ -1,16 +1,23 @@
-dist: trusty
+dist: xenial
 install: .travis/install
 language: python
 matrix:
   include:
-  - language: generic
+  - env: BUILD=test
+    language: generic
     os: osx
-  - python: "3.5"
-  - python: "3.6"
-  - python: "3.7"
-    dist: xenial
-    sudo: true
-  - python: "pypy3"
-  - env: BUILD=sdist
+  - env: BUILD=test
+    python: "3.8"
+  - env: BUILD=test
+    python: "3.7"
+  - env: BUILD=test
     python: "3.6"
+  - env: BUILD=test
+    python: "3.5"
+    dist: trusty
+  - env: BUILD=test
+    python: "pypy3"
+  - env: BUILD=sdist
+python: "3.7"
 script: .travis/script
+sudo: true
