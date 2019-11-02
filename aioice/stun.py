@@ -5,6 +5,7 @@ import hmac
 import ipaddress
 from collections import OrderedDict
 from struct import pack, unpack
+from typing import Optional
 
 from . import exceptions
 from .utils import random_transaction_id
@@ -21,21 +22,21 @@ RETRY_MAX = 6
 RETRY_RTO = 0.5
 
 
-def set_body_length(data, length):
+def set_body_length(data: bytes, length: int) -> bytes:
     return data[0:2] + pack("!H", length) + data[4:]
 
 
-def message_fingerprint(data):
+def message_fingerprint(data: bytes) -> int:
     check_data = set_body_length(data, len(data) - HEADER_LENGTH + FINGERPRINT_LENGTH)
     return binascii.crc32(check_data) ^ FINGERPRINT_XOR
 
 
-def message_integrity(data, key):
+def message_integrity(data: bytes, key: bytes) -> bytes:
     check_data = set_body_length(data, len(data) - HEADER_LENGTH + INTEGRITY_LENGTH)
     return hmac.new(key, check_data, "sha1").digest()
 
 
-def xor_address(data, transaction_id):
+def xor_address(data: bytes, transaction_id: bytes) -> bytes:
     xpad = pack("!HI", COOKIE >> 16, COOKIE) + transaction_id
     xdata = data[0:2]
     for i in range(2, len(data)):
@@ -188,22 +189,26 @@ class Method(enum.IntEnum):
     CHANNEL_BIND = 0x9
 
 
-class Message(object):
+class Message:
     def __init__(
-        self, message_method, message_class, transaction_id=None, attributes=None
-    ):
+        self,
+        message_method: Method,
+        message_class: Class,
+        transaction_id: Optional[bytes] = None,
+        attributes: Optional[OrderedDict] = None,
+    ) -> None:
         self.message_method = Method(message_method)
         self.message_class = Class(message_class)
         self.transaction_id = transaction_id or random_transaction_id()
         self.attributes = attributes or OrderedDict()
 
-    def add_fingerprint(self):
+    def add_fingerprint(self) -> None:
         self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
 
-    def add_message_integrity(self, key):
+    def add_message_integrity(self, key: bytes) -> None:
         self.attributes["MESSAGE-INTEGRITY"] = message_integrity(bytes(self), key)
 
-    def __bytes__(self):
+    def __bytes__(self) -> bytes:
         data = b""
         for attr_name, attr_value in self.attributes.items():
             attr_type, _, attr_pack, attr_unpack = ATTRIBUTES_BY_NAME[attr_name]

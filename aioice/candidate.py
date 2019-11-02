@@ -1,8 +1,11 @@
 import hashlib
 import ipaddress
+from typing import Optional
 
 
-def candidate_foundation(candidate_type, candidate_transport, base_address):
+def candidate_foundation(
+    candidate_type: str, candidate_transport: str, base_address: str
+) -> str:
     """
     See RFC 5245 - 4.1.1.3. Computing Foundations
     """
@@ -10,7 +13,9 @@ def candidate_foundation(candidate_type, candidate_transport, base_address):
     return hashlib.md5(key.encode("ascii")).hexdigest()
 
 
-def candidate_priority(candidate_component, candidate_type, local_pref=65535):
+def candidate_priority(
+    candidate_component: int, candidate_type: str, local_pref: int = 65535
+) -> int:
     """
     See RFC 5245 - 4.1.2.1. Recommended Formula
     """
@@ -33,18 +38,18 @@ class Candidate:
 
     def __init__(
         self,
-        foundation,
-        component,
-        transport,
-        priority,
-        host,
-        port,
-        type,
-        related_address=None,
-        related_port=None,
-        tcptype=None,
-        generation=None,
-    ):
+        foundation: str,
+        component: int,
+        transport: str,
+        priority: int,
+        host: str,
+        port: int,
+        type: str,
+        related_address: Optional[str] = None,
+        related_port: Optional[int] = None,
+        tcptype: Optional[str] = None,
+        generation: Optional[int] = None,
+    ) -> None:
         self.foundation = foundation
         self.component = component
         self.transport = transport
@@ -93,7 +98,7 @@ class Candidate:
 
         return Candidate(**kwargs)
 
-    def to_sdp(self):
+    def to_sdp(self) -> str:
         """
         Return a string representation suitable for SDP.
         """
@@ -116,7 +121,7 @@ class Candidate:
             sdp += " generation %d" % self.generation
         return sdp
 
-    def can_pair_with(self, other):
+    def can_pair_with(self, other) -> bool:
         """
         A local candidate is paired with a remote candidate if and only if
         the two candidates have the same component ID and have the same IP
@@ -130,5 +135,5 @@ class Candidate:
             and a.version == b.version
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "Candidate(%s)" % self.to_sdp()

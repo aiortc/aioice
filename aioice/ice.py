@@ -4,6 +4,8 @@ import ipaddress
 import logging
 import random
 import socket
+from itertools import count
+from typing import Dict, List, Optional, Tuple, cast
 
 import netifaces
 
@@ -20,8 +22,13 @@ ICE_FAILED = 2
 CONSENT_FAILURES = 6
 CONSENT_INTERVAL = 5
 
+connection_id = count()
+protocol_id = count()
 
-def candidate_pair_priority(local, remote, ice_controlling):
+
+def candidate_pair_priority(
+    local: Candidate, remote: Candidate, ice_controlling: bool
+) -> int:
     """
     See RFC 5245 - 5.7.2. Computing Pair Priority and Ordering Pairs
     """
@@ -30,7 +37,7 @@ def candidate_pair_priority(local, remote, ice_controlling):
     return (1 << 32) * min(G, D) + 2 * max(G, D) + (G > D and 1 or 0)
 
 
-def get_host_addresses(use_ipv4, use_ipv6):
+def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> List[str]:
     """
     Get local IP addresses.
     """
@@ -46,7 +53,9 @@ def get_host_addresses(use_ipv4, use_ipv6):
     return addresses
 
 
-async def server_reflexive_candidate(protocol, stun_server):
+async def server_reflexive_candidate(
+    protocol, stun_server: Tuple[str, int]
+) -> Candidate:
     """
     Query STUN server to obtain a server-reflexive candidate.
     """
@@ -77,12 +86,12 @@ async def server_reflexive_candidate(protocol, stun_server):
     )
 
 
-def sort_candidate_pairs(pairs, ice_controlling):
+def sort_candidate_pairs(pairs, ice_controlling: bool) -> None:
     """
     Sort a list of candidate pairs.
     """
 
-    def pair_priority(pair):
+    def pair_priority(pair: CandidatePair) -> int:
         return -candidate_pair_priority(
             pair.local_candidate, pair.remote_candidate, ice_controlling
         )
@@ -90,7 +99,7 @@ def sort_candidate_pairs(pairs, ice_controlling):
     pairs.sort(key=pair_priority)
 
 
-def validate_remote_candidate(candidate):
+def validate_remote_candidate(candidate: Candidate) -> Candidate:
     """
     Check the remote candidate is supported.
 
@@ -103,8 +112,8 @@ def validate_remote_candidate(candidate):
 
 
 class CandidatePair:
-    def __init__(self, protocol, remote_candidate):
-        self.handle = None
+    def __init__(self, protocol, remote_candidate: Candidate) -> None:
+        self.handle = None  # type: Optional[asyncio.Future[None]]
         self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
@@ -138,29 +147,21 @@ class CandidatePair:
         FAILED = 4
 
 
-def next_protocol_id():
-    protocol_id = next_protocol_id.counter
-    next_protocol_id.counter += 1
-    return protocol_id
-
-
-next_protocol_id.counter = 0
-
-
 class StunProtocol(asyncio.DatagramProtocol):
-    def __init__(self, receiver):
-        self.__closed = asyncio.Future()
-        self.id = next_protocol_id()
+    def __init__(self, receiver) -> None:
+        self.__closed = asyncio.Future()  # type: asyncio.Future[bool]
+        self.id = next(protocol_id)
+        self.local_candidate = None  # type: Optional[Candidate]
         self.receiver = receiver
-        self.transport = None
-        self.transactions = {}
+        self.transport = None  # type: Optional[asyncio.DatagramTransport]
+        self.transactions = {}  # type: Dict[bytes, stun.Transaction]
 
-    def connection_lost(self, exc):
+    def connection_lost(self, exc: Exception) -> None:
         self.__log_debug("connection_lost(%s)", exc)
         self.receiver.data_received(None, self.local_candidate.component)
         self.__closed.set_result(True)
 
-    def connection_made(self, transport):
+    def connection_made(self, transport) -> None:
         self.__log_debug("connection_made(%s)", transport)
         self.transport = transport
 
@@ -189,7 +190,7 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     # custom
 
-    async def close(self):
+    async def close(self) -> None:
         self.transport.close()
         await self.__closed
 
@@ -223,20 +224,11 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.__log_debug("> %s %s", addr, message)
         self.transport.sendto(bytes(message), addr)
 
-    def __log_debug(self, msg, *args):
+    def __log_debug(self, msg: str, *args) -> None:
         logger.debug("%s %s " + msg, self.receiver, self, *args)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "protocol(%s)" % self.id
-
-
-def next_connection_id():
-    connection_id = next_connection_id.counter
-    next_connection_id.counter += 1
-    return connection_id
-
-
-next_connection_id.counter = 0
 
 
 class Connection:
@@ -246,26 +238,26 @@ class Connection:
 
     def __init__(
         self,
-        ice_controlling,
-        components=1,
-        stun_server=None,
-        turn_server=None,
-        turn_username=None,
-        turn_password=None,
-        turn_ssl=False,
-        turn_transport="udp",
-        use_ipv4=True,
-        use_ipv6=True,
-    ):
+        ice_controlling: bool,
+        components: int = 1,
+        stun_server: Optional[Tuple[str, int]] = None,
+        turn_server: Optional[Tuple[str, int]] = None,
+        turn_username: Optional[str] = None,
+        turn_password: Optional[str] = None,
+        turn_ssl: bool = False,
+        turn_transport: str = "udp",
+        use_ipv4: bool = True,
+        use_ipv6: bool = True,
+    ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
         #: Local password, automatically set to a random value.
         self.local_password = random_string(22)
         #: Remote username, which you need to set.
-        self.remote_username = None
+        self.remote_username = None  # type: Optional[str]
         #: Remote password, which you need to set.
-        self.remote_password = None
+        self.remote_password = None  # type: Optional[str]
 
         self.stun_server = stun_server
         self.turn_server = turn_server
@@ -276,33 +268,35 @@ class Connection:
 
         # private
         self._components = set(range(1, components + 1))
-        self._check_list = []
+        self._check_list = []  # type: List[CandidatePair]
         self._check_list_done = False
-        self._check_list_state = asyncio.Queue()
-        self._early_checks = []
-        self._id = next_connection_id()
-        self._local_candidates = []
+        self._check_list_state = asyncio.Queue()  # type: asyncio.Queue
+        self._early_checks = (
+            []
+        )  # type: List[Tuple[stun.Message, Tuple[str, int], StunProtocol]]
+        self._id = next(connection_id)
+        self._local_candidates = []  # type: List[Candidate]
         self._local_candidates_end = False
         self._local_candidates_start = False
-        self._nominated = {}
-        self._protocols = []
-        self._remote_candidates = []
+        self._nominated = {}  # type: Dict[int, CandidatePair]
+        self._protocols = []  # type: List[StunProtocol]
+        self._remote_candidates = []  # type: List[Candidate]
         self._remote_candidates_end = False
-        self._query_consent_handle = None
-        self._queue = asyncio.Queue()
+        self._query_consent_handle = None  # type: Optional[asyncio.Future[None]]
+        self._queue = asyncio.Queue()  # type: asyncio.Queue
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
 
     @property
-    def local_candidates(self):
+    def local_candidates(self) -> List[Candidate]:
         """
         Local candidates, automatically set by :meth:`gather_candidates`.
         """
         return self._local_candidates[:]
 
     @property
-    def remote_candidates(self):
+    def remote_candidates(self) -> List[Candidate]:
         """
         Remote candidates, which you need to set.
 
@@ -313,7 +307,7 @@ class Connection:
         return self._remote_candidates[:]
 
     @remote_candidates.setter
-    def remote_candidates(self, value):
+    def remote_candidates(self, value: List[Candidate]) -> None:
         if self._remote_candidates_end:
             raise ValueError("Cannot set remote candidates after end-of-candidates.")
 
@@ -330,7 +324,7 @@ class Connection:
         self._prune_components()
         self._remote_candidates_end = True
 
-    def add_remote_candidate(self, remote_candidate):
+    def add_remote_candidate(self, remote_candidate: Candidate) -> None:
         """
         Add a remote candidate or signal end-of-candidates.
 
@@ -361,7 +355,7 @@ class Connection:
                 self._check_list.append(pair)
         self.sort_check_list()
 
-    async def gather_candidates(self):
+    async def gather_candidates(self) -> None:
         """
         Gather local candidates.
 
@@ -378,15 +372,16 @@ class Connection:
                 )
             self._local_candidates_end = True
 
-    def get_default_candidate(self, component):
+    def get_default_candidate(self, component: int) -> Optional[Candidate]:
         """
         Gets the default local candidate for the specified component.
         """
         for candidate in sorted(self._local_candidates, key=lambda x: x.priority):
             if candidate.component == component:
                 return candidate
+        return None
 
-    async def connect(self):
+    async def connect(self) -> None:
         """
         Perform ICE handshake.
 
@@ -412,8 +407,8 @@ class Connection:
         self._unfreeze_initial()
 
         # handle early checks
-        for check in self._early_checks:
-            self.check_incoming(*check)
+        for early_check in self._early_checks:
+            self.check_incoming(*early_check)
         self._early_checks = []
 
         # perform checks
@@ -439,7 +434,7 @@ class Connection:
         # start consent freshness tests
         self._query_consent_handle = asyncio.ensure_future(self.query_consent())
 
-    async def close(self):
+    async def close(self) -> None:
         """
         Close the connection.
         """
@@ -461,7 +456,7 @@ class Connection:
         self._protocols.clear()
         self._local_candidates.clear()
 
-    async def recv(self):
+    async def recv(self) -> bytes:
         """
         Receive the next datagram.
 
@@ -472,7 +467,7 @@ class Connection:
         data, component = await self.recvfrom()
         return data
 
-    async def recvfrom(self):
+    async def recvfrom(self) -> Tuple[bytes, int]:
         """
         Receive the next datagram.
 
@@ -490,7 +485,7 @@ class Connection:
             raise ConnectionError("Connection lost while receiving data")
         return result
 
-    async def send(self, data):
+    async def send(self, data: bytes) -> None:
         """
         Send a datagram on the first component.
 
@@ -498,7 +493,7 @@ class Connection:
         """
         await self.sendto(data, 1)
 
-    async def sendto(self, data, component):
+    async def sendto(self, data: bytes, component: int) -> None:
         """
         Send a datagram on the specified component.
 
@@ -510,7 +505,9 @@ class Connection:
         else:
             raise ConnectionError("Cannot send data, not connected")
 
-    def set_selected_pair(self, component, local_foundation, remote_foundation):
+    def set_selected_pair(
+        self, component: int, local_foundation: str, remote_foundation: str
+    ) -> None:
         """
         Force the selected candidate pair.
 
@@ -538,7 +535,7 @@ class Connection:
 
     # private
 
-    def build_request(self, pair):
+    def build_request(self, pair: CandidatePair) -> stun.Message:
         tx_username = "%s:%s" % (self.remote_username, self.local_username)
         request = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
@@ -552,7 +549,7 @@ class Connection:
             request.attributes["ICE-CONTROLLED"] = self._tie_breaker
         return request
 
-    def check_complete(self, pair):
+    def check_complete(self, pair: CandidatePair) -> None:
         pair.handle = None
 
         if pair.state == CandidatePair.State.SUCCEEDED:
@@ -606,7 +603,9 @@ class Connection:
             asyncio.ensure_future(self._check_list_state.put(ICE_FAILED))
             self._check_list_done = True
 
-    def check_incoming(self, message, addr, protocol):
+    def check_incoming(
+        self, message: stun.Message, addr: Tuple[str, int], protocol: StunProtocol
+    ) -> None:
         """
         Handle a succesful incoming check.
         """
@@ -653,7 +652,7 @@ class Connection:
                 pair.nominated = True
                 self.check_complete(pair)
 
-    def check_periodic(self):
+    def check_periodic(self) -> bool:
         # find the highest-priority pair that is in the waiting state
         for pair in self._check_list:
             if pair.state == CandidatePair.State.WAITING:
@@ -672,7 +671,7 @@ class Connection:
 
         return False
 
-    async def check_start(self, pair):
+    async def check_start(self, pair: CandidatePair) -> None:
         """
         Starts a check.
         """
@@ -714,14 +713,16 @@ class Connection:
             pair.nominated = True
         self.check_complete(pair)
 
-    def check_state(self, pair, state):
+    def check_state(self, pair: CandidatePair, state: CandidatePair.State) -> None:
         """
         Updates the state of a check.
         """
         self.__log_info("Check %s %s -> %s", pair, pair.state, state)
         pair.state = state
 
-    def _find_pair(self, protocol, remote_candidate):
+    def _find_pair(
+        self, protocol: StunProtocol, remote_candidate: Candidate
+    ) -> Optional[CandidatePair]:
         """
         Find a candidate pair in the check list.
         """
@@ -730,7 +731,9 @@ class Connection:
                 return pair
         return None
 
-    async def get_component_candidates(self, component, addresses, timeout=5):
+    async def get_component_candidates(
+        self, component: int, addresses: List[str], timeout: int = 5
+    ) -> List[Candidate]:
         candidates = []
 
         loop = asyncio.get_event_loop()
@@ -743,6 +746,7 @@ class Connection:
             except OSError as exc:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
+            protocol = cast(StunProtocol, protocol)
             self._protocols.append(protocol)
 
             # add host candidate
@@ -783,6 +787,7 @@ class Connection:
                 ssl=self.turn_ssl,
                 transport=self.turn_transport,
             )
+            protocol = cast(StunProtocol, protocol)
             self._protocols.append(protocol)
 
             # add relayed candidate
@@ -803,7 +808,7 @@ class Connection:
 
         return candidates
 
-    def _prune_components(self):
+    def _prune_components(self) -> None:
         """
         Remove components for which the remote party did not provide any candidates.
 
@@ -817,7 +822,7 @@ class Connection:
             )
             self._components = seen_components
 
-    async def query_consent(self):
+    async def query_consent(self) -> None:
         """
         Periodically check consent (RFC 7675).
         """
@@ -905,7 +910,7 @@ class Connection:
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
-    def sort_check_list(self):
+    def sort_check_list(self) -> None:
         sort_candidate_pairs(self._check_list, self.ice_controlling)
 
     def switch_role(self, ice_controlling):
@@ -915,7 +920,7 @@ class Connection:
         self.ice_controlling = ice_controlling
         self.sort_check_list()
 
-    def _unfreeze_initial(self):
+    def _unfreeze_initial(self) -> None:
         # unfreeze first pair for the first component
         first_pair = None
         for pair in self._check_list:
@@ -938,8 +943,8 @@ class Connection:
                 self.check_state(pair, CandidatePair.State.WAITING)
                 seen_foundations.add(pair.local_candidate.foundation)
 
-    def __log_info(self, msg, *args):
+    def __log_info(self, msg: str, *args) -> None:
         logger.info("%s " + msg, self, *args)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "Connection(%s)" % self._id
