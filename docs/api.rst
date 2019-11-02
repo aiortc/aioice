@@ -7,15 +7,15 @@ API Reference
       :members: local_candidates, local_username, local_password, remote_candidates, remote_username, remote_password
 
       .. automethod:: add_remote_candidate
-      .. autocomethod:: gather_candidates
+      .. automethod:: gather_candidates
       .. automethod:: get_default_candidate
-      .. autocomethod:: connect
-      .. autocomethod:: close
-      .. autocomethod:: recv
-      .. autocomethod:: recvfrom
-      .. autocomethod:: send
-      .. autocomethod:: sendto
-      .. autocomethod:: set_selected_pair
+      .. automethod:: connect
+      .. automethod:: close
+      .. automethod:: recv
+      .. automethod:: recvfrom
+      .. automethod:: send
+      .. automethod:: sendto
+      .. automethod:: set_selected_pair
 
    .. autoclass:: Candidate
 
