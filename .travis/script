@@ -3,9 +3,9 @@
 set -e
 
 if [ "$BUILD" = "lint" ]; then
-    flake8 aioice examples tests
-    isort -c -df -rc aioice examples tests
-    black --check --diff aioice examples tests
+    flake8 examples src tests
+    isort -c -df -rc examples src tests
+    black --check --diff examples src tests
 elif [ "$BUILD" = "sdist" ]; then
     python3 setup.py sdist bdist_wheel
     if [ -n "$TRAVIS_TAG" ]; then

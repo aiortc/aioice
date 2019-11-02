@@ -30,6 +30,7 @@ setuptools.setup(
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
     ],
+    package_dir={"": "src"},
     package_data={"aioice": ["py.typed"]},
     packages=["aioice"],
     install_requires=["netifaces"],
