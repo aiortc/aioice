@@ -234,6 +234,17 @@ class StunProtocol(asyncio.DatagramProtocol):
 class Connection:
     """
     An ICE connection for a single media stream.
+
+    :param ice_controlling: Whether the local peer has the controlling role.
+    :param components: The number of components.
+    :param stun_server: The address of the STUN server or `None`.
+    :param turn_server: The address of the TURN server or `None`.
+    :param turn_username: The username for the TURN server.
+    :param turn_password: The password for the TURN server.
+    :param turn_ssl: Whether to use TLS for the TURN server.
+    :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
+    :param use_ipv4: Whether to use IPv4 candidates.
+    :param use_ipv6: Whether to use IPv6 candidates.
     """
 
     def __init__(
@@ -329,6 +340,8 @@ class Connection:
         Add a remote candidate or signal end-of-candidates.
 
         To signal end-of-candidates, pass `None`.
+
+        :param remote_candidate: A :class:`Candidate` instance or `None`.
         """
         if self._remote_candidates_end:
             raise ValueError("Cannot add remote candidate after end-of-candidates.")
@@ -374,7 +387,9 @@ class Connection:
 
     def get_default_candidate(self, component: int) -> Optional[Candidate]:
         """
-        Gets the default local candidate for the specified component.
+        Get the default local candidate for the specified component.
+
+        :param component: The component whose default candidate is requested.
         """
         for candidate in sorted(self._local_candidates, key=lambda x: x.priority):
             if candidate.component == component:
@@ -490,6 +505,8 @@ class Connection:
         Send a datagram on the first component.
 
         If the connection is not established, a `ConnectionError` is raised.
+
+        :param data: The data to be sent.
         """
         await self.sendto(data, 1)
 
@@ -498,6 +515,9 @@ class Connection:
         Send a datagram on the specified component.
 
         If the connection is not established, a `ConnectionError` is raised.
+
+        :param data: The data to be sent.
+        :param component: The component on which to send the data.
         """
         active_pair = self._nominated.get(component)
         if active_pair:
