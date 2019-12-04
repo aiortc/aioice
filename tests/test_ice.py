@@ -301,7 +301,6 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
-
     @unittest.skipIf(os.environ.get("TRAVIS") == "true", "travis lacks ipv6")
     def test_connect_ipv6(self):
         conn_a = ice.Connection(ice_controlling=True, use_ipv4=False, use_ipv6=True)

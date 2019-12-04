@@ -537,8 +537,8 @@ class Connection:
         protocol = None
         for p in self._protocols:
             if (
-                    p.local_candidate.component == component
-                    and p.local_candidate.foundation == local_foundation
+                p.local_candidate.component == component
+                and p.local_candidate.foundation == local_foundation
             ):
                 protocol = p
                 break
@@ -600,8 +600,8 @@ class Connection:
             # 7.1.3.2.3.  Updating Pair States
             for p in self._check_list:
                 if (
-                        p.local_candidate.foundation == pair.local_candidate.foundation
-                        and p.state == CandidatePair.State.FROZEN
+                    p.local_candidate.foundation == pair.local_candidate.foundation
+                    and p.state == CandidatePair.State.FROZEN
                 ):
                     self.check_state(p, CandidatePair.State.WAITING)
 
@@ -751,7 +751,11 @@ class Connection:
         return None
 
     async def get_component_candidates(
-        self, component: int, addresses: List[str], timeout: int = 5, retransmissions: int = 1
+        self,
+        component: int,
+        addresses: List[str],
+        timeout: int = 5,
+        retransmissions: int = 1,
     ) -> List[Candidate]:
 
         candidates = []
@@ -808,7 +812,7 @@ class Connection:
                     password=self.turn_password,
                     ssl=self.turn_ssl,
                     transport=self.turn_transport,
-                    retransmissions=retransmissions
+                    retransmissions=retransmissions,
                 )
 
                 protocol = cast(StunProtocol, protocol)
@@ -818,7 +822,9 @@ class Connection:
                 candidate_address = protocol.transport.get_extra_info("sockname")
                 related_address = protocol.transport.get_extra_info("related_address")
                 protocol.local_candidate = Candidate(
-                    foundation=candidate_foundation("relay", "udp", candidate_address[0]),
+                    foundation=candidate_foundation(
+                        "relay", "udp", candidate_address[0]
+                    ),
                     component=component,
                     transport="udp",
                     priority=candidate_priority(component, "relay"),
@@ -833,8 +839,11 @@ class Connection:
             candidate_tasks.append(turn_candidate())
         if len(candidate_tasks):
             results = await asyncio.gather(*candidate_tasks, return_exceptions=True)
-            candidates += [result for result in results
-                           if not isinstance(result, exceptions.TransactionTimeout)]
+            candidates += [
+                result
+                for result in results
+                if not isinstance(result, exceptions.TransactionTimeout)
+            ]
 
         return candidates
 
