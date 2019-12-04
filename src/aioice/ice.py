@@ -732,6 +732,13 @@ class Connection:
             pair.nominated = True
         self.check_complete(pair)
 
+    def check_state(self, pair: CandidatePair, state: CandidatePair.State) -> None:
+        """
+        Updates the state of a check.
+        """
+        self.__log_info("Check %s %s -> %s", pair, pair.state, state)
+        pair.state = state
+
     def _find_pair(
         self, protocol: StunProtocol, remote_candidate: Candidate
     ) -> Optional[CandidatePair]:
