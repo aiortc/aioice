@@ -29,7 +29,7 @@ class ProtocolMock:
     sent_message = None
 
     async def request(self, message, addr, integrity_key=None):
-        return self.response_message, self.response_addr
+        return (self.response_message, self.response_addr)
 
     def send_stun(self, message, addr):
         self.sent_message = message
@@ -301,7 +301,7 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
-    os.environ.setdefault("TRAVIS", "true")
+
     @unittest.skipIf(os.environ.get("TRAVIS") == "true", "travis lacks ipv6")
     def test_connect_ipv6(self):
         conn_a = ice.Connection(ice_controlling=True, use_ipv4=False, use_ipv6=True)
