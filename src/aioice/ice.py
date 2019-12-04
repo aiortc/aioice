@@ -781,7 +781,7 @@ class Connection:
                 type="host",
             )
             candidates.append(protocol.local_candidate)
-
+        candidate_tasks = []
         # query STUN server for server-reflexive candidates (IPv4 only)
         if self.stun_server:
             fs = []
@@ -796,22 +796,22 @@ class Connection:
                 for task in pending:
                     task.cancel()
 
-        candidate_tasks = []
         # connect to TURN server
         if self.turn_server:
             # create transport
-            candidate_tasks.append(turn.create_turn_endpoint(
-                lambda: StunProtocol(self),
-                server_addr=self.turn_server,
-                username=self.turn_username,
-                password=self.turn_password,
-                ssl=self.turn_ssl,
-                transport=self.turn_transport,
-                retransmissions=retransmissions
-            ))
 
-            def cand_from_protocol(protocol):
-                protocol = cast(StunProtocol, protocol.protocol)
+            async def turn_candidate():
+                _, protocol = await turn.create_turn_endpoint(
+                    lambda: StunProtocol(self),
+                    server_addr=self.turn_server,
+                    username=self.turn_username,
+                    password=self.turn_password,
+                    ssl=self.turn_ssl,
+                    transport=self.turn_transport,
+                    retransmissions=retransmissions
+                )
+
+                protocol = cast(StunProtocol, protocol)
                 self._protocols.append(protocol)
 
                 # add relayed candidate
@@ -830,9 +830,10 @@ class Connection:
                 )
                 return protocol.local_candidate
 
+            candidate_tasks.append(turn_candidate())
+        if len(candidate_tasks):
             results = await asyncio.gather(*candidate_tasks, return_exceptions=True)
-            candidates += [cand_from_protocol(result[0]) for result in results if not isinstance(result,
-                                                                                                 exceptions.TransactionTimeout)]
+            candidates += [result for result in results if not isinstance(result, exceptions.TransactionTimeout)]
 
         return candidates
 
