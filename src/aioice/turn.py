@@ -67,7 +67,7 @@ class TurnClientMixin:
         await self.request(request)
         logger.info("TURN channel bound %d %s", channel_number, addr)
 
-    async def connect(self):
+    async def connect(self, retransmissions=None):
         """
         Create a TURN allocation.
         """
@@ -78,7 +78,7 @@ class TurnClientMixin:
         request.attributes["REQUESTED-TRANSPORT"] = UDP_TRANSPORT
 
         try:
-            response, _ = await self.request(request)
+            response, _ = await self.request(request, retransmissions)
         except exceptions.TransactionFailed as e:
             response = e.response
             if response.attributes["ERROR-CODE"][0] == 401:
@@ -91,7 +91,7 @@ class TurnClientMixin:
 
                 # retry request with authentication
                 request.transaction_id = random_transaction_id()
-                response, _ = await self.request(request)
+                response, _ = await self.request(request, retransmissions)
 
         self.relayed_address = response.attributes["XOR-RELAYED-ADDRESS"]
         logger.info("TURN allocation created %s", self.relayed_address)
@@ -164,7 +164,7 @@ class TurnClientMixin:
 
             logger.info("TURN allocation refreshed %s", self.relayed_address)
 
-    async def request(self, request):
+    async def request(self, request, retransmissions=None):
         """
         Execute a STUN transaction and return the response.
         """
@@ -173,7 +173,7 @@ class TurnClientMixin:
         if self.integrity_key:
             self.__add_authentication(request)
 
-        transaction = stun.Transaction(request, self.server, self)
+        transaction = stun.Transaction(request, self.server, self, retransmissions)
         self.transactions[request.transaction_id] = transaction
         try:
             return await transaction.run()
@@ -277,8 +277,8 @@ class TurnTransport:
         """
         asyncio.ensure_future(self.__inner_protocol.send_data(data, addr))
 
-    async def _connect(self):
-        self.__relayed_address = await self.__inner_protocol.connect()
+    async def _connect(self, retransmissions=None):
+        self.__relayed_address = await self.__inner_protocol.connect(retransmissions)
         self.protocol.connection_made(self)
 
 
@@ -290,6 +290,7 @@ async def create_turn_endpoint(
     lifetime=600,
     ssl=False,
     transport="udp",
+    retransmissions=None
 ):
     """
     Create datagram connection relayed over TURN.
@@ -314,6 +315,6 @@ async def create_turn_endpoint(
 
     protocol = protocol_factory()
     transport = TurnTransport(protocol, inner_protocol)
-    await transport._connect()
+    await transport._connect(retransmissions)
 
     return transport, protocol
