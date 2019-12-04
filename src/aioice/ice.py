@@ -27,8 +27,8 @@ protocol_id = count()
 
 
 def candidate_pair_priority(
-        local: Candidate, remote: Candidate, ice_controlling: bool
-        ) -> int:
+    local: Candidate, remote: Candidate, ice_controlling: bool
+) -> int:
     """
     See RFC 5245 - 5.7.2. Computing Pair Priority and Ordering Pairs
     """
@@ -54,8 +54,8 @@ def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> List[str]:
 
 
 async def server_reflexive_candidate(
-        protocol, stun_server: Tuple[str, int]
-        ) -> Candidate:
+    protocol, stun_server: Tuple[str, int]
+) -> Candidate:
     """
     Query STUN server to obtain a server-reflexive candidate.
     """
@@ -64,12 +64,12 @@ async def server_reflexive_candidate(
     stun_server = (
         await loop.run_in_executor(None, socket.gethostbyname, stun_server[0]),
         stun_server[1],
-        )
+    )
 
     # perform STUN query
     request = stun.Message(
         message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
-        )
+    )
     response, _ = await protocol.request(request, stun_server)
 
     local_candidate = protocol.local_candidate
@@ -83,7 +83,7 @@ async def server_reflexive_candidate(
         type="srflx",
         related_address=local_candidate.host,
         related_port=local_candidate.port,
-        )
+    )
 
 
 def sort_candidate_pairs(pairs, ice_controlling: bool) -> None:
@@ -94,7 +94,7 @@ def sort_candidate_pairs(pairs, ice_controlling: bool) -> None:
     def pair_priority(pair: CandidatePair) -> int:
         return -candidate_pair_priority(
             pair.local_candidate, pair.remote_candidate, ice_controlling
-            )
+        )
 
     pairs.sort(key=pair_priority)
 
@@ -102,7 +102,6 @@ def sort_candidate_pairs(pairs, ice_controlling: bool) -> None:
 def validate_remote_candidate(candidate: Candidate) -> Candidate:
     """
     Check the remote candidate is supported.
-
     mDNS candidates are not supported yet.
     """
     if candidate.type not in ["host", "relay", "srflx"]:
@@ -177,8 +176,8 @@ class StunProtocol(asyncio.DatagramProtocol):
             return
 
         if (
-                message.message_class == stun.Class.RESPONSE
-                or message.message_class == stun.Class.ERROR
+            message.message_class == stun.Class.RESPONSE
+            or message.message_class == stun.Class.ERROR
         ) and message.transaction_id in self.transactions:
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
@@ -206,7 +205,7 @@ class StunProtocol(asyncio.DatagramProtocol):
 
         transaction = stun.Transaction(
             request, addr, self, retransmissions=retransmissions
-            )
+        )
         transaction.integrity_key = integrity_key
         self.transactions[request.transaction_id] = transaction
         try:
@@ -248,18 +247,18 @@ class Connection:
     """
 
     def __init__(
-            self,
-            ice_controlling: bool,
-            components: int = 1,
-            stun_server: Optional[Tuple[str, int]] = None,
-            turn_server: Optional[Tuple[str, int]] = None,
-            turn_username: Optional[str] = None,
-            turn_password: Optional[str] = None,
-            turn_ssl: bool = False,
-            turn_transport: str = "udp",
-            use_ipv4: bool = True,
-            use_ipv6: bool = True,
-            ) -> None:
+        self,
+        ice_controlling: bool,
+        components: int = 1,
+        stun_server: Optional[Tuple[str, int]] = None,
+        turn_server: Optional[Tuple[str, int]] = None,
+        turn_username: Optional[str] = None,
+        turn_password: Optional[str] = None,
+        turn_ssl: bool = False,
+        turn_transport: str = "udp",
+        use_ipv4: bool = True,
+        use_ipv6: bool = True,
+    ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
@@ -362,8 +361,8 @@ class Connection:
         # pair the remote candidate
         for protocol in self._protocols:
             if protocol.local_candidate.can_pair_with(
-                    remote_candidate
-                    ) and not self._find_pair(protocol, remote_candidate):
+                remote_candidate
+            ) and not self._find_pair(protocol, remote_candidate):
                 pair = CandidatePair(protocol, remote_candidate)
                 self._check_list.append(pair)
         self.sort_check_list()
@@ -378,11 +377,11 @@ class Connection:
             self._local_candidates_start = True
             addresses = get_host_addresses(
                 use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
-                )
+            )
             for component in self._components:
                 self._local_candidates += await self.get_component_candidates(
                     component=component, addresses=addresses
-                    )
+                )
             self._local_candidates_end = True
 
     def get_default_candidate(self, component: int) -> Optional[Candidate]:
@@ -413,8 +412,8 @@ class Connection:
         for remote_candidate in self._remote_candidates:
             for protocol in self._protocols:
                 if protocol.local_candidate.can_pair_with(
-                        remote_candidate
-                        ) and not self._find_pair(protocol, remote_candidate):
+                    remote_candidate
+                ) and not self._find_pair(protocol, remote_candidate):
                     pair = CandidatePair(protocol, remote_candidate)
                     self._check_list.append(pair)
         self.sort_check_list()
@@ -526,8 +525,8 @@ class Connection:
             raise ConnectionError("Cannot send data, not connected")
 
     def set_selected_pair(
-            self, component: int, local_foundation: str, remote_foundation: str
-            ) -> None:
+        self, component: int, local_foundation: str, remote_foundation: str
+    ) -> None:
         """
         Force the selected candidate pair.
 
@@ -559,7 +558,7 @@ class Connection:
         tx_username = "%s:%s" % (self.remote_username, self.local_username)
         request = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
-            )
+        )
         request.attributes["USERNAME"] = tx_username
         request.attributes["PRIORITY"] = candidate_priority(pair.component, "prflx")
         if self.ice_controlling:
@@ -585,7 +584,7 @@ class Connection:
                     if p.component == pair.component and p.state in [
                         CandidatePair.State.WAITING,
                         CandidatePair.State.FROZEN,
-                        ]:
+                    ]:
                         self.check_state(p, CandidatePair.State.FAILED)
 
             # Once there is at least one nominated pair in the valid list for
@@ -610,7 +609,7 @@ class Connection:
             if p.state not in [
                 CandidatePair.State.SUCCEEDED,
                 CandidatePair.State.FAILED,
-                ]:
+            ]:
                 return
 
         if not self.ice_controlling:
@@ -624,8 +623,8 @@ class Connection:
             self._check_list_done = True
 
     def check_incoming(
-            self, message: stun.Message, addr: Tuple[str, int], protocol: StunProtocol
-            ) -> None:
+        self, message: stun.Message, addr: Tuple[str, int], protocol: StunProtocol
+    ) -> None:
         """
         Handle a succesful incoming check.
         """
@@ -648,7 +647,7 @@ class Connection:
                 host=addr[0],
                 port=addr[1],
                 type="prflx",
-                )
+            )
             self._remote_candidates.append(remote_candidate)
             self.__log_info("Discovered peer reflexive candidate %s", remote_candidate)
 
@@ -703,12 +702,12 @@ class Connection:
                 request,
                 pair.remote_addr,
                 integrity_key=self.remote_password.encode("utf8"),
-                )
+            )
         except exceptions.TransactionError as exc:
             # 7.1.3.1. Failure Cases
             if (
-                    exc.response
-                    and exc.response.attributes.get("ERROR-CODE", (None, None))[0] == 487
+                exc.response
+                and exc.response.attributes.get("ERROR-CODE", (None, None))[0] == 487
             ):
                 if "ICE-CONTROLLING" in request.attributes:
                     self.switch_role(ice_controlling=False)
@@ -733,16 +732,9 @@ class Connection:
             pair.nominated = True
         self.check_complete(pair)
 
-    def check_state(self, pair: CandidatePair, state: CandidatePair.State) -> None:
-        """
-        Updates the state of a check.
-        """
-        self.__log_info("Check %s %s -> %s", pair, pair.state, state)
-        pair.state = state
-
     def _find_pair(
-            self, protocol: StunProtocol, remote_candidate: Candidate
-            ) -> Optional[CandidatePair]:
+        self, protocol: StunProtocol, remote_candidate: Candidate
+    ) -> Optional[CandidatePair]:
         """
         Find a candidate pair in the check list.
         """
@@ -752,8 +744,9 @@ class Connection:
         return None
 
     async def get_component_candidates(
-            self, component: int, addresses: List[str], timeout: int = 5, retransmissions: int = 1
-            ) -> List[Candidate]:
+        self, component: int, addresses: List[str], timeout: int = 5, retransmissions: int = 1
+    ) -> List[Candidate]:
+
         candidates = []
 
         loop = asyncio.get_event_loop()
@@ -762,7 +755,7 @@ class Connection:
             try:
                 _, protocol = await loop.create_datagram_endpoint(
                     lambda: StunProtocol(self), local_addr=(address, 0)
-                    )
+                )
             except OSError as exc:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
@@ -779,7 +772,7 @@ class Connection:
                 host=candidate_address[0],
                 port=candidate_address[1],
                 type="host",
-                )
+            )
             candidates.append(protocol.local_candidate)
         candidate_tasks = []
         # query STUN server for server-reflexive candidates (IPv4 only)
@@ -792,7 +785,7 @@ class Connection:
                 done, pending = await asyncio.wait(fs, timeout=timeout)
                 candidates += [
                     task.result() for task in done if task.exception() is None
-                    ]
+                ]
                 for task in pending:
                     task.cancel()
 
@@ -809,7 +802,7 @@ class Connection:
                     ssl=self.turn_ssl,
                     transport=self.turn_transport,
                     retransmissions=retransmissions
-                    )
+                )
 
                 protocol = cast(StunProtocol, protocol)
                 self._protocols.append(protocol)
@@ -827,7 +820,7 @@ class Connection:
                     type="relay",
                     related_address=related_address[0],
                     related_port=related_address[1],
-                    )
+                )
                 return protocol.local_candidate
 
             candidate_tasks.append(turn_candidate())
@@ -841,7 +834,6 @@ class Connection:
     def _prune_components(self) -> None:
         """
         Remove components for which the remote party did not provide any candidates.
-
         This can only be determined after end-of-candidates.
         """
         seen_components = set(map(lambda x: x.component, self._remote_candidates))
@@ -849,7 +841,7 @@ class Connection:
         if missing_components:
             self.__log_info(
                 "Components %s have no candidate pairs" % missing_components
-                )
+            )
             self._components = seen_components
 
     async def query_consent(self) -> None:
@@ -869,7 +861,7 @@ class Connection:
                         pair.remote_addr,
                         integrity_key=self.remote_password.encode("utf8"),
                         retransmissions=0,
-                        )
+                    )
                     failures = 0
                 except exceptions.TransactionError:
                     failures += 1
@@ -890,7 +882,7 @@ class Connection:
         try:
             stun.parse_message(
                 raw_data, integrity_key=self.local_password.encode("utf8")
-                )
+            )
             if self.remote_username is not None:
                 rx_username = "%s:%s" % (self.local_username, self.remote_username)
                 if message.attributes.get("USERNAME") != rx_username:
@@ -918,7 +910,7 @@ class Connection:
             message_method=stun.Method.BINDING,
             message_class=stun.Class.RESPONSE,
             transaction_id=message.transaction_id,
-            )
+        )
         response.attributes["XOR-MAPPED-ADDRESS"] = addr
         response.add_message_integrity(self.local_password.encode("utf8"))
         response.add_fingerprint()
@@ -934,7 +926,7 @@ class Connection:
             message_method=request.message_method,
             message_class=stun.Class.ERROR,
             transaction_id=request.transaction_id,
-            )
+        )
         response.attributes["ERROR-CODE"] = error_code
         response.add_message_integrity(self.local_password.encode("utf8"))
         response.add_fingerprint()
@@ -946,7 +938,7 @@ class Connection:
     def switch_role(self, ice_controlling):
         self.__log_info(
             "Switching to %s role", ice_controlling and "controlling" or "controlled"
-            )
+        )
         self.ice_controlling = ice_controlling
         self.sort_check_list()
 
@@ -966,9 +958,9 @@ class Connection:
         seen_foundations = set(first_pair.local_candidate.foundation)
         for pair in self._check_list:
             if (
-                    pair.component == first_pair.component
-                    and pair.local_candidate.foundation not in seen_foundations
-                    and pair.state == CandidatePair.State.FROZEN
+                pair.component == first_pair.component
+                and pair.local_candidate.foundation not in seen_foundations
+                and pair.state == CandidatePair.State.FROZEN
             ):
                 self.check_state(pair, CandidatePair.State.WAITING)
                 seen_foundations.add(pair.local_candidate.foundation)
