@@ -6,3 +6,5 @@
 /docs/_build
 .idea/
 coverage.xml
+.pypirc
+setup_local.py

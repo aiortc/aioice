@@ -842,7 +842,15 @@ class Connection:
             candidates += [
                 result
                 for result in results
-                if not isinstance(result, exceptions.TransactionTimeout)
+                if not any(
+                    (
+                        isinstance(result, error)
+                        for error in [
+                            ConnectionRefusedError,
+                            exceptions.TransactionTimeout,
+                        ]
+                    )
+                )
             ]
 
         return candidates
