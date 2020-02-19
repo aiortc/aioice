@@ -6,7 +6,7 @@ import random
 import secrets
 import socket
 from itertools import count
-from typing import Dict, List, Optional, Set, Tuple, cast
+from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
 import netifaces
 
@@ -113,30 +113,30 @@ def validate_remote_candidate(candidate: Candidate) -> Candidate:
 
 class CandidatePair:
     def __init__(self, protocol, remote_candidate: Candidate) -> None:
-        self.handle = None  # type: Optional[asyncio.Future[None]]
+        self.handle: Optional[asyncio.Future[None]] = None
         self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
         self.remote_nominated = False
         self.state = CandidatePair.State.FROZEN
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "CandidatePair(%s -> %s)" % (self.local_addr, self.remote_addr)
 
     @property
-    def component(self):
+    def component(self) -> int:
         return self.local_candidate.component
 
     @property
-    def local_addr(self):
+    def local_addr(self) -> Tuple[str, int]:
         return (self.local_candidate.host, self.local_candidate.port)
 
     @property
-    def local_candidate(self):
+    def local_candidate(self) -> Candidate:
         return self.protocol.local_candidate
 
     @property
-    def remote_addr(self):
+    def remote_addr(self) -> Tuple[str, int]:
         return (self.remote_candidate.host, self.remote_candidate.port)
 
     class State(enum.Enum):
@@ -149,12 +149,12 @@ class CandidatePair:
 
 class StunProtocol(asyncio.DatagramProtocol):
     def __init__(self, receiver) -> None:
-        self.__closed = asyncio.Future()  # type: asyncio.Future[bool]
+        self.__closed: asyncio.Future[bool] = asyncio.Future()
         self.id = next(protocol_id)
-        self.local_candidate = None  # type: Optional[Candidate]
+        self.local_candidate: Optional[Candidate] = None
         self.receiver = receiver
-        self.transport = None  # type: Optional[asyncio.DatagramTransport]
-        self.transactions = {}  # type: Dict[bytes, stun.Transaction]
+        self.transport: Optional[asyncio.DatagramTransport] = None
+        self.transactions: Dict[bytes, stun.Transaction] = {}
 
     def connection_lost(self, exc: Exception) -> None:
         self.__log_debug("connection_lost(%s)", exc)
@@ -165,9 +165,10 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.__log_debug("connection_made(%s)", transport)
         self.transport = transport
 
-    def datagram_received(self, data, addr):
+    def datagram_received(self, data: Union[bytes, Text], addr: Tuple) -> None:
         # force IPv6 four-tuple to a two-tuple
         addr = (addr[0], addr[1])
+        data = cast(bytes, data)
 
         try:
             message = stun.parse_message(data)
@@ -185,7 +186,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         elif message.message_class == stun.Class.REQUEST:
             self.receiver.request_received(message, addr, self, data)
 
-    def error_received(self, exc):
+    def error_received(self, exc: Exception) -> None:
         self.__log_debug("error_received(%s)", exc)
 
     # custom
@@ -194,7 +195,13 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.transport.close()
         await self.__closed
 
-    async def request(self, request, addr, integrity_key=None, retransmissions=None):
+    async def request(
+        self,
+        request: stun.Message,
+        addr: Tuple[str, int],
+        integrity_key: Optional[bytes] = None,
+        retransmissions=None,
+    ) -> Tuple[stun.Message, Tuple[str, int]]:
         """
         Execute a STUN transaction and return the response.
         """
@@ -207,17 +214,16 @@ class StunProtocol(asyncio.DatagramProtocol):
         transaction = stun.Transaction(
             request, addr, self, retransmissions=retransmissions
         )
-        transaction.integrity_key = integrity_key
         self.transactions[request.transaction_id] = transaction
         try:
             return await transaction.run()
         finally:
             del self.transactions[request.transaction_id]
 
-    async def send_data(self, data, addr):
+    async def send_data(self, data: bytes, addr: Tuple[str, int]) -> None:
         self.transport.sendto(data, addr)
 
-    def send_stun(self, message, addr):
+    def send_stun(self, message: stun.Message, addr: Tuple[str, int]) -> None:
         """
         Send a STUN message.
         """
@@ -268,9 +274,9 @@ class Connection:
         #: Whether the remote party is an ICE Lite implementation.
         self.remote_is_lite = False
         #: Remote username, which you need to set.
-        self.remote_username = None  # type: Optional[str]
+        self.remote_username: Optional[str] = None
         #: Remote password, which you need to set.
-        self.remote_password = None  # type: Optional[str]
+        self.remote_password: Optional[str] = None
 
         self.stun_server = stun_server
         self.turn_server = turn_server
@@ -281,23 +287,23 @@ class Connection:
 
         # private
         self._components = set(range(1, components + 1))
-        self._check_list = []  # type: List[CandidatePair]
+        self._check_list: List[CandidatePair] = []
         self._check_list_done = False
-        self._check_list_state = asyncio.Queue()  # type: asyncio.Queue
-        self._early_checks = (
-            []
-        )  # type: List[Tuple[stun.Message, Tuple[str, int], StunProtocol]]
+        self._check_list_state: asyncio.Queue = asyncio.Queue()
+        self._early_checks: List[
+            Tuple[stun.Message, Tuple[str, int], StunProtocol]
+        ] = []
         self._id = next(connection_id)
-        self._local_candidates = []  # type: List[Candidate]
+        self._local_candidates: List[Candidate] = []
         self._local_candidates_end = False
         self._local_candidates_start = False
-        self._nominated = {}  # type: Dict[int, CandidatePair]
-        self._nominating = set()  # type: Set[int]
-        self._protocols = []  # type: List[StunProtocol]
-        self._remote_candidates = []  # type: List[Candidate]
+        self._nominated: Dict[int, CandidatePair] = {}
+        self._nominating: Set[int] = set()
+        self._protocols: List[StunProtocol] = []
+        self._remote_candidates: List[Candidate] = []
         self._remote_candidates_end = False
-        self._query_consent_handle = None  # type: Optional[asyncio.Future[None]]
-        self._queue = asyncio.Queue()  # type: asyncio.Queue
+        self._query_consent_handle: Optional[asyncio.Future[None]] = None
+        self._queue: asyncio.Queue = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
@@ -891,10 +897,16 @@ class Connection:
                     self._query_consent_handle = None
                     return await self.close()
 
-    def data_received(self, data, component):
+    def data_received(self, data: bytes, component: int) -> None:
         self._queue.put_nowait((data, component))
 
-    def request_received(self, message, addr, protocol, raw_data):
+    def request_received(
+        self,
+        message: stun.Message,
+        addr: Tuple[str, int],
+        protocol: StunProtocol,
+        raw_data: bytes,
+    ) -> None:
         if message.message_method != stun.Method.BINDING:
             self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
@@ -942,7 +954,13 @@ class Connection:
         else:
             self.check_incoming(message, addr, protocol)
 
-    def respond_error(self, request, addr, protocol, error_code):
+    def respond_error(
+        self,
+        request: stun.Message,
+        addr: Tuple[str, int],
+        protocol: StunProtocol,
+        error_code: Tuple[int, str],
+    ) -> None:
         response = stun.Message(
             message_method=request.message_method,
             message_class=stun.Class.ERROR,
@@ -956,7 +974,7 @@ class Connection:
     def sort_check_list(self) -> None:
         sort_candidate_pairs(self._check_list, self.ice_controlling)
 
-    def switch_role(self, ice_controlling):
+    def switch_role(self, ice_controlling: bool) -> None:
         self.__log_info(
             "Switching to %s role", ice_controlling and "controlling" or "controlled"
         )

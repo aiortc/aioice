@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import struct
+from typing import Any, Callable, Dict, Optional, Text, Tuple, Union, cast
 
 from . import exceptions, stun
 from .utils import random_transaction_id
@@ -12,16 +13,16 @@ TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
 
 
-def is_channel_data(data):
+def is_channel_data(data: bytes) -> bool:
     return (data[0] & 0xC0) == 0x40
 
 
-def make_integrity_key(username, realm, password):
+def make_integrity_key(username: str, realm: str, password: str) -> bytes:
     return hashlib.md5(":".join([username, realm, password]).encode("utf8")).digest()
 
 
 class TurnStreamMixin:
-    def data_received(self, data):
+    def data_received(self, data: bytes) -> None:
         if not hasattr(self, "buffer"):
             self.buffer = b""
         self.buffer += data
@@ -41,24 +42,26 @@ class TurnStreamMixin:
 
 
 class TurnClientMixin:
-    def __init__(self, server, username, password, lifetime):
-        self.channel_to_peer = {}
-        self.peer_to_channel = {}
+    def __init__(
+        self, server: Tuple[str, int], username: str, password: str, lifetime: int
+    ) -> None:
+        self.channel_to_peer: Dict[int, Tuple[str, int]] = {}
+        self.peer_to_channel: Dict[Tuple[str, int], int] = {}
 
         self.channel_number = 0x4000
-        self.integrity_key = None
+        self.integrity_key: Optional[bytes] = None
         self.lifetime = lifetime
-        self.nonce = None
+        self.nonce: Optional[bytes] = None
         self.password = password
         self.receiver = None
-        self.realm = None
-        self.refresh_handle = None
-        self.relayed_address = None
+        self.realm: Optional[str] = None
+        self.refresh_handle: Optional[asyncio.Future] = None
+        self.relayed_address: Optional[Tuple[str, int]] = None
         self.server = server
-        self.transactions = {}
+        self.transactions: Dict[bytes, stun.Transaction] = {}
         self.username = username
 
-    async def channel_bind(self, channel_number, addr):
+    async def channel_bind(self, channel_number: int, addr: Tuple[str, int]) -> None:
         request = stun.Message(
             message_method=stun.Method.CHANNEL_BIND, message_class=stun.Class.REQUEST
         )
@@ -67,7 +70,7 @@ class TurnClientMixin:
         await self.request(request)
         logger.info("TURN channel bound %d %s", channel_number, addr)
 
-    async def connect(self):
+    async def connect(self) -> Tuple[str, int]:
         """
         Create a TURN allocation.
         """
@@ -101,11 +104,13 @@ class TurnClientMixin:
 
         return self.relayed_address
 
-    def connection_made(self, transport):
+    def connection_made(self, transport) -> None:
         logger.debug("%s connection_made(%s)", self, transport)
         self.transport = transport
 
-    def datagram_received(self, data, addr):
+    def datagram_received(self, data: Union[bytes, Text], addr) -> None:
+        data = cast(bytes, data)
+
         # demultiplex channel data
         if len(data) >= 4 and is_channel_data(data):
             channel, length = struct.unpack("!HH", data[0:4])
@@ -131,7 +136,7 @@ class TurnClientMixin:
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
 
-    async def delete(self):
+    async def delete(self) -> None:
         """
         Delete the TURN allocation.
         """
@@ -149,7 +154,7 @@ class TurnClientMixin:
         if self.receiver:
             self.receiver.connection_lost(None)
 
-    async def refresh(self):
+    async def refresh(self) -> None:
         """
         Periodically refresh the TURN allocation.
         """
@@ -164,7 +169,9 @@ class TurnClientMixin:
 
             logger.info("TURN allocation refreshed %s", self.relayed_address)
 
-    async def request(self, request):
+    async def request(
+        self, request: stun.Message
+    ) -> Tuple[stun.Message, Tuple[str, int]]:
         """
         Execute a STUN transaction and return the response.
         """
@@ -180,7 +187,7 @@ class TurnClientMixin:
         finally:
             del self.transactions[request.transaction_id]
 
-    async def send_data(self, data, addr):
+    async def send_data(self, data: bytes, addr: Tuple[str, int]) -> None:
         """
         Send data to a remote host via the TURN server.
         """
@@ -197,14 +204,14 @@ class TurnClientMixin:
         header = struct.pack("!HH", channel, len(data))
         self._send(header + data)
 
-    def send_stun(self, message, addr):
+    def send_stun(self, message: stun.Message, addr: Tuple[str, int]) -> None:
         """
         Send a STUN message to the TURN server.
         """
         logger.debug("%s > %s %s", self, addr, message)
         self._send(bytes(message))
 
-    def __add_authentication(self, request):
+    def __add_authentication(self, request: stun.Message) -> None:
         request.attributes["USERNAME"] = self.username
         request.attributes["NONCE"] = self.nonce
         request.attributes["REALM"] = self.realm
@@ -217,10 +224,10 @@ class TurnClientTcpProtocol(TurnClientMixin, TurnStreamMixin, asyncio.Protocol):
     Protocol for handling TURN over TCP.
     """
 
-    def _send(self, data):
+    def _send(self, data: bytes) -> None:
         self.transport.write(data)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "turn/tcp"
 
 
@@ -229,10 +236,10 @@ class TurnClientUdpProtocol(TurnClientMixin, asyncio.DatagramProtocol):
     Protocol for handling TURN over UDP.
     """
 
-    def _send(self, data):
+    def _send(self, data: bytes) -> None:
         self.transport.sendto(data)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "turn/udp"
 
 
@@ -241,13 +248,13 @@ class TurnTransport:
     Behaves like a Datagram transport, but uses a TURN allocation.
     """
 
-    def __init__(self, protocol, inner_protocol):
+    def __init__(self, protocol, inner_protocol) -> None:
         self.protocol = protocol
         self.__inner_protocol = inner_protocol
         self.__inner_protocol.receiver = protocol
         self.__relayed_address = None
 
-    def close(self):
+    def close(self) -> None:
         """
         Close the transport.
 
@@ -256,7 +263,7 @@ class TurnTransport:
         """
         asyncio.ensure_future(self.__inner_protocol.delete())
 
-    def get_extra_info(self, name, default=None):
+    def get_extra_info(self, name: str, default: Any = None) -> Any:
         """
         Return optional transport information.
 
@@ -269,7 +276,7 @@ class TurnTransport:
             return self.__relayed_address
         return default
 
-    def sendto(self, data, addr):
+    def sendto(self, data: bytes, addr: Tuple[str, int]) -> None:
         """
         Sends the `data` bytes to the remote peer given `addr`.
 
@@ -277,20 +284,20 @@ class TurnTransport:
         """
         asyncio.ensure_future(self.__inner_protocol.send_data(data, addr))
 
-    async def _connect(self):
+    async def _connect(self) -> None:
         self.__relayed_address = await self.__inner_protocol.connect()
         self.protocol.connection_made(self)
 
 
 async def create_turn_endpoint(
-    protocol_factory,
-    server_addr,
-    username,
-    password,
-    lifetime=600,
-    ssl=False,
-    transport="udp",
-):
+    protocol_factory: Callable,
+    server_addr: Tuple[str, int],
+    username: str,
+    password: str,
+    lifetime: int = 600,
+    ssl: bool = False,
+    transport: str = "udp",
+) -> Tuple[TurnTransport, asyncio.Protocol]:
     """
     Create datagram connection relayed over TURN.
     """
@@ -313,7 +320,7 @@ async def create_turn_endpoint(
         )
 
     protocol = protocol_factory()
-    transport = TurnTransport(protocol, inner_protocol)
-    await transport._connect()
+    turn_transport = TurnTransport(protocol, inner_protocol)
+    await turn_transport._connect()
 
-    return transport, protocol
+    return turn_transport, protocol

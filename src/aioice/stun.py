@@ -5,7 +5,7 @@ import hmac
 import ipaddress
 from collections import OrderedDict
 from struct import pack, unpack
-from typing import Optional
+from typing import Optional, Tuple
 
 from . import exceptions
 from .utils import random_transaction_id
@@ -44,7 +44,7 @@ def xor_address(data: bytes, transaction_id: bytes) -> bytes:
     return xdata
 
 
-def pack_address(value, **kwargs):
+def pack_address(value: Tuple[str, int]) -> bytes:
     ip_address = ipaddress.ip_address(value[0])
     if isinstance(ip_address, ipaddress.IPv4Address):
         protocol = IPV4_PROTOCOL
@@ -53,39 +53,39 @@ def pack_address(value, **kwargs):
     return pack("!BBH", 0, protocol, value[1]) + ip_address.packed
 
 
-def pack_bytes(value):
+def pack_bytes(value: bytes) -> bytes:
     return value
 
 
-def pack_error_code(value):
+def pack_error_code(value: Tuple[int, str]) -> bytes:
     return pack("!HBB", 0, value[0] // 100, value[0] % 100) + value[1].encode("utf8")
 
 
-def pack_none(value):
+def pack_none(value: None) -> bytes:
     return b""
 
 
-def pack_string(value):
+def pack_string(value: str) -> bytes:
     return value.encode("utf8")
 
 
-def pack_unsigned(value):
+def pack_unsigned(value: int) -> bytes:
     return pack("!I", value)
 
 
-def pack_unsigned_short(value):
+def pack_unsigned_short(value: int) -> bytes:
     return pack("!H", value) + b"\x00\x00"
 
 
-def pack_unsigned_64(value):
+def pack_unsigned_64(value: int) -> bytes:
     return pack("!Q", value)
 
 
-def pack_xor_address(value, transaction_id):
+def pack_xor_address(value: Tuple[str, int], transaction_id: bytes) -> bytes:
     return xor_address(pack_address(value), transaction_id)
 
 
-def unpack_address(data):
+def unpack_address(data: bytes) -> Tuple[str, int]:
     if len(data) < 4:
         raise ValueError("STUN address length is less than 4 bytes")
     reserved, protocol, port = unpack("!BBH", data[0:4])
@@ -102,15 +102,15 @@ def unpack_address(data):
         raise ValueError("STUN address has unknown protocol")
 
 
-def unpack_xor_address(data, transaction_id):
+def unpack_xor_address(data: bytes, transaction_id: bytes) -> Tuple[str, int]:
     return unpack_address(xor_address(data, transaction_id))
 
 
-def unpack_bytes(data):
+def unpack_bytes(data: bytes) -> bytes:
     return data
 
 
-def unpack_error_code(data):
+def unpack_error_code(data: bytes) -> Tuple[int, str]:
     if len(data) < 4:
         raise ValueError("STUN error code is less than 4 bytes")
     reserved, code_high, code_low = unpack("!HBB", data[0:4])
@@ -118,23 +118,23 @@ def unpack_error_code(data):
     return (code_high * 100 + code_low, reason)
 
 
-def unpack_none(data):
+def unpack_none(data: bytes) -> None:
     return None
 
 
-def unpack_string(data):
+def unpack_string(data: bytes) -> str:
     return data.decode("utf8")
 
 
-def unpack_unsigned(data):
+def unpack_unsigned(data: bytes) -> int:
     return unpack("!I", data)[0]
 
 
-def unpack_unsigned_short(data):
+def unpack_unsigned_short(data: bytes) -> int:
     return unpack("!H", data[0:2])[0]
 
 
-def unpack_unsigned_64(data):
+def unpack_unsigned_64(data: bytes) -> int:
     return unpack("!Q", data)[0]
 
 
@@ -231,35 +231,43 @@ class Message:
             + data
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "Message(message_method=%s, message_class=%s, transaction_id=%s)" % (
             self.message_method,
             self.message_class,
-            self.transaction_id,
+            repr(self.transaction_id),
         )
 
 
 class Transaction:
-    def __init__(self, request, addr, protocol, retransmissions=None):
+    def __init__(
+        self,
+        request: Message,
+        addr: Tuple[str, int],
+        protocol,
+        retransmissions: Optional[int] = None,
+    ) -> None:
         self.__addr = addr
-        self.__future = asyncio.Future()
+        self.__future: asyncio.Future[
+            Tuple[Message, Tuple[str, int]]
+        ] = asyncio.Future()
         self.__request = request
         self.__timeout_delay = RETRY_RTO
-        self.__timeout_handle = None
+        self.__timeout_handle: Optional[asyncio.TimerHandle] = None
         self.__protocol = protocol
         self.__tries = 0
         self.__tries_max = 1 + (
             retransmissions if retransmissions is not None else RETRY_MAX
         )
 
-    def response_received(self, message, addr):
+    def response_received(self, message: Message, addr: Tuple[str, int]) -> None:
         if not self.__future.done():
             if message.message_class == Class.RESPONSE:
                 self.__future.set_result((message, addr))
             else:
                 self.__future.set_exception(exceptions.TransactionFailed(message))
 
-    async def run(self):
+    async def run(self) -> Tuple[Message, Tuple[str, int]]:
         try:
             self.__retry()
             return await self.__future
@@ -267,7 +275,7 @@ class Transaction:
             if self.__timeout_handle:
                 self.__timeout_handle.cancel()
 
-    def __retry(self):
+    def __retry(self) -> None:
         if self.__tries >= self.__tries_max:
             self.__future.set_exception(exceptions.TransactionTimeout())
             return
@@ -280,7 +288,7 @@ class Transaction:
         self.__tries += 1
 
 
-def parse_message(data, integrity_key=None):
+def parse_message(data: bytes, integrity_key: Optional[bytes] = None) -> Message:
     """
     Parses a STUN message.
 
@@ -294,7 +302,7 @@ def parse_message(data, integrity_key=None):
     if len(data) != HEADER_LENGTH + length:
         raise ValueError("STUN message length does not match")
 
-    attributes = OrderedDict()
+    attributes: OrderedDict = OrderedDict()
     pos = HEADER_LENGTH
     while pos <= len(data) - 4:
         attr_type, attr_len = unpack("!HH", data[pos : pos + 4])
