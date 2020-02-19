@@ -1,6 +1,6 @@
 import unittest
 
-from aioice import exceptions, stun
+from aioice import stun
 
 
 class ExceptionTest(unittest.TestCase):
@@ -10,9 +10,9 @@ class ExceptionTest(unittest.TestCase):
         )
         response.attributes["ERROR-CODE"] = (487, "Role Conflict")
 
-        exc = exceptions.TransactionFailed(response)
+        exc = stun.TransactionFailed(response)
         self.assertEqual(str(exc), "STUN transaction failed (487 - Role Conflict)")
 
     def test_transaction_timeout(self):
-        exc = exceptions.TransactionTimeout()
+        exc = stun.TransactionTimeout()
         self.assertEqual(str(exc), "STUN transaction timed out")

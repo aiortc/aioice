@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
 import netifaces
 
-from . import exceptions, stun, turn
+from . import stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
 from .utils import random_string
 
@@ -715,7 +715,7 @@ class Connection:
                 pair.remote_addr,
                 integrity_key=self.remote_password.encode("utf8"),
             )
-        except exceptions.TransactionError as exc:
+        except stun.TransactionError as exc:
             # 7.1.3.1. Failure Cases
             if (
                 exc.response
@@ -753,7 +753,7 @@ class Connection:
                     pair.remote_addr,
                     integrity_key=self.remote_password.encode("utf8"),
                 )
-            except exceptions.TransactionError:
+            except stun.TransactionError:
                 self.__log_info("Check %s failed : could not nominate pair", pair)
                 self.check_state(pair, CandidatePair.State.FAILED)
                 self.check_complete(pair)
@@ -890,7 +890,7 @@ class Connection:
                         retransmissions=0,
                     )
                     failures = 0
-                except exceptions.TransactionError:
+                except stun.TransactionError:
                     failures += 1
                 if failures >= CONSENT_FAILURES:
                     self.__log_info("Consent to send expired")

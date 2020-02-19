@@ -7,7 +7,6 @@ from collections import OrderedDict
 from struct import pack, unpack
 from typing import Optional, Tuple
 
-from . import exceptions
 from .utils import random_transaction_id
 
 COOKIE = 0x2112A442
@@ -239,6 +238,26 @@ class Message:
         )
 
 
+class TransactionError(Exception):
+    response: Optional[Message] = None
+
+
+class TransactionFailed(TransactionError):
+    def __init__(self, response: Message) -> None:
+        self.response = response
+
+    def __str__(self) -> str:
+        out = "STUN transaction failed"
+        if "ERROR-CODE" in self.response.attributes:
+            out += " (%s - %s)" % self.response.attributes["ERROR-CODE"]
+        return out
+
+
+class TransactionTimeout(TransactionError):
+    def __str__(self) -> str:
+        return "STUN transaction timed out"
+
+
 class Transaction:
     def __init__(
         self,
@@ -265,7 +284,7 @@ class Transaction:
             if message.message_class == Class.RESPONSE:
                 self.__future.set_result((message, addr))
             else:
-                self.__future.set_exception(exceptions.TransactionFailed(message))
+                self.__future.set_exception(TransactionFailed(message))
 
     async def run(self) -> Tuple[Message, Tuple[str, int]]:
         try:
@@ -277,7 +296,7 @@ class Transaction:
 
     def __retry(self) -> None:
         if self.__tries >= self.__tries_max:
-            self.__future.set_exception(exceptions.TransactionTimeout())
+            self.__future.set_exception(TransactionTimeout())
             return
 
         self.__protocol.send_stun(self.__request, self.__addr)

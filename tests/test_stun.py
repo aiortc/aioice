@@ -2,7 +2,7 @@ import unittest
 from binascii import unhexlify
 from collections import OrderedDict
 
-from aioice import exceptions, stun
+from aioice import stun
 
 from .utils import read_message, run
 
@@ -222,7 +222,7 @@ class TransactionTest(unittest.TestCase):
         transaction = stun.Transaction(request, ("127.0.0.1", 1234), DummyProtocol())
 
         # timeout
-        with self.assertRaises(exceptions.TransactionTimeout):
+        with self.assertRaises(stun.TransactionTimeout):
             run(transaction.run())
 
         # receive response after timeout

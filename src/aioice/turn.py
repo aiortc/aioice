@@ -4,7 +4,7 @@ import logging
 import struct
 from typing import Any, Callable, Dict, Optional, Text, Tuple, Union, cast
 
-from . import exceptions, stun
+from . import stun
 from .utils import random_transaction_id
 
 logger = logging.getLogger("turn")
@@ -82,7 +82,7 @@ class TurnClientMixin:
 
         try:
             response, _ = await self.request(request)
-        except exceptions.TransactionFailed as e:
+        except stun.TransactionFailed as e:
             response = e.response
             if response.attributes["ERROR-CODE"][0] == 401:
                 # update long-term credentials
