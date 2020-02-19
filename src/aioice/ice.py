@@ -3,6 +3,7 @@ import enum
 import ipaddress
 import logging
 import random
+import secrets
 import socket
 from itertools import count
 from typing import Dict, List, Optional, Set, Tuple, cast
@@ -11,7 +12,6 @@ import netifaces
 
 from . import exceptions, stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
-from .compat import secrets
 from .utils import random_string
 
 logger = logging.getLogger("ice")

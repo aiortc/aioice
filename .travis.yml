@@ -15,9 +15,6 @@ matrix:
   - env: BUILD=test
     python: "3.6"
   - env: BUILD=test
-    python: "3.5"
-    dist: trusty
-  - env: BUILD=test
     python: "pypy3"
   - env: BUILD=sdist
     install: pip install twine

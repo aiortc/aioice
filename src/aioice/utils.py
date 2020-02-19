@@ -1,7 +1,6 @@
 import os
+import secrets
 import string
-
-from .compat import secrets
 
 
 def random_string(length: int) -> str:
