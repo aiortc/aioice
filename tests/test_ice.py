@@ -301,6 +301,44 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
+    def test_connect_to_ice_lite(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.remote_is_lite = True
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # we should only have host candidates
+        self.assertCandidateTypes(conn_a, set(["host"]))
+        self.assertCandidateTypes(conn_b, set(["host"]))
+
+        # there should be a default candidate for component 1
+        candidate = conn_a.get_default_candidate(1)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.type, "host")
+
+        # there should not be a default candidate for component 2
+        candidate = conn_a.get_default_candidate(2)
+        self.assertIsNone(candidate)
+
+        # connect
+        run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+
+        # send data a -> b
+        run(conn_a.send(b"howdee"))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b"howdee")
+
+        # send data b -> a
+        run(conn_b.send(b"gotcha"))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b"gotcha")
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
     @unittest.skipIf(os.environ.get("TRAVIS") == "true", "travis lacks ipv6")
     def test_connect_ipv6(self):
         conn_a = ice.Connection(ice_controlling=True, use_ipv4=False, use_ipv6=True)

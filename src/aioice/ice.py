@@ -5,7 +5,7 @@ import logging
 import random
 import socket
 from itertools import count
-from typing import Dict, List, Optional, Tuple, cast
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 import netifaces
 
@@ -265,6 +265,8 @@ class Connection:
         self.local_username = random_string(4)
         #: Local password, automatically set to a random value.
         self.local_password = random_string(22)
+        #: Whether the remote party is an ICE Lite implementation.
+        self.remote_is_lite = False
         #: Remote username, which you need to set.
         self.remote_username = None  # type: Optional[str]
         #: Remote password, which you need to set.
@@ -290,6 +292,7 @@ class Connection:
         self._local_candidates_end = False
         self._local_candidates_start = False
         self._nominated = {}  # type: Dict[int, CandidatePair]
+        self._nominating = set()  # type: Set[int]
         self._protocols = []  # type: List[StunProtocol]
         self._remote_candidates = []  # type: List[Candidate]
         self._remote_candidates_end = False
@@ -555,7 +558,7 @@ class Connection:
 
     # private
 
-    def build_request(self, pair: CandidatePair) -> stun.Message:
+    def build_request(self, pair: CandidatePair, nominate: bool) -> stun.Message:
         tx_username = "%s:%s" % (self.remote_username, self.local_username)
         request = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
@@ -564,7 +567,8 @@ class Connection:
         request.attributes["PRIORITY"] = candidate_priority(pair.component, "prflx")
         if self.ice_controlling:
             request.attributes["ICE-CONTROLLING"] = self._tie_breaker
-            request.attributes["USE-CANDIDATE"] = None
+            if nominate:
+                request.attributes["USE-CANDIDATE"] = None
         else:
             request.attributes["ICE-CONTROLLED"] = self._tie_breaker
         return request
@@ -697,7 +701,8 @@ class Connection:
         """
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
-        request = self.build_request(pair)
+        nominate = self.ice_controlling and not self.remote_is_lite
+        request = self.build_request(pair, nominate=nominate)
         try:
             response, addr = await pair.protocol.request(
                 request,
@@ -728,9 +733,27 @@ class Connection:
             return
 
         # success
-        self.check_state(pair, CandidatePair.State.SUCCEEDED)
-        if self.ice_controlling or pair.remote_nominated:
+        if nominate or pair.remote_nominated:
+            # nominated by agressive nomination or the remote party
             pair.nominated = True
+        elif self.ice_controlling and pair.component not in self._nominating:
+            # perform regular nomination
+            self.__log_info("Check %s nominating pair", pair)
+            self._nominating.add(pair.component)
+            request = self.build_request(pair, nominate=True)
+            try:
+                await pair.protocol.request(
+                    request,
+                    pair.remote_addr,
+                    integrity_key=self.remote_password.encode("utf8"),
+                )
+            except exceptions.TransactionError:
+                self.__log_info("Check %s failed : could not nominate pair", pair)
+                self.check_state(pair, CandidatePair.State.FAILED)
+                self.check_complete(pair)
+                return
+            pair.nominated = True
+        self.check_state(pair, CandidatePair.State.SUCCEEDED)
         self.check_complete(pair)
 
     def check_state(self, pair: CandidatePair, state: CandidatePair.State) -> None:
@@ -852,7 +875,7 @@ class Connection:
             await asyncio.sleep(CONSENT_INTERVAL * (0.8 + 0.4 * random.random()))
 
             for pair in self._nominated.values():
-                request = self.build_request(pair)
+                request = self.build_request(pair, nominate=False)
                 try:
                     await pair.protocol.request(
                         request,
