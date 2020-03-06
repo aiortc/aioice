@@ -20,19 +20,20 @@ jobs:
           black --check --diff examples src tests
 
   test:
-    runs-on: ${{ matrix.config.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        config:
-          - {os: ubuntu-latest, python: 3.8}
-          - {os: ubuntu-latest, python: 3.7}
-          - {os: ubuntu-latest, python: 3.6}
-          - {os: ubuntu-latest, python: pypy3}
+        os: [ubuntu-latest, macos-latest]
+        python: [3.8, 3.7, 3.6, pypy3]
     steps:
       - uses: actions/checkout@v1
       - uses: actions/setup-python@v1
         with:
-          python-version: ${{ matrix.config.python }}
+          python-version: ${{ matrix.python }}
+      - name: Disable firewall
+        if: matrix.os == 'macos-latest'
+        run: |
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
       - name: Run tests
         run: |
           pip install -U pip setuptools wheel
@@ -42,6 +43,6 @@ jobs:
           coverage xml
       - name: Upload coverage report
         uses: codecov/codecov-action@v1
-        if: matrix.config.python != 'pypy3'
+        if: matrix.python != 'pypy3'
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
