@@ -9,6 +9,10 @@ from aioice import Candidate, ice, stun
 from .turnserver import TurnServer
 from .utils import invite_accept, run
 
+RUNNING_ON_CI = (
+    os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("TRAVIS") == "true"
+)
+
 
 async def delay(coro):
     await asyncio.sleep(1)
@@ -339,7 +343,7 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
-    @unittest.skipIf(os.environ.get("TRAVIS") == "true", "travis lacks ipv6")
+    @unittest.skipIf(RUNNING_ON_CI, "CI lacks ipv6")
     def test_connect_ipv6(self):
         conn_a = ice.Connection(ice_controlling=True, use_ipv4=False, use_ipv6=True)
         conn_b = ice.Connection(ice_controlling=False, use_ipv4=False, use_ipv6=True)
@@ -681,7 +685,7 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_a.close())
         run(conn_b.close())
 
-    @unittest.skipIf(os.environ.get("TRAVIS") == "true", "travis lacks ipv6")
+    @unittest.skipIf(RUNNING_ON_CI, "CI lacks ipv6")
     def test_connect_with_stun_server_ipv6(self):
         # start turn server
         stun_server = TurnServer()
