@@ -1,7 +1,7 @@
 aioice
 ======
 
-|rtd| |pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel| |travis| |codecov|
+|rtd| |pypi-v| |pypi-pyversions| |pypi-l| |pypi-wheel| |tests| |codecov|
 
 .. |rtd| image:: https://readthedocs.org/projects/aioice/badge/?version=latest
    :target: https://aioice.readthedocs.io/
@@ -18,8 +18,8 @@ aioice
 .. |pypi-wheel| image:: https://img.shields.io/pypi/wheel/aioice.svg
     :target: https://pypi.python.org/pypi/aioice
 
-.. |travis| image:: https://img.shields.io/travis/com/aiortc/aioice.svg
-    :target: https://travis-ci.com/aiortc/aioice
+.. |tests| image:: https://github.com/aiortc/aioice/workflows/tests/badge.svg
+    :target: https://github.com/aiortc/aioice/actions
 
 .. |codecov| image:: https://img.shields.io/codecov/c/github/aiortc/aioice.svg
     :target: https://codecov.io/gh/aiortc/aioice
