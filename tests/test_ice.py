@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import os
 import socket
 import unittest
@@ -336,6 +337,31 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_b.send(b"gotcha"))
         data = run(conn_a.recv())
         self.assertEqual(data, b"gotcha")
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
+
+    def test_connect_to_ice_lite_nomination_fails(self):
+        def mock_request_received(self, message, addr, protocol, raw_data):
+            if "USE-CANDIDATE" in message.attributes:
+                self.respond_error(message, addr, protocol, (500, "Internal Error"))
+            else:
+                self.real_request_received(message, addr, protocol, raw_data)
+
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.remote_is_lite = True
+        conn_b = ice.Connection(ice_controlling=False)
+        conn_b.real_request_received = conn_b.request_received
+        conn_b.request_received = functools.partial(mock_request_received, conn_b)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # connect
+        with self.assertRaises(ConnectionError) as cm:
+            run(asyncio.gather(conn_a.connect(), conn_b.connect()))
+        self.assertEqual(str(cm.exception), "ICE negotiation failed")
 
         # close
         run(conn_a.close())
