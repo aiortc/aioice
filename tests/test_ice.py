@@ -9,9 +9,7 @@ from aioice import Candidate, ice, stun
 from .turnserver import TurnServer
 from .utils import invite_accept, run
 
-RUNNING_ON_CI = (
-    os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("TRAVIS") == "true"
-)
+RUNNING_ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 
 
 async def delay(coro):
