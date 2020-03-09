@@ -7,6 +7,7 @@ import struct
 import time
 
 from aioice import stun
+from aioice.ice import get_host_addresses
 from aioice.turn import (
     UDP_TRANSPORT,
     TurnStreamMixin,
@@ -24,7 +25,7 @@ CERT_FILE = os.path.join(ROOT, "turnserver.crt")
 KEY_FILE = os.path.join(ROOT, "turnserver.key")
 
 
-def create_self_signed_cert(name):
+def create_self_signed_cert(name="localhost"):
     from OpenSSL import crypto
 
     # create key pair
@@ -317,8 +318,7 @@ class TurnServer:
 
     async def listen(self, port=0, tls_port=0):
         loop = asyncio.get_event_loop()
-        hostaddr = "127.0.0.1"
-        hostname = "localhost"
+        hostaddr = get_host_addresses(use_ipv4=True, use_ipv6=False)[0]
 
         # listen for TCP
         self.tcp_server = await loop.create_server(
@@ -337,14 +337,13 @@ class TurnServer:
         # listen for TLS
         ssl_context = ssl.SSLContext()
         ssl_context.load_cert_chain(CERT_FILE, KEY_FILE)
-        # create_self_signed_cert(hostname)
         self.tls_server = await loop.create_server(
             lambda: TurnServerTcpProtocol(server=self),
             host=hostaddr,
             port=tls_port,
             ssl=ssl_context,
         )
-        self.tls_address = (hostname, self.tls_server.sockets[0].getsockname()[1])
+        self.tls_address = self.tls_server.sockets[0].getsockname()
         logger.info("Listening for TLS on %s", self.tls_address)
 
         # start expiry loop
