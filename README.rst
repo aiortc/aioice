@@ -65,7 +65,8 @@ Example
         remote_candidates, remote_username, remote_password = get_remote_info()
 
         # perform ICE handshake
-        connection.remote_candidates = remote_candidates
+        for candidate in remote_candidates:
+            connection.add_remote_candidate(candidate)
         connection.remote_username = remote_username
         connection.remote_password = remote_password
         await connection.connect()
