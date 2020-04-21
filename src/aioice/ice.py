@@ -364,7 +364,8 @@ class Connection:
         # validate the remote candidate
         try:
             validate_remote_candidate(remote_candidate)
-        except ValueError:
+        except ValueError as e:
+            self.__log_info(f"Candidate not valid: {e}")
             return
         self._remote_candidates.append(remote_candidate)
 
