@@ -307,6 +307,7 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+        self._connect_called = False
 
     @property
     def local_candidates(self) -> List[Candidate]:
@@ -418,6 +419,8 @@ class Connection:
 
         if self.remote_username is None or self.remote_password is None:
             raise ConnectionError("Remote username or password is missing")
+
+        self._connect_called = True
 
         # 5.7.1. Forming Candidate Pairs
         for remote_candidate in self._remote_candidates:
@@ -666,6 +669,7 @@ class Connection:
         # find pair
         pair = self._find_pair(protocol, remote_candidate)
         if pair is None:
+            self.__log_info("Candidate has no pair, creating: %s", remote_candidate)
             pair = CandidatePair(protocol, remote_candidate)
             pair.state = CandidatePair.State.WAITING
             self._check_list.append(pair)
@@ -950,7 +954,7 @@ class Connection:
         response.add_fingerprint()
         protocol.send_stun(response, addr)
 
-        if not self._check_list:
+        if not self._connect_called:
             self._early_checks.append((message, addr, protocol))
         else:
             self.check_incoming(message, addr, protocol)
