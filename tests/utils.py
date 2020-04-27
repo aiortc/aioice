@@ -6,13 +6,17 @@ import os
 async def invite_accept(conn_a, conn_b):
     # invite
     await conn_a.gather_candidates()
-    conn_b.remote_candidates = conn_a.local_candidates
+    for candidate in conn_a.local_candidates:
+        conn_b.add_remote_candidate(candidate)
+    conn_b.add_remote_candidate(None)
     conn_b.remote_username = conn_a.local_username
     conn_b.remote_password = conn_a.local_password
 
     # accept
     await conn_b.gather_candidates()
-    conn_a.remote_candidates = conn_b.local_candidates
+    for candidate in conn_b.local_candidates:
+        conn_a.add_remote_candidate(candidate)
+    conn_a.add_remote_candidate(None)
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
 

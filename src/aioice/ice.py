@@ -5,6 +5,7 @@ import logging
 import random
 import secrets
 import socket
+import warnings
 from itertools import count
 from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
@@ -318,31 +319,25 @@ class Connection:
     @property
     def remote_candidates(self) -> List[Candidate]:
         """
-        Remote candidates, which you need to set.
-
-        Assigning this attribute will automatically signal end-of-candidates.
-        If you will be adding more remote candidates in the future, use the
-        :meth:`add_remote_candidate` method instead.
+        Remote candidates, which you need to populate using
+        :meth:`add_remote_candidate`.
         """
         return self._remote_candidates[:]
 
     @remote_candidates.setter
     def remote_candidates(self, value: List[Candidate]) -> None:
+        warnings.warn(
+            "Assigning Connection.remote_candidates is deprecated, use add_remote_candidate",
+            category=DeprecationWarning,
+        )
         if self._remote_candidates_end:
             raise ValueError("Cannot set remote candidates after end-of-candidates.")
 
-        # validate the remote candidates
+        # replace remote candidates then signal end-of-candidates
         self._remote_candidates = []
         for remote_candidate in value:
-            try:
-                validate_remote_candidate(remote_candidate)
-            except ValueError:
-                continue
-            self._remote_candidates.append(remote_candidate)
-
-        # end-of-candidates
-        self._prune_components()
-        self._remote_candidates_end = True
+            self.add_remote_candidate(remote_candidate)
+        self.add_remote_candidate(None)
 
     def add_remote_candidate(self, remote_candidate: Candidate) -> None:
         """

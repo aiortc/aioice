@@ -36,6 +36,7 @@ async def offer(options):
     print("received answer", message)
     for c in message["candidates"]:
         connection.add_remote_candidate(aioice.Candidate.from_sdp(c))
+    connection.add_remote_candidate(None)
     connection.remote_username = message["username"]
     connection.remote_password = message["password"]
 
@@ -69,6 +70,7 @@ async def answer(options):
     print("received offer", message)
     for c in message["candidates"]:
         connection.add_remote_candidate(aioice.Candidate.from_sdp(c))
+    connection.add_remote_candidate(None)
     connection.remote_username = message["username"]
     connection.remote_password = message["password"]
 
