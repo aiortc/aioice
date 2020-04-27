@@ -3,6 +3,7 @@ import functools
 import os
 import socket
 import unittest
+import warnings
 from unittest import mock
 
 from aioice import Candidate, ice, stun
@@ -208,6 +209,32 @@ class IceConnectionTest(unittest.TestCase):
         run(conn_b.close())
         with self.assertRaises(ConnectionError):
             run(asyncio.gather(conn_a.connect(), delay(conn_a.close)))
+
+    def test_connect_early_checks(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        run(invite_accept(conn_a, conn_b))
+
+        # connect
+        run(conn_a.connect())
+        run(asyncio.sleep(1))
+        run(conn_b.connect())
+
+        # send data a -> b
+        run(conn_a.send(b"howdee"))
+        data = run(conn_b.recv())
+        self.assertEqual(data, b"howdee")
+
+        # send data b -> a
+        run(conn_b.send(b"gotcha"))
+        data = run(conn_a.recv())
+        self.assertEqual(data, b"gotcha")
+
+        # close
+        run(conn_a.close())
+        run(conn_b.close())
 
     def test_connect_two_components(self):
         conn_a = ice.Connection(ice_controlling=True, components=2)
@@ -425,13 +452,17 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite
         run(conn_a.gather_candidates())
-        conn_b.remote_candidates = conn_a.local_candidates
+        for candidate in conn_a.local_candidates:
+            conn_b.add_remote_candidate(candidate)
+        conn_b.add_remote_candidate(None)
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
 
         # accept
         run(conn_b.gather_candidates())
-        conn_a.remote_candidates = conn_b.local_candidates
+        for candidate in conn_b.local_candidates:
+            conn_a.add_remote_candidate(candidate)
+        conn_a.add_remote_candidate(None)
         conn_a.remote_username = conn_b.local_username
         conn_a.remote_password = "wrong-password"
 
@@ -457,13 +488,17 @@ class IceConnectionTest(unittest.TestCase):
 
         # invite
         run(conn_a.gather_candidates())
-        conn_b.remote_candidates = conn_a.local_candidates
+        for candidate in conn_a.local_candidates:
+            conn_b.add_remote_candidate(candidate)
+        conn_b.add_remote_candidate(None)
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
 
         # accept
         run(conn_b.gather_candidates())
-        conn_a.remote_candidates = conn_b.local_candidates
+        for candidate in conn_b.local_candidates:
+            conn_a.add_remote_candidate(candidate)
+        conn_a.add_remote_candidate(None)
         conn_a.remote_username = "wrong-username"
         conn_a.remote_password = conn_b.local_password
 
@@ -484,11 +519,12 @@ class IceConnectionTest(unittest.TestCase):
         If local candidates gathering was not performed, connect fails.
         """
         conn = ice.Connection(ice_controlling=True)
-        conn.remote_candidates = [
+        conn.add_remote_candidate(
             Candidate.from_sdp(
                 "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
             )
-        ]
+        )
+        conn.add_remote_candidate(None)
         conn.remote_username = "foo"
         conn.remote_password = "bar"
         with self.assertRaises(ConnectionError) as cm:
@@ -504,11 +540,12 @@ class IceConnectionTest(unittest.TestCase):
         """
         conn = ice.Connection(ice_controlling=True)
         conn._local_candidates_end = True
-        conn.remote_candidates = [
+        conn.add_remote_candidate(
             Candidate.from_sdp(
                 "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
             )
-        ]
+        )
+        conn.add_remote_candidate(None)
         conn.remote_username = "foo"
         conn.remote_password = "bar"
         with self.assertRaises(ConnectionError) as cm:
@@ -522,7 +559,7 @@ class IceConnectionTest(unittest.TestCase):
         """
         conn = ice.Connection(ice_controlling=True)
         run(conn.gather_candidates())
-        conn.remote_candidates = []
+        conn.add_remote_candidate(None)
         conn.remote_username = "foo"
         conn.remote_password = "bar"
         with self.assertRaises(ConnectionError) as cm:
@@ -536,11 +573,12 @@ class IceConnectionTest(unittest.TestCase):
         """
         conn = ice.Connection(ice_controlling=True)
         run(conn.gather_candidates())
-        conn.remote_candidates = [
+        conn.add_remote_candidate(
             Candidate.from_sdp(
                 "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
             )
-        ]
+        )
+        conn.add_remote_candidate(None)
         with self.assertRaises(ConnectionError) as cm:
             run(conn.connect())
         self.assertEqual(str(cm.exception), "Remote username or password is missing")
@@ -592,11 +630,12 @@ class IceConnectionTest(unittest.TestCase):
 
         conn = ice.Connection(ice_controlling=True)
         run(conn.gather_candidates())
-        conn.remote_candidates = [
+        conn.add_remote_candidate(
             Candidate.from_sdp(
                 "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
             )
-        ]
+        )
+        conn.add_remote_candidate(None)
         conn.remote_username = "foo"
         conn.remote_password = "bar"
         with self.assertRaises(ConnectionError) as cm:
@@ -1002,6 +1041,21 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 0)
         self.assertEqual(conn_a._remote_candidates_end, False)
 
+        conn_a.add_remote_candidate(
+            Candidate(
+                foundation="some-foundation",
+                component=1,
+                transport="udp",
+                priority=1234,
+                host="1.2.3.4",
+                port=1234,
+                type="host",
+            )
+        )
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a.remote_candidates[0].host, "1.2.3.4")
+        self.assertEqual(conn_a._remote_candidates_end, False)
+
     def test_add_remote_candidate_unknown_type(self):
         conn_a = ice.Connection(ice_controlling=True)
 
@@ -1035,45 +1089,26 @@ class IceConnectionTest(unittest.TestCase):
         ]
 
         # set candidates
-        conn_a.remote_candidates = remote_candidates
+        with warnings.catch_warnings(record=True) as w:
+            conn_a.remote_candidates = remote_candidates
+            self.assertEqual(len(w), 1)
+            self.assertTrue(issubclass(w[0].category, DeprecationWarning))
+            self.assertEqual(
+                str(w[0].message),
+                "Assigning Connection.remote_candidates is deprecated, use add_remote_candidate",
+            )
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a.remote_candidates[0].host, "1.2.3.4")
         self.assertEqual(conn_a._remote_candidates_end, True)
 
         # try setting candidates again
-        with self.assertRaises(ValueError) as cm:
-            conn_a.remote_candidates = remote_candidates
+        with warnings.catch_warnings():
+            with self.assertRaises(ValueError) as cm:
+                conn_a.remote_candidates = remote_candidates
         self.assertEqual(
             str(cm.exception), "Cannot set remote candidates after end-of-candidates."
         )
         self.assertEqual(len(conn_a.remote_candidates), 1)
-        self.assertEqual(conn_a._remote_candidates_end, True)
-
-    def test_set_remote_candidates_mdns(self):
-        conn_a = ice.Connection(ice_controlling=True)
-
-        conn_a.remote_candidates = [
-            Candidate(
-                foundation="some-foundation",
-                component=1,
-                transport="udp",
-                priority=1234,
-                host="a64e1aa4-8c7e-4671-ab02-e6a3483b1cd9.local",
-                port=1234,
-                type="host",
-            ),
-            Candidate(
-                foundation="some-foundation",
-                component=1,
-                transport="udp",
-                priority=1234,
-                host="1.2.3.4",
-                port=1234,
-                type="host",
-            ),
-        ]
-        self.assertEqual(len(conn_a.remote_candidates), 1)
-        self.assertEqual(conn_a.remote_candidates[0].host, "1.2.3.4")
         self.assertEqual(conn_a._remote_candidates_end, True)
 
     @mock.patch("asyncio.base_events.BaseEventLoop.create_datagram_endpoint")
