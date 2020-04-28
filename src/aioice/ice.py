@@ -1,11 +1,11 @@
 import asyncio
+import copy
 import enum
 import ipaddress
 import logging
 import random
 import secrets
 import socket
-import warnings
 from itertools import count
 from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
@@ -341,11 +341,31 @@ class Connection:
             self._remote_candidates_end = True
             return
 
+        # resolve mDNS candidate
+        if remote_candidate.host.endswith(".local"):
+            loop = asyncio.get_event_loop()
+            try:
+                results = await loop.getaddrinfo(
+                    remote_candidate.host, remote_candidate.port
+                )
+            except socket.gaierror:
+                results = []
+
+            if results:
+                copy_candidate = copy.copy(remote_candidate)
+                copy_candidate.host = results[0][4][0]
+                await self.add_remote_candidate(copy_candidate)
+            else:
+                self.__log_info(
+                    f'"Cannot resolve remote candidate host "{remote_candidate.host}"'
+                )
+            return
+
         # validate the remote candidate
         try:
             validate_remote_candidate(remote_candidate)
         except ValueError as e:
-            self.__log_info(f"Candidate not valid: {e}")
+            self.__log_info(f"Remote candidate is not valid: {e}")
             return
         self._remote_candidates.append(remote_candidate)
 

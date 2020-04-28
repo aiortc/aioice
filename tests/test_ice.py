@@ -3,7 +3,6 @@ import functools
 import os
 import socket
 import unittest
-import warnings
 from unittest import mock
 
 from aioice import Candidate, ice, stun
