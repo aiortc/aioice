@@ -37,7 +37,7 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          pip install -U pip setuptools wheel
+          python -m pip install -U pip setuptools wheel
           pip install coverage
           pip install .
           coverage run -m unittest discover -v
