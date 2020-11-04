@@ -139,7 +139,7 @@ class IceConnectionTest(unittest.TestCase):
     def test_get_host_addresses(self, mock_ifaddresses, mock_interfaces):
         mock_interfaces.return_value = ["eth0"]
         mock_ifaddresses.return_value = {
-            socket.AF_INET: [{"addr": "127.0.0.1"}, {"addr": "1.2.3.4"},],
+            socket.AF_INET: [{"addr": "127.0.0.1"}, {"addr": "1.2.3.4"}],
             socket.AF_INET6: [
                 {"addr": "::1"},
                 {"addr": "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"},
@@ -149,16 +149,16 @@ class IceConnectionTest(unittest.TestCase):
 
         # IPv4 only
         addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=False)
-        self.assertEqual(addresses, ["1.2.3.4",])
+        self.assertEqual(addresses, ["1.2.3.4"])
 
         # IPv6 only
         addresses = ice.get_host_addresses(use_ipv4=False, use_ipv6=True)
-        self.assertEqual(addresses, ["2a02:0db8:85a3:0000:0000:8a2e:0370:7334",])
+        self.assertEqual(addresses, ["2a02:0db8:85a3:0000:0000:8a2e:0370:7334"])
 
         # both
         addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=True)
         self.assertEqual(
-            addresses, ["1.2.3.4", "2a02:0db8:85a3:0000:0000:8a2e:0370:7334",]
+            addresses, ["1.2.3.4", "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"]
         )
 
     def test_connect(self):
