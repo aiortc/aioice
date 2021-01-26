@@ -469,7 +469,10 @@ class IceConnectionTest(unittest.TestCase):
         # connect
         done, pending = run(
             asyncio.wait(
-                [conn_a.connect(), conn_b.connect()],
+                [
+                    asyncio.ensure_future(conn_a.connect()),
+                    asyncio.ensure_future(conn_b.connect()),
+                ],
                 return_when=asyncio.FIRST_EXCEPTION,
             )
         )
@@ -503,7 +506,14 @@ class IceConnectionTest(unittest.TestCase):
         conn_a.remote_password = conn_b.local_password
 
         # connect
-        done, pending = run(asyncio.wait([conn_a.connect(), conn_b.connect()]))
+        done, pending = run(
+            asyncio.wait(
+                [
+                    asyncio.ensure_future(conn_a.connect()),
+                    asyncio.ensure_future(conn_b.connect()),
+                ]
+            )
+        )
         for task in pending:
             task.cancel()
         self.assertEqual(len(done), 2)
