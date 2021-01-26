@@ -96,11 +96,16 @@ class TurnClientMixin:
                 request.transaction_id = random_transaction_id()
                 response, _ = await self.request(request)
 
+        time_to_expiry = response.attributes["LIFETIME"]
         self.relayed_address = response.attributes["XOR-RELAYED-ADDRESS"]
-        logger.info("TURN allocation created %s", self.relayed_address)
+        logger.info(
+            "TURN allocation created %s (expires in %d seconds)",
+            self.relayed_address,
+            time_to_expiry,
+        )
 
         # periodically refresh allocation
-        self.refresh_handle = asyncio.ensure_future(self.refresh())
+        self.refresh_handle = asyncio.ensure_future(self.refresh(time_to_expiry))
 
         return self.relayed_address
 
@@ -154,20 +159,25 @@ class TurnClientMixin:
         if self.receiver:
             self.receiver.connection_lost(None)
 
-    async def refresh(self) -> None:
+    async def refresh(self, time_to_expiry) -> None:
         """
         Periodically refresh the TURN allocation.
         """
         while True:
-            await asyncio.sleep(5 / 6 * self.lifetime)
+            await asyncio.sleep(5 / 6 * time_to_expiry)
 
             request = stun.Message(
                 message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
             )
             request.attributes["LIFETIME"] = self.lifetime
-            await self.request(request)
+            response, _ = await self.request(request)
 
-            logger.info("TURN allocation refreshed %s", self.relayed_address)
+            time_to_expiry = response.attributes["LIFETIME"]
+            logger.info(
+                "TURN allocation refreshed %s (expires in %d seconds)",
+                self.relayed_address,
+                time_to_expiry,
+            )
 
     async def request(
         self, request: stun.Message
