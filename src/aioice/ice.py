@@ -5,7 +5,6 @@ import logging
 import random
 import secrets
 import socket
-import warnings
 from itertools import count
 from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
@@ -324,22 +323,7 @@ class Connection:
         """
         return self._remote_candidates[:]
 
-    @remote_candidates.setter
-    def remote_candidates(self, value: List[Candidate]) -> None:
-        warnings.warn(
-            "Assigning Connection.remote_candidates is deprecated, use add_remote_candidate",
-            category=DeprecationWarning,
-        )
-        if self._remote_candidates_end:
-            raise ValueError("Cannot set remote candidates after end-of-candidates.")
-
-        # replace remote candidates then signal end-of-candidates
-        self._remote_candidates = []
-        for remote_candidate in value:
-            self.add_remote_candidate(remote_candidate)
-        self.add_remote_candidate(None)
-
-    def add_remote_candidate(self, remote_candidate: Candidate) -> None:
+    async def add_remote_candidate(self, remote_candidate: Candidate) -> None:
         """
         Add a remote candidate or signal end-of-candidates.
 
