@@ -809,12 +809,16 @@ class Connection:
 
         # query STUN server for server-reflexive candidates (IPv4 only)
         if self.stun_server:
-            fs = []
+            tasks = []
             for protocol in self._protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
-                    fs.append(server_reflexive_candidate(protocol, self.stun_server))
-            if len(fs):
-                done, pending = await asyncio.wait(fs, timeout=timeout)
+                    tasks.append(
+                        asyncio.ensure_future(
+                            server_reflexive_candidate(protocol, self.stun_server)
+                        )
+                    )
+            if len(tasks):
+                done, pending = await asyncio.wait(tasks, timeout=timeout)
                 candidates += [
                     task.result() for task in done if task.exception() is None
                 ]
