@@ -41,9 +41,9 @@ class IceTrickleTest(unittest.TestCase):
         async def add_candidates_later(a, b):
             await asyncio.sleep(0.1)
             for candidate in b.local_candidates:
-                a.add_remote_candidate(candidate)
+                await a.add_remote_candidate(candidate)
                 await asyncio.sleep(0.1)
-            a.add_remote_candidate(None)
+            await a.add_remote_candidate(None)
 
         # connect
         run(
