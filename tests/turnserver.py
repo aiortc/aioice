@@ -107,6 +107,12 @@ class TurnServerMixin:
             self.send_stun(response, addr)
             return
 
+        # generate failure for test purposes
+        if self.server.simulated_failure:
+            response = self.error_response(message, *self.server.simulated_failure)
+            self.send_stun(response, addr)
+            return
+
         if "USERNAME" not in message.attributes:
             response = self.error_response(message, 401, "Unauthorized")
             response.attributes["NONCE"] = random_string(16).encode("ascii")
@@ -304,6 +310,7 @@ class TurnServer:
         self.default_lifetime = 600
         self.maximum_lifetime = 3600
         self.realm = realm
+        self.simulated_failure = None
         self.users = users
 
         self._expire_handle = None

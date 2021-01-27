@@ -83,11 +83,14 @@ class TurnClientMixin:
         try:
             response, _ = await self.request(request)
         except stun.TransactionFailed as e:
-            response = e.response
-            if response.attributes["ERROR-CODE"][0] == 401:
+            if (
+                e.response.attributes["ERROR-CODE"][0] == 401
+                and "NONCE" in e.response.attributes
+                and "REALM" in e.response.attributes
+            ):
                 # update long-term credentials
-                self.nonce = response.attributes["NONCE"]
-                self.realm = response.attributes["REALM"]
+                self.nonce = e.response.attributes["NONCE"]
+                self.realm = e.response.attributes["REALM"]
                 self.integrity_key = make_integrity_key(
                     self.username, self.realm, self.password
                 )
@@ -95,6 +98,8 @@ class TurnClientMixin:
                 # retry request with authentication
                 request.transaction_id = random_transaction_id()
                 response, _ = await self.request(request)
+            else:
+                raise
 
         time_to_expiry = response.attributes["LIFETIME"]
         self.relayed_address = response.attributes["XOR-RELAYED-ADDRESS"]
