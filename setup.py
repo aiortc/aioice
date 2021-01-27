@@ -39,5 +39,5 @@ setuptools.setup(
     package_dir={"": "src"},
     package_data={"aioice": ["py.typed"]},
     packages=["aioice"],
-    install_requires=["netifaces"],
+    install_requires=["dnspython", "netifaces"],
 )
