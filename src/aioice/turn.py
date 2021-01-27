@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import struct
+import time
 from typing import Any, Callable, Dict, Optional, Text, Tuple, Union, cast
 
 from . import stun
@@ -9,6 +10,7 @@ from .utils import random_transaction_id
 
 logger = logging.getLogger("turn")
 
+DEFAULT_CHANNEL_REFRESH_TIME = 500
 DEFAULT_ALLOCATION_LIFETIME = 600
 TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
@@ -49,11 +51,14 @@ class TurnClientMixin:
         username: Optional[str],
         password: Optional[str],
         lifetime: int,
+        channel_refresh_time: int,
     ) -> None:
+        self.channel_refresh_at: Dict[int, float] = {}
         self.channel_to_peer: Dict[int, Tuple[str, int]] = {}
         self.peer_to_channel: Dict[Tuple[str, int], int] = {}
 
         self.channel_number = 0x4000
+        self.channel_refresh_time = channel_refresh_time
         self.integrity_key: Optional[bytes] = None
         self.lifetime = lifetime
         self.nonce: Optional[bytes] = None
@@ -233,14 +238,24 @@ class TurnClientMixin:
         Send data to a remote host via the TURN server.
         """
         channel = self.peer_to_channel.get(addr)
+        now = time.time()
         if channel is None:
             channel = self.channel_number
-            self.channel_number += 1
-            self.channel_to_peer[channel] = addr
-            self.peer_to_channel[addr] = channel
 
             # bind channel
             await self.channel_bind(channel, addr)
+
+            # update state
+            self.channel_number += 1
+            self.channel_refresh_at[channel] = now + self.channel_refresh_time
+            self.channel_to_peer[channel] = addr
+            self.peer_to_channel[addr] = channel
+        elif now > self.channel_refresh_at[channel]:
+            # refresh channel
+            await self.channel_bind(channel, addr)
+
+            # update state
+            self.channel_refresh_at[channel] = now + self.channel_refresh_time
 
         header = struct.pack("!HH", channel, len(data))
         self._send(header + data)
@@ -335,6 +350,7 @@ async def create_turn_endpoint(
     username: Optional[str],
     password: Optional[str],
     lifetime: int = DEFAULT_ALLOCATION_LIFETIME,
+    channel_refresh_time: int = DEFAULT_CHANNEL_REFRESH_TIME,
     ssl: bool = False,
     transport: str = "udp",
 ) -> Tuple[TurnTransport, asyncio.Protocol]:
@@ -345,7 +361,11 @@ async def create_turn_endpoint(
     if transport == "tcp":
         _, inner_protocol = await loop.create_connection(
             lambda: TurnClientTcpProtocol(
-                server_addr, username=username, password=password, lifetime=lifetime
+                server_addr,
+                username=username,
+                password=password,
+                lifetime=lifetime,
+                channel_refresh_time=channel_refresh_time,
             ),
             host=server_addr[0],
             port=server_addr[1],
@@ -354,7 +374,11 @@ async def create_turn_endpoint(
     else:
         _, inner_protocol = await loop.create_datagram_endpoint(
             lambda: TurnClientUdpProtocol(
-                server_addr, username=username, password=password, lifetime=lifetime
+                server_addr,
+                username=username,
+                password=password,
+                lifetime=lifetime,
+                channel_refresh_time=channel_refresh_time,
             ),
             remote_addr=server_addr,
         )

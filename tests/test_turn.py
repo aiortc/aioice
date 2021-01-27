@@ -8,6 +8,13 @@ from .echoserver import EchoServer
 from .turnserver import TurnServer
 from .utils import read_message, run
 
+PROTOCOL_KWARGS = {
+    "username": "foo",
+    "password": "bar",
+    "lifetime": turn.DEFAULT_ALLOCATION_LIFETIME,
+    "channel_refresh_time": turn.DEFAULT_CHANNEL_REFRESH_TIME,
+}
+
 
 class DummyClientProtocol(asyncio.DatagramProtocol):
     received_addr = None
@@ -24,7 +31,7 @@ class TurnClientTcpProtocolTest(unittest.TestCase):
             def get_extra_info(self, name):
                 return ("1.2.3.4", 1234)
 
-        self.protocol = turn.TurnClientTcpProtocol(("1.2.3.4", 1234), "foo", "bar", 600)
+        self.protocol = turn.TurnClientTcpProtocol(("1.2.3.4", 1234), **PROTOCOL_KWARGS)
         self.protocol.connection_made(MockProtocol())
 
     def test_receive_stun_fragmented(self):
@@ -41,7 +48,7 @@ class TurnClientTcpProtocolTest(unittest.TestCase):
 
 class TurnClientUdpProtocolTest(unittest.TestCase):
     def setUp(self):
-        self.protocol = turn.TurnClientUdpProtocol(("1.2.3.4", 1234), "foo", "bar", 600)
+        self.protocol = turn.TurnClientUdpProtocol(("1.2.3.4", 1234), **PROTOCOL_KWARGS)
 
     def test_receive_junk(self):
         self.protocol.datagram_received(b"\x00" * 20, ("1.2.3.4", 1234))
@@ -91,6 +98,7 @@ class TurnTest(unittest.TestCase):
                 server_addr=server_addr,
                 username="foo",
                 password="bar",
+                channel_refresh_time=5,
                 lifetime=6,
                 ssl=ssl,
                 transport=transport,
@@ -99,7 +107,7 @@ class TurnTest(unittest.TestCase):
         self.assertIsNone(transport.get_extra_info("peername"))
         self.assertIsNotNone(transport.get_extra_info("sockname"))
 
-        # send ping, expect pong
+        # bind channel, send ping, expect pong
         transport.sendto(b"ping", self.echo_server.udp_address)
         run(asyncio.sleep(1))
         self.assertEqual(protocol.received_addr, self.echo_server.udp_address)
@@ -110,7 +118,7 @@ class TurnTest(unittest.TestCase):
         protocol.received_data = None
         run(asyncio.sleep(5))
 
-        # send ping, expect pong
+        # refresh channel, send ping, expect pong
         transport.sendto(b"ping", self.echo_server.udp_address)
         run(asyncio.sleep(1))
         self.assertEqual(protocol.received_addr, self.echo_server.udp_address)
@@ -131,7 +139,6 @@ class TurnTest(unittest.TestCase):
                     server_addr=server_addr,
                     username="foo",
                     password="bar",
-                    lifetime=6,
                     ssl=ssl,
                     transport=transport,
                 )
@@ -145,7 +152,6 @@ class TurnTest(unittest.TestCase):
                 server_addr=server_addr,
                 username="foo",
                 password="bar",
-                lifetime=6,
                 ssl=ssl,
                 transport=transport,
             )
