@@ -15,6 +15,7 @@ TURN
    with an error.
  * Handle 438 (Stale Nonce) error responses.
  * Ignore STUN transaction errors when deleting TURN allocation.
+ * Periodically refresh channel bindings.
 
 0.7.0
 -----
