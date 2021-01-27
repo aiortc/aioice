@@ -201,11 +201,16 @@ class Message:
         self.transaction_id = transaction_id or random_transaction_id()
         self.attributes = attributes or OrderedDict()
 
-    def add_fingerprint(self) -> None:
-        self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
-
     def add_message_integrity(self, key: bytes) -> None:
+        """
+        Add MESSAGE-INTEGRITY and FINGERPRINT attributes to the message.
+
+        This must be the last step before sending out the message.
+        """
+        self.attributes.pop("MESSAGE-INTEGRITY", None)
+        self.attributes.pop("FINGERPRINT", None)
         self.attributes["MESSAGE-INTEGRITY"] = message_integrity(bytes(self), key)
+        self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
 
     def __bytes__(self) -> bytes:
         data = b""
