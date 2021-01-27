@@ -142,7 +142,6 @@ class TurnServerMixin:
             )
 
         response.add_message_integrity(integrity_key)
-        response.add_fingerprint()
         self.send_stun(response, addr)
 
     async def handle_allocate(self, message, addr, integrity_key):
@@ -188,7 +187,6 @@ class TurnServerMixin:
 
         # send response
         response.add_message_integrity(integrity_key)
-        response.add_fingerprint()
         self.send_stun(response, addr)
 
     def handle_binding(self, message, addr):

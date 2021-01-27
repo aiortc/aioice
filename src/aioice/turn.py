@@ -231,7 +231,6 @@ class TurnClientMixin:
         request.attributes["NONCE"] = self.nonce
         request.attributes["REALM"] = self.realm
         request.add_message_integrity(self.integrity_key)
-        request.add_fingerprint()
 
 
 class TurnClientTcpProtocol(TurnClientMixin, TurnStreamMixin, asyncio.Protocol):

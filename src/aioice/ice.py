@@ -209,7 +209,6 @@ class StunProtocol(asyncio.DatagramProtocol):
 
         if integrity_key is not None:
             request.add_message_integrity(integrity_key)
-            request.add_fingerprint()
 
         transaction = stun.Transaction(
             request, addr, self, retransmissions=retransmissions
@@ -930,7 +929,6 @@ class Connection:
         )
         response.attributes["XOR-MAPPED-ADDRESS"] = addr
         response.add_message_integrity(self.local_password.encode("utf8"))
-        response.add_fingerprint()
         protocol.send_stun(response, addr)
 
         if not self._check_list:
@@ -952,7 +950,6 @@ class Connection:
         )
         response.attributes["ERROR-CODE"] = error_code
         response.add_message_integrity(self.local_password.encode("utf8"))
-        response.add_fingerprint()
         protocol.send_stun(response, addr)
 
     def sort_check_list(self) -> None:
