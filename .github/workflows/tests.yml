@@ -10,13 +10,13 @@ jobs:
       - uses: actions/checkout@v1
       - uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: 3.7
       - name: Install packages
         run: pip install black flake8 isort
       - name: Run linters
         run: |
           flake8 examples src tests
-          isort -c -df -rc examples src tests
+          isort --check-only --diff examples src tests
           black --check --diff examples src tests
 
   test:
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v1
       - uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: 3.7
       - name: Install packages
         run: pip install wheel
       - name: Build package
