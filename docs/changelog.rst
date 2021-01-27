@@ -13,6 +13,7 @@ TURN
    time-to-expiry for the allocation.
  * Raise stun.TransactionFailed if TURN allocation request is rejected
    with an error.
+ * Handle 438 (Stale Nonce) error responses.
 
 0.7.0
 -----

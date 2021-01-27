@@ -9,6 +9,7 @@ from .utils import random_transaction_id
 
 logger = logging.getLogger("turn")
 
+DEFAULT_ALLOCATION_LIFETIME = 600
 TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
 
@@ -43,7 +44,11 @@ class TurnStreamMixin:
 
 class TurnClientMixin:
     def __init__(
-        self, server: Tuple[str, int], username: str, password: str, lifetime: int
+        self,
+        server: Tuple[str, int],
+        username: Optional[str],
+        password: Optional[str],
+        lifetime: int,
     ) -> None:
         self.channel_to_peer: Dict[int, Tuple[str, int]] = {}
         self.peer_to_channel: Dict[Tuple[str, int], int] = {}
@@ -67,7 +72,7 @@ class TurnClientMixin:
         )
         request.attributes["CHANNEL-NUMBER"] = channel_number
         request.attributes["XOR-PEER-ADDRESS"] = addr
-        await self.request(request)
+        await self.request_with_retry(request)
         logger.info("TURN channel bound %d %s", channel_number, addr)
 
     async def connect(self) -> Tuple[str, int]:
@@ -79,27 +84,7 @@ class TurnClientMixin:
         )
         request.attributes["LIFETIME"] = self.lifetime
         request.attributes["REQUESTED-TRANSPORT"] = UDP_TRANSPORT
-
-        try:
-            response, _ = await self.request(request)
-        except stun.TransactionFailed as e:
-            if (
-                e.response.attributes["ERROR-CODE"][0] == 401
-                and "NONCE" in e.response.attributes
-                and "REALM" in e.response.attributes
-            ):
-                # update long-term credentials
-                self.nonce = e.response.attributes["NONCE"]
-                self.realm = e.response.attributes["REALM"]
-                self.integrity_key = make_integrity_key(
-                    self.username, self.realm, self.password
-                )
-
-                # retry request with authentication
-                request.transaction_id = random_transaction_id()
-                response, _ = await self.request(request)
-            else:
-                raise
+        response, _ = await self.request_with_retry(request)
 
         time_to_expiry = response.attributes["LIFETIME"]
         self.relayed_address = response.attributes["XOR-RELAYED-ADDRESS"]
@@ -158,7 +143,7 @@ class TurnClientMixin:
             message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
         )
         request.attributes["LIFETIME"] = 0
-        await self.request(request)
+        await self.request_with_retry(request)
 
         logger.info("TURN allocation deleted %s", self.relayed_address)
         if self.receiver:
@@ -175,7 +160,7 @@ class TurnClientMixin:
                 message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
             )
             request.attributes["LIFETIME"] = self.lifetime
-            response, _ = await self.request(request)
+            response, _ = await self.request_with_retry(request)
 
             time_to_expiry = response.attributes["LIFETIME"]
             logger.info(
@@ -201,6 +186,43 @@ class TurnClientMixin:
             return await transaction.run()
         finally:
             del self.transactions[request.transaction_id]
+
+    async def request_with_retry(
+        self, request: stun.Message
+    ) -> Tuple[stun.Message, Tuple[str, int]]:
+        """
+        Execute a STUN transaction and return the response.
+
+        On recoverable errors it will retry the request.
+        """
+        try:
+            response, addr = await self.request(request)
+        except stun.TransactionFailed as e:
+            error_code = e.response.attributes["ERROR-CODE"][0]
+            if (
+                "NONCE" in e.response.attributes
+                and self.username is not None
+                and self.password is not None
+                and (
+                    (error_code == 401 and "REALM" in e.response.attributes)
+                    or (error_code == 438 and self.realm is not None)
+                )
+            ):
+                # update long-term credentials
+                self.nonce = e.response.attributes["NONCE"]
+                if error_code == 401:
+                    self.realm = e.response.attributes["REALM"]
+                self.integrity_key = make_integrity_key(
+                    self.username, self.realm, self.password
+                )
+
+                # retry request with authentication
+                request.transaction_id = random_transaction_id()
+                response, addr = await self.request(request)
+            else:
+                raise
+
+        return response, addr
 
     async def send_data(self, data: bytes, addr: Tuple[str, int]) -> None:
         """
@@ -306,9 +328,9 @@ class TurnTransport:
 async def create_turn_endpoint(
     protocol_factory: Callable,
     server_addr: Tuple[str, int],
-    username: str,
-    password: str,
-    lifetime: int = 600,
+    username: Optional[str],
+    password: Optional[str],
+    lifetime: int = DEFAULT_ALLOCATION_LIFETIME,
     ssl: bool = False,
     transport: str = "udp",
 ) -> Tuple[TurnTransport, asyncio.Protocol]:

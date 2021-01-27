@@ -9,6 +9,7 @@ import time
 from aioice import stun
 from aioice.ice import get_host_addresses
 from aioice.turn import (
+    DEFAULT_ALLOCATION_LIFETIME,
     UDP_TRANSPORT,
     TurnStreamMixin,
     is_channel_data,
@@ -157,7 +158,7 @@ class TurnServerMixin:
                 message, 442, "Unsupported transport protocol"
             )
         else:
-            lifetime = message.attributes.get("LIFETIME", self.server.default_lifetime)
+            lifetime = message.attributes.get("LIFETIME", DEFAULT_ALLOCATION_LIFETIME)
             lifetime = min(lifetime, self.server.maximum_lifetime)
 
             # create allocation
@@ -305,7 +306,6 @@ class TurnServer:
 
     def __init__(self, realm="test", users={}):
         self.allocations = {}
-        self.default_lifetime = 600
         self.maximum_lifetime = 3600
         self.realm = realm
         self.simulated_failure = None
