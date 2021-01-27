@@ -14,6 +14,7 @@ TURN
  * Raise stun.TransactionFailed if TURN allocation request is rejected
    with an error.
  * Handle 438 (Stale Nonce) error responses.
+ * Ignore STUN transaction errors when deleting TURN allocation.
 
 0.7.0
 -----
