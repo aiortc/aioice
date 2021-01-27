@@ -2,7 +2,7 @@ import asyncio
 import ssl
 import unittest
 
-from aioice import turn
+from aioice import stun, turn
 
 from .echoserver import EchoServer
 from .turnserver import TurnServer
@@ -80,6 +80,10 @@ class TurnTest(unittest.TestCase):
         self._test_transport("udp", self.turn_server.udp_address)
 
     def _test_transport(self, transport, server_addr, ssl=False):
+        self._test_transport_ok(transport, server_addr, ssl)
+        self._test_transport_allocation_failure(transport, server_addr, ssl)
+
+    def _test_transport_ok(self, transport, server_addr, ssl):
         transport, protocol = run(
             turn.create_turn_endpoint(
                 DummyClientProtocol,
@@ -101,8 +105,33 @@ class TurnTest(unittest.TestCase):
         self.assertEqual(protocol.received_data, b"ping")
 
         # wait some more to allow allocation refresh
+        protocol.received_addr = None
+        protocol.received_data = None
         run(asyncio.sleep(5))
+
+        # send ping, expect pong
+        transport.sendto(b"ping", self.echo_server.udp_address)
+        run(asyncio.sleep(1))
+        self.assertEqual(protocol.received_addr, self.echo_server.udp_address)
+        self.assertEqual(protocol.received_data, b"ping")
 
         # close
         transport.close()
         run(asyncio.sleep(0))
+
+    def _test_transport_allocation_failure(self, transport, server_addr, ssl):
+        self.turn_server.simulated_failure = (403, "Forbidden")
+
+        with self.assertRaises(stun.TransactionFailed) as cm:
+            run(
+                turn.create_turn_endpoint(
+                    DummyClientProtocol,
+                    server_addr=server_addr,
+                    username="foo",
+                    password="bar",
+                    lifetime=6,
+                    ssl=ssl,
+                    transport=transport,
+                )
+            )
+        self.assertEqual(str(cm.exception), "STUN transaction failed (403 - Forbidden)")

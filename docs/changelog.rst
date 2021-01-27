@@ -11,6 +11,8 @@ TURN
 
  * Use the LIFETIME attribute returned by the server to determine the
    time-to-expiry for the allocation.
+ * Raise stun.TransactionFailed if TURN allocation request is rejected
+   with an error.
 
 0.7.0
 -----
