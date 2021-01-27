@@ -5,6 +5,7 @@ import os
 import ssl
 import struct
 import time
+from typing import Optional, Tuple
 
 from aioice import stun
 from aioice.ice import get_host_addresses
@@ -111,6 +112,7 @@ class TurnServerMixin:
         # generate failure for test purposes
         if self.server.simulated_failure:
             response = self.error_response(message, *self.server.simulated_failure)
+            self.server.simulated_failure = None
             self.send_stun(response, addr)
             return
 
@@ -308,7 +310,7 @@ class TurnServer:
         self.allocations = {}
         self.maximum_lifetime = 3600
         self.realm = realm
-        self.simulated_failure = None
+        self.simulated_failure: Optional[Tuple[int, str]] = None
         self.users = users
 
         self._expire_handle = None

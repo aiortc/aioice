@@ -143,7 +143,11 @@ class TurnClientMixin:
             message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
         )
         request.attributes["LIFETIME"] = 0
-        await self.request_with_retry(request)
+        try:
+            await self.request_with_retry(request)
+        except stun.TransactionError:
+            # we do not care, we need to shutdown
+            pass
 
         logger.info("TURN allocation deleted %s", self.relayed_address)
         if self.receiver:

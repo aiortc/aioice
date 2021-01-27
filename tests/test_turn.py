@@ -81,7 +81,8 @@ class TurnTest(unittest.TestCase):
 
     def _test_transport(self, transport, server_addr, ssl=False):
         self._test_transport_ok(transport, server_addr, ssl)
-        self._test_transport_allocation_failure(transport, server_addr, ssl)
+        self._test_transport_allocate_failure(transport, server_addr, ssl)
+        self._test_transport_delete_failure(transport, server_addr, ssl)
 
     def _test_transport_ok(self, transport, server_addr, ssl):
         transport, protocol = run(
@@ -119,7 +120,8 @@ class TurnTest(unittest.TestCase):
         transport.close()
         run(asyncio.sleep(0))
 
-    def _test_transport_allocation_failure(self, transport, server_addr, ssl):
+    def _test_transport_allocate_failure(self, transport, server_addr, ssl):
+        # make the server reject the ALLOCATE request
         self.turn_server.simulated_failure = (403, "Forbidden")
 
         with self.assertRaises(stun.TransactionFailed) as cm:
@@ -135,3 +137,25 @@ class TurnTest(unittest.TestCase):
                 )
             )
         self.assertEqual(str(cm.exception), "STUN transaction failed (403 - Forbidden)")
+
+    def _test_transport_delete_failure(self, transport, server_addr, ssl):
+        transport, protocol = run(
+            turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=server_addr,
+                username="foo",
+                password="bar",
+                lifetime=6,
+                ssl=ssl,
+                transport=transport,
+            )
+        )
+        self.assertIsNone(transport.get_extra_info("peername"))
+        self.assertIsNotNone(transport.get_extra_info("sockname"))
+
+        # make the server reject the final REFRESH request
+        self.turn_server.simulated_failure = (403, "Forbidden")
+
+        # close client
+        transport.close()
+        run(asyncio.sleep(0))
