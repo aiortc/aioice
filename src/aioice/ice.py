@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import enum
 import ipaddress
 import logging
@@ -10,7 +11,7 @@ from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
 import netifaces
 
-from . import stun, turn
+from . import mdns, stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
 from .utils import random_string
 
@@ -24,6 +25,17 @@ CONSENT_INTERVAL = 5
 
 connection_id = count()
 protocol_id = count()
+
+_mdns_lock = asyncio.Lock()
+_mdns_protocol = None
+
+
+async def get_or_create_mdns_protocol() -> mdns.MDnsProtocol:
+    global _mdns_protocol
+    async with _mdns_lock:
+        if _mdns_protocol is None:
+            _mdns_protocol = await mdns.create_mdns_protocol()
+    return _mdns_protocol
 
 
 def candidate_pair_priority(
@@ -102,8 +114,6 @@ def sort_candidate_pairs(pairs, ice_controlling: bool) -> None:
 def validate_remote_candidate(candidate: Candidate) -> Candidate:
     """
     Check the remote candidate is supported.
-
-    mDNS candidates are not supported yet.
     """
     if candidate.type not in ["host", "relay", "srflx"]:
         raise ValueError('Unexpected candidate type "%s"' % candidate.type)
@@ -339,11 +349,31 @@ class Connection:
             self._remote_candidates_end = True
             return
 
+        # resolve mDNS candidate
+        if mdns.is_mdns_hostname(remote_candidate.host):
+            mdns_protocol = await get_or_create_mdns_protocol()
+            remote_addr = await mdns_protocol.resolve(remote_candidate.host)
+            if remote_addr is None:
+                self.__log_info(
+                    f'Remote candidate "{remote_candidate.host}" could not be resolved'
+                )
+                return
+            self.__log_info(
+                f'Remote candidate "{remote_candidate.host}" resolved to {remote_addr}'
+            )
+
+            copy_candidate = copy.copy(remote_candidate)
+            copy_candidate.host = remote_addr
+            await self.add_remote_candidate(copy_candidate)
+            return
+
         # validate the remote candidate
         try:
             validate_remote_candidate(remote_candidate)
         except ValueError as e:
-            self.__log_info(f"Candidate not valid: {e}")
+            self.__log_info(
+                f'Remote candidate "{remote_candidate.host}" is not valid: {e}'
+            )
             return
         self._remote_candidates.append(remote_candidate)
 

@@ -3,6 +3,11 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.7.2
+-----
+
+* Add support for resolving mDNS candidates.
+
 0.7.1
 -----
 

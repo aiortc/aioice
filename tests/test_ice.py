@@ -5,7 +5,7 @@ import socket
 import unittest
 from unittest import mock
 
-from aioice import Candidate, ice, stun
+from aioice import Candidate, ice, mdns, stun
 
 from .turnserver import TurnServer
 from .utils import invite_accept, run
@@ -1038,9 +1038,9 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
 
-    def test_add_remote_candidate_mdns(self):
+    def test_add_remote_candidate_mdns_bad(self):
         """
-        mDNS is not supported yet, ignore such candidates.
+        Add an mDNS candidate which cannot be resolved.
         """
         conn_a = ice.Connection(ice_controlling=True)
 
@@ -1051,7 +1051,7 @@ class IceConnectionTest(unittest.TestCase):
                     component=1,
                     transport="udp",
                     priority=1234,
-                    host="a64e1aa4-8c7e-4671-ab02-e6a3483b1cd9.local",
+                    host=mdns.create_mdns_hostname(),
                     port=1234,
                     type="host",
                 )
@@ -1060,6 +1060,16 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 0)
         self.assertEqual(conn_a._remote_candidates_end, False)
 
+    def test_add_remote_candidate_mdns_good(self):
+        """
+        Add an mDNS candidate which can be resolved.
+        """
+        hostname = mdns.create_mdns_hostname()
+        publisher = run(mdns.create_mdns_protocol())
+        run(publisher.publish(hostname, "1.2.3.4"))
+
+        conn_a = ice.Connection(ice_controlling=True)
+
         run(
             conn_a.add_remote_candidate(
                 Candidate(
@@ -1067,7 +1077,7 @@ class IceConnectionTest(unittest.TestCase):
                     component=1,
                     transport="udp",
                     priority=1234,
-                    host="1.2.3.4",
+                    host=hostname,
                     port=1234,
                     type="host",
                 )
@@ -1076,6 +1086,8 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a.remote_candidates[0].host, "1.2.3.4")
         self.assertEqual(conn_a._remote_candidates_end, False)
+
+        run(publisher.close())
 
     def test_add_remote_candidate_unknown_type(self):
         conn_a = ice.Connection(ice_controlling=True)
