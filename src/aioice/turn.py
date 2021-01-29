@@ -25,6 +25,9 @@ def make_integrity_key(username: str, realm: str, password: str) -> bytes:
 
 
 class TurnStreamMixin:
+    datagram_received: Callable
+    transport: asyncio.BaseTransport
+
     def data_received(self, data: bytes) -> None:
         if not hasattr(self, "buffer"):
             self.buffer = b""
@@ -45,6 +48,8 @@ class TurnStreamMixin:
 
 
 class TurnClientMixin:
+    _send: Callable
+
     def __init__(
         self,
         server: Tuple[str, int],
