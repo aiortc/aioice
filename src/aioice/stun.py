@@ -5,7 +5,7 @@ import hmac
 import ipaddress
 from collections import OrderedDict
 from struct import pack, unpack
-from typing import Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .utils import random_transaction_id
 
@@ -137,7 +137,9 @@ def unpack_unsigned_64(data: bytes) -> int:
     return unpack("!Q", data)[0]
 
 
-ATTRIBUTES = [
+AttributeEntry = Tuple[int, str, Callable, Callable]
+
+ATTRIBUTES: List[AttributeEntry] = [
     (0x0001, "MAPPED-ADDRESS", pack_address, unpack_address),
     (0x0003, "CHANGE-REQUEST", pack_unsigned, unpack_unsigned),
     (0x0004, "SOURCE-ADDRESS", pack_address, unpack_address),
@@ -163,8 +165,8 @@ ATTRIBUTES = [
     (0x802C, "OTHER-ADDRESS", pack_address, unpack_address),
 ]
 
-ATTRIBUTES_BY_TYPE = {}
-ATTRIBUTES_BY_NAME = {}
+ATTRIBUTES_BY_TYPE: Dict[int, AttributeEntry] = {}
+ATTRIBUTES_BY_NAME: Dict[str, AttributeEntry] = {}
 for attr in ATTRIBUTES:
     ATTRIBUTES_BY_TYPE[attr[0]] = attr
     ATTRIBUTES_BY_NAME[attr[1]] = attr
