@@ -3,10 +3,17 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.7.3
+-----
+
+ * Defer mDNS lock initialisation to avoid mismatched event-loops,
+   fixes errors seen with uvloop.
+ * Correctly gather STUN candidates when there are multiple components.
+
 0.7.2
 -----
 
-* Add support for resolving mDNS candidates.
+ * Add support for resolving mDNS candidates.
 
 0.7.1
 -----
