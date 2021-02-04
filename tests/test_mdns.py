@@ -41,6 +41,16 @@ class MdnsTest(unittest.TestCase):
         self.assertEqual(result, hostaddr)
 
     def test_resolve_simultaneous_bad(self):
+        hostname = mdns.create_mdns_hostname()
+
+        results = run(
+            asyncio.gather(
+                self.querier.resolve(hostname), self.querier.resolve(hostname)
+            )
+        )
+        self.assertEqual(results, [None, None])
+
+    def test_resolve_simultaneous_good(self):
         hostaddr = "1.2.3.4"
         hostname = mdns.create_mdns_hostname()
         run(self.responder.publish(hostname, hostaddr))
@@ -51,13 +61,3 @@ class MdnsTest(unittest.TestCase):
             )
         )
         self.assertEqual(results, [hostaddr, hostaddr])
-
-    def test_resolve_simultaneous_good(self):
-        hostname = mdns.create_mdns_hostname()
-
-        results = run(
-            asyncio.gather(
-                self.querier.resolve(hostname), self.querier.resolve(hostname)
-            )
-        )
-        self.assertEqual(results, [None, None])
