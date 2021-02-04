@@ -56,10 +56,12 @@ class MDnsProtocol(asyncio.DatagramProtocol):
             # answer question
             for question in message.question:
                 rdtypes: List[int] = []
-                if question.rdtype in (dns.rdatatype.ANY, dns.rdatatype.A):
-                    rdtypes.append(dns.rdatatype.A)
-                if question.rdtype in (dns.rdatatype.ANY, dns.rdatatype.AAAA):
-                    rdtypes.append(dns.rdatatype.AAAA)
+                if question.rdtype in (
+                    dns.rdatatype.ANY,
+                    dns.rdatatype.A,
+                    dns.rdatatype.AAAA,
+                ):
+                    rdtypes += [dns.rdatatype.A, dns.rdatatype.AAAA]
 
                 response = dns.message.QueryMessage(id=0)
                 response.flags |= dns.flags.QR
