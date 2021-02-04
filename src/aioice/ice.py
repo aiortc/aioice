@@ -399,10 +399,12 @@ class Connection:
             addresses = get_host_addresses(
                 use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
             )
-            for component in self._components:
-                self._local_candidates += await self.get_component_candidates(
-                    component=component, addresses=addresses
-                )
+            coros = [
+                self.get_component_candidates(component=component, addresses=addresses)
+                for component in self._components
+            ]
+            for candidates in await asyncio.gather(*coros):
+                self._local_candidates += candidates
             self._local_candidates_end = True
 
     def get_default_candidate(self, component: int) -> Optional[Candidate]:
