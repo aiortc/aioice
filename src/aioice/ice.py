@@ -6,6 +6,7 @@ import logging
 import random
 import secrets
 import socket
+import threading
 from itertools import count
 from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
@@ -26,16 +27,17 @@ CONSENT_INTERVAL = 5
 connection_id = count()
 protocol_id = count()
 
-_mdns_lock = asyncio.Lock()
-_mdns_protocol = None
+_mdns = threading.local()
 
 
 async def get_or_create_mdns_protocol() -> mdns.MDnsProtocol:
-    global _mdns_protocol
-    async with _mdns_lock:
-        if _mdns_protocol is None:
-            _mdns_protocol = await mdns.create_mdns_protocol()
-    return _mdns_protocol
+    if not hasattr(_mdns, "lock"):
+        _mdns.lock = asyncio.Lock()
+        _mdns.protocol = None
+    async with _mdns.lock:
+        if _mdns.protocol is None:
+            _mdns.protocol = await mdns.create_mdns_protocol()
+    return _mdns.protocol
 
 
 def candidate_pair_priority(
