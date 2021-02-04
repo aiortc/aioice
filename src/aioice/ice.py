@@ -795,8 +795,10 @@ class Connection:
         self, component: int, addresses: List[str], timeout: int = 5
     ) -> List[Candidate]:
         candidates = []
-
         loop = asyncio.get_event_loop()
+
+        # gather host candidates
+        host_protocols = []
         for address in addresses:
             # create transport
             try:
@@ -807,7 +809,7 @@ class Connection:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
             protocol = cast(StunProtocol, protocol)
-            self._protocols.append(protocol)
+            host_protocols.append(protocol)
 
             # add host candidate
             candidate_address = protocol.transport.get_extra_info("sockname")
@@ -821,11 +823,12 @@ class Connection:
                 type="host",
             )
             candidates.append(protocol.local_candidate)
+        self._protocols += host_protocols
 
         # query STUN server for server-reflexive candidates (IPv4 only)
         if self.stun_server:
             tasks = []
-            for protocol in self._protocols:
+            for protocol in host_protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
                     tasks.append(
                         asyncio.ensure_future(
