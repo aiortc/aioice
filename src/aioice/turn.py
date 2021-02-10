@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Optional, Text, Tuple, Union, cast
 from . import stun
 from .utils import random_transaction_id
 
-logger = logging.getLogger("turn")
+logger = logging.getLogger(__name__)
 
 DEFAULT_CHANNEL_REFRESH_TIME = 500
 DEFAULT_ALLOCATION_LIFETIME = 600

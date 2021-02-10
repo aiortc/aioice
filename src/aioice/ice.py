@@ -16,7 +16,7 @@ from . import mdns, stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
 from .utils import random_string
 
-logger = logging.getLogger("ice")
+logger = logging.getLogger(__name__)
 
 ICE_COMPLETED = 1
 ICE_FAILED = 2
