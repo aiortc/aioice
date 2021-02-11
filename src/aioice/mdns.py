@@ -124,7 +124,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         else:
             # no query for this name is pending, send a request
             self.queries[name] = set([future])
-            message = dns.message.make_query(name, rdtype=dns.rdatatype.ANY)
+            message = dns.message.make_query(name, rdtype=dns.rdatatype.A)
             message.id = 0
             message.flags = 0
             self.tx_transport.sendto(message.to_wire(), (MDNS_ADDRESS, MDNS_PORT))
