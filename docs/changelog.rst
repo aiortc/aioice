@@ -3,6 +3,13 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.7.4
+-----
+
+ * Perform mDNS resolution using an A query, as Firefox does not respond
+   to ANY queries.
+ * Use full module name to name loggers.
+
 0.7.3
 -----
 
