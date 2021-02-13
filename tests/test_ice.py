@@ -160,6 +160,22 @@ class IceConnectionTest(unittest.TestCase):
             addresses, ["1.2.3.4", "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"]
         )
 
+    def test_close(self):
+        conn_a = ice.Connection(ice_controlling=True)
+
+        # close
+        task = asyncio.ensure_future(conn_a.get_event())
+        run(conn_a.close())
+        event = run(task)
+        self.assertTrue(isinstance(event, ice.ConnectionClosed))
+
+        # no more events
+        event = run(conn_a.get_event())
+        self.assertIsNone(event)
+
+        # close again
+        run(conn_a.close())
+
     def test_connect(self):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)

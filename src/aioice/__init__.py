@@ -3,7 +3,7 @@ import logging
 
 from .about import __version__
 from .candidate import Candidate
-from .ice import Connection
+from .ice import Connection, ConnectionClosed
 
 # Set default logging handler to avoid "No handler found" warnings.
 logging.getLogger(__name__).addHandler(logging.NullHandler())

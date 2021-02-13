@@ -248,6 +248,14 @@ class StunProtocol(asyncio.DatagramProtocol):
         return "protocol(%s)" % self.id
 
 
+class ConnectionEvent:
+    pass
+
+
+class ConnectionClosed(ConnectionEvent):
+    pass
+
+
 class Connection:
     """
     An ICE connection for a single media stream.
@@ -297,6 +305,7 @@ class Connection:
         self.turn_transport = turn_transport
 
         # private
+        self._closed = False
         self._components = set(range(1, components + 1))
         self._check_list: List[CandidatePair] = []
         self._check_list_done = False
@@ -304,6 +313,7 @@ class Connection:
         self._early_checks: List[
             Tuple[stun.Message, Tuple[str, int], StunProtocol]
         ] = []
+        self._event_waiter: Optional[asyncio.Future[ConnectionEvent]] = None
         self._id = next(connection_id)
         self._local_candidates: List[Candidate] = []
         self._local_candidates_end = False
@@ -492,6 +502,25 @@ class Connection:
             await protocol.close()
         self._protocols.clear()
         self._local_candidates.clear()
+
+        # emit event
+        if not self._closed:
+            self._emit_event(ConnectionClosed())
+            self._closed = True
+
+    async def get_event(self) -> Optional[ConnectionEvent]:
+        """
+        Return the next `ConnectionEvent` or `None` if the connection is
+        already closed.
+
+        This method may only be called once at a time.
+        """
+        assert self._event_waiter is None, "already awaiting event"
+        if self._closed:
+            return None
+        loop = asyncio.get_event_loop()
+        self._event_waiter = loop.create_future()
+        return await asyncio.shield(self._event_waiter)
 
     async def recv(self) -> bytes:
         """
@@ -781,6 +810,12 @@ class Connection:
         """
         self.__log_info("Check %s %s -> %s", pair, pair.state, state)
         pair.state = state
+
+    def _emit_event(self, event: ConnectionEvent) -> None:
+        if self._event_waiter is not None:
+            waiter = self._event_waiter
+            self._event_waiter = None
+            waiter.set_result(event)
 
     def _find_pair(
         self, protocol: StunProtocol, remote_candidate: Candidate
