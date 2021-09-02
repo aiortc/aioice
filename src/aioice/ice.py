@@ -170,7 +170,8 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     def connection_lost(self, exc: Exception) -> None:
         self.__log_debug("connection_lost(%s)", exc)
-        self.receiver.data_received(None, self.local_candidate.component)
+        if self.local_candidate is not None:
+            self.receiver.data_received(None, self.local_candidate.component)
         self.__closed.set_result(True)
 
     def connection_made(self, transport) -> None:
