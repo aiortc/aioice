@@ -17,12 +17,11 @@ PROTOCOL_KWARGS = {
 
 
 class DummyClientProtocol(asyncio.DatagramProtocol):
-    received_addr = None
-    received_data = None
+    def __init__(self):
+        self.received = []
 
     def datagram_received(self, data, addr):
-        self.received_data = data
-        self.received_addr = addr
+        self.received.append((data, addr))
 
 
 class TurnClientTcpProtocolTest(unittest.TestCase):
@@ -63,16 +62,20 @@ class TurnTest(unittest.TestCase):
         self.turn_server = TurnServer(realm="test", users={"foo": "bar"})
         run(self.turn_server.listen())
 
-        # start echo server
+        # start echo servers
         self.echo_server = EchoServer()
         run(self.echo_server.listen())
+
+        self.echo_server2 = EchoServer()
+        run(self.echo_server2.listen())
 
     def tearDown(self):
         # stop turn server
         run(self.turn_server.close())
 
-        # stop echo server
+        # stop echo servers
         run(self.echo_server.close())
+        run(self.echo_server2.close())
 
     def test_tcp_transport(self):
         self._test_transport("tcp", self.turn_server.tcp_address)
@@ -88,6 +91,7 @@ class TurnTest(unittest.TestCase):
 
     def _test_transport(self, transport, server_addr, ssl=False):
         self._test_transport_ok(transport, server_addr, ssl)
+        self._test_transport_ok_multi(transport, server_addr, ssl)
         self._test_transport_allocate_failure(transport, server_addr, ssl)
         self._test_transport_delete_failure(transport, server_addr, ssl)
 
@@ -110,19 +114,50 @@ class TurnTest(unittest.TestCase):
         # bind channel, send ping, expect pong
         transport.sendto(b"ping", self.echo_server.udp_address)
         run(asyncio.sleep(1))
-        self.assertEqual(protocol.received_addr, self.echo_server.udp_address)
-        self.assertEqual(protocol.received_data, b"ping")
+        self.assertEqual(protocol.received, [(b"ping", self.echo_server.udp_address)])
 
         # wait some more to allow allocation refresh
-        protocol.received_addr = None
-        protocol.received_data = None
+        protocol.received.clear()
         run(asyncio.sleep(5))
 
         # refresh channel, send ping, expect pong
         transport.sendto(b"ping", self.echo_server.udp_address)
         run(asyncio.sleep(1))
-        self.assertEqual(protocol.received_addr, self.echo_server.udp_address)
-        self.assertEqual(protocol.received_data, b"ping")
+        self.assertEqual(protocol.received, [(b"ping", self.echo_server.udp_address)])
+
+        # close
+        transport.close()
+        run(asyncio.sleep(0))
+
+    def _test_transport_ok_multi(self, transport, server_addr, ssl):
+        transport, protocol = run(
+            turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=server_addr,
+                username="foo",
+                password="bar",
+                channel_refresh_time=5,
+                lifetime=6,
+                ssl=ssl,
+                transport=transport,
+            )
+        )
+        self.assertIsNone(transport.get_extra_info("peername"))
+        self.assertIsNotNone(transport.get_extra_info("sockname"))
+
+        # bind channel, send ping, expect pong
+        transport.sendto(b"ping", self.echo_server.udp_address)
+        transport.sendto(b"ping1", self.echo_server2.udp_address)
+        transport.sendto(b"ping2", self.echo_server2.udp_address)
+        run(asyncio.sleep(1))
+        self.assertEqual(
+            sorted(protocol.received),
+            [
+                (b"ping", self.echo_server.udp_address),
+                (b"ping1", self.echo_server2.udp_address),
+                (b"ping2", self.echo_server2.udp_address),
+            ],
+        )
 
         # close
         transport.close()
