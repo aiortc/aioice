@@ -3,7 +3,7 @@ import hashlib
 import logging
 import struct
 import time
-from typing import Any, Callable, Dict, Optional, Text, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Text, Tuple, Union, cast
 
 from . import stun
 from .utils import random_transaction_id
@@ -60,6 +60,9 @@ class TurnClientMixin:
     ) -> None:
         self.channel_refresh_at: Dict[int, float] = {}
         self.channel_to_peer: Dict[int, Tuple[str, int]] = {}
+        self.peer_connect_waiters: Dict[
+            Tuple[str, int], List[asyncio.Future[None]]
+        ] = {}
         self.peer_to_channel: Dict[Tuple[str, int], int] = {}
 
         self.channel_number = 0x4000
@@ -242,19 +245,31 @@ class TurnClientMixin:
         """
         Send data to a remote host via the TURN server.
         """
+        # if a channel is being bound for the peer, wait
+        if addr in self.peer_connect_waiters:
+            loop = asyncio.get_event_loop()
+            waiter = loop.create_future()
+            self.peer_connect_waiters[addr].append(waiter)
+            await waiter
+
         channel = self.peer_to_channel.get(addr)
         now = time.time()
         if channel is None:
+            self.peer_connect_waiters[addr] = []
             channel = self.channel_number
+            self.channel_number += 1
 
             # bind channel
             await self.channel_bind(channel, addr)
 
             # update state
-            self.channel_number += 1
             self.channel_refresh_at[channel] = now + self.channel_refresh_time
             self.channel_to_peer[channel] = addr
             self.peer_to_channel[addr] = channel
+
+            # notify waiters
+            for waiter in self.peer_connect_waiters.pop(addr):
+                waiter.set_result(None)
         elif now > self.channel_refresh_at[channel]:
             # refresh channel
             await self.channel_bind(channel, addr)
