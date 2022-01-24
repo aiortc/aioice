@@ -3,6 +3,18 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.7.6
+-----
+
+ * Ensure `dnspython` version is at least 2.0.0.
+ * Avoid 400 error when using TURN with concurrent sends.
+ * Avoid error if a connection is lost before the local candidate is set.
+
+0.7.5
+-----
+
+ * Emit an event when the ICE connection is closed.
+
 0.7.4
 -----
 
