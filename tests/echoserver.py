@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 
 class EchoServerProtocol(asyncio.DatagramProtocol):
@@ -21,3 +22,13 @@ class EchoServer:
             EchoServerProtocol, local_addr=(host, port)
         )
         self.udp_address = transport.get_extra_info("sockname")
+
+
+@contextlib.asynccontextmanager
+async def run_echo_server(**kwargs):
+    server = EchoServer(**kwargs)
+    await server.listen()
+    try:
+        yield server
+    finally:
+        await server.close()

@@ -1,6 +1,15 @@
 import asyncio
+import functools
 import logging
 import os
+
+
+def asynctest(coro):
+    @functools.wraps(coro)
+    def wrap(*args, **kwargs):
+        asyncio.run(coro(*args, **kwargs))
+
+    return wrap
 
 
 async def invite_accept(conn_a, conn_b):
@@ -25,10 +34,6 @@ def read_message(name):
     path = os.path.join(os.path.dirname(__file__), "data", name)
     with open(path, "rb") as fp:
         return fp.read()
-
-
-def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
 
 
 if os.environ.get("AIOICE_DEBUG"):
