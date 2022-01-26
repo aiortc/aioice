@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import ssl
@@ -377,6 +378,16 @@ class TurnServer:
     def _remove_allocation(self, key):
         allocation = self.allocations.pop(key)
         allocation.transport.close()
+
+
+@contextlib.asynccontextmanager
+async def run_turn_server(**kwargs):
+    server = TurnServer(**kwargs)
+    await server.listen()
+    try:
+        yield server
+    finally:
+        await server.close()
 
 
 if __name__ == "__main__":

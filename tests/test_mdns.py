@@ -1,63 +1,79 @@
 import asyncio
+import contextlib
 import unittest
 
 from aioice import mdns
 
-from .utils import run
+from .utils import asynctest
+
+
+@contextlib.asynccontextmanager
+async def querier_and_responder():
+    querier = await mdns.create_mdns_protocol()
+    responder = await mdns.create_mdns_protocol()
+
+    try:
+        yield querier, responder
+    finally:
+        await querier.close()
+        await responder.close()
 
 
 class MdnsTest(unittest.TestCase):
-    def setUp(self):
-        self.querier = run(mdns.create_mdns_protocol())
-        self.responder = run(mdns.create_mdns_protocol())
+    @asynctest
+    async def test_receive_junk(self):
+        async with querier_and_responder() as (querier, _):
+            querier.datagram_received(b"junk", None)
 
-    def tearDown(self):
-        run(self.querier.close())
-        run(self.responder.close())
-
-    def test_receive_junk(self):
-        self.querier.datagram_received(b"junk", None)
-
-    def test_resolve_bad(self):
+    @asynctest
+    async def test_resolve_bad(self):
         hostname = mdns.create_mdns_hostname()
 
-        result = run(self.querier.resolve(hostname))
-        self.assertEqual(result, None)
+        async with querier_and_responder() as (querier, _):
+            result = await querier.resolve(hostname)
+            self.assertEqual(result, None)
 
-    def test_resolve_good_ipv4(self):
+    @asynctest
+    async def test_resolve_good_ipv4(self):
         hostaddr = "1.2.3.4"
         hostname = mdns.create_mdns_hostname()
-        run(self.responder.publish(hostname, hostaddr))
 
-        result = run(self.querier.resolve(hostname))
-        self.assertEqual(result, hostaddr)
+        async with querier_and_responder() as (querier, responder):
+            await responder.publish(hostname, hostaddr)
 
-    def test_resolve_good_ipv6(self):
+            result = await querier.resolve(hostname)
+            self.assertEqual(result, hostaddr)
+
+    @asynctest
+    async def test_resolve_good_ipv6(self):
         hostaddr = "::ffff:1.2.3.4"
         hostname = mdns.create_mdns_hostname()
-        run(self.responder.publish(hostname, hostaddr))
 
-        result = run(self.querier.resolve(hostname))
-        self.assertEqual(result, hostaddr)
+        async with querier_and_responder() as (querier, responder):
+            await responder.publish(hostname, hostaddr)
 
-    def test_resolve_simultaneous_bad(self):
+            result = await querier.resolve(hostname)
+            self.assertEqual(result, hostaddr)
+
+    @asynctest
+    async def test_resolve_simultaneous_bad(self):
         hostname = mdns.create_mdns_hostname()
 
-        results = run(
-            asyncio.gather(
-                self.querier.resolve(hostname), self.querier.resolve(hostname)
+        async with querier_and_responder() as (querier, _):
+            results = await asyncio.gather(
+                querier.resolve(hostname), querier.resolve(hostname)
             )
-        )
-        self.assertEqual(results, [None, None])
+            self.assertEqual(results, [None, None])
 
-    def test_resolve_simultaneous_good(self):
+    @asynctest
+    async def test_resolve_simultaneous_good(self):
         hostaddr = "1.2.3.4"
         hostname = mdns.create_mdns_hostname()
-        run(self.responder.publish(hostname, hostaddr))
 
-        results = run(
-            asyncio.gather(
-                self.querier.resolve(hostname), self.querier.resolve(hostname)
+        async with querier_and_responder() as (querier, responder):
+            await responder.publish(hostname, hostaddr)
+
+            results = await asyncio.gather(
+                querier.resolve(hostname), querier.resolve(hostname)
             )
-        )
-        self.assertEqual(results, [hostaddr, hostaddr])
+            self.assertEqual(results, [hostaddr, hostaddr])

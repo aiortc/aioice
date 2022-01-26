@@ -4,7 +4,7 @@ from collections import OrderedDict
 
 from aioice import stun
 
-from .utils import read_message, run
+from .utils import asynctest, read_message
 
 
 class AttributeTest(unittest.TestCase):
@@ -211,7 +211,8 @@ class TransactionTest(unittest.TestCase):
         stun.RETRY_MAX = 6
         stun.RETRY_RTO = 0.5
 
-    def test_timeout(self):
+    @asynctest
+    async def test_timeout(self):
         class DummyProtocol:
             def send_stun(self, message, address):
                 pass
@@ -223,7 +224,7 @@ class TransactionTest(unittest.TestCase):
 
         # timeout
         with self.assertRaises(stun.TransactionTimeout):
-            run(transaction.run())
+            await transaction.run()
 
         # receive response after timeout
         response = stun.Message(
