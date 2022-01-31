@@ -316,12 +316,20 @@ class TurnServer:
         self._expire_handle = None
 
     async def close(self):
-        # start expiry loop
+        # stop expiry loop
         self._expire_handle.cancel()
 
+        # close allocations
+        for allocation in self.allocations.values():
+            allocation.transport.close()
+
+        # shutdown servers
         self.tcp_server.close()
+        self.tls_server.close()
         self.udp_server.transport.close()
-        await self.tcp_server.wait_closed()
+        await asyncio.gather(
+            self.tcp_server.wait_closed(), self.tls_server.wait_closed()
+        )
 
     async def listen(self, port=0, tls_port=0):
         loop = asyncio.get_event_loop()
@@ -362,6 +370,7 @@ class TurnServer:
             for key, allocation in self.allocations.items():
                 if allocation.expiry < now:
                     logger.info("Allocation expired %s", allocation.relayed_address)
+                    allocation.transport.close()
                     del self.allocations[key]
 
             await asyncio.sleep(1)
