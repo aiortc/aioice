@@ -3,6 +3,13 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.7.7
+-----
+
+ * Close underlying transport when a TURN allocation is deleted.
+ * Shutdown mDNS stack when it is no longer referenced.
+ * Rewrite asynchronous tests as coroutines.
+
 0.7.6
 -----
 
