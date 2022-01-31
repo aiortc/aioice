@@ -112,6 +112,11 @@ class TurnClientMixin:
 
         return self.relayed_address
 
+    def connection_lost(self, exc: Exception) -> None:
+        logger.debug("%s connection_lost(%s)", self, exc)
+        if self.receiver:
+            self.receiver.connection_lost(exc)
+
     def connection_made(self, transport) -> None:
         logger.debug("%s connection_made(%s)", self, transport)
         self.transport = transport
@@ -163,8 +168,7 @@ class TurnClientMixin:
             pass
 
         logger.info("TURN allocation deleted %s", self.relayed_address)
-        if self.receiver:
-            self.receiver.connection_lost(None)
+        self.transport.close()
 
     async def refresh(self, time_to_expiry) -> None:
         """
@@ -379,7 +383,7 @@ async def create_turn_endpoint(
     """
     loop = asyncio.get_event_loop()
     if transport == "tcp":
-        _, inner_protocol = await loop.create_connection(
+        inner_transport, inner_protocol = await loop.create_connection(
             lambda: TurnClientTcpProtocol(
                 server_addr,
                 username=username,
@@ -392,7 +396,7 @@ async def create_turn_endpoint(
             ssl=ssl,
         )
     else:
-        _, inner_protocol = await loop.create_datagram_endpoint(
+        inner_transport, inner_protocol = await loop.create_datagram_endpoint(
             lambda: TurnClientUdpProtocol(
                 server_addr,
                 username=username,
@@ -403,8 +407,12 @@ async def create_turn_endpoint(
             remote_addr=server_addr,
         )
 
-    protocol = protocol_factory()
-    turn_transport = TurnTransport(protocol, inner_protocol)
-    await turn_transport._connect()
+    try:
+        protocol = protocol_factory()
+        turn_transport = TurnTransport(protocol, inner_protocol)
+        await turn_transport._connect()
+    except Exception:
+        inner_transport.close()
+        raise
 
     return turn_transport, protocol
