@@ -30,14 +30,25 @@ protocol_id = count()
 _mdns = threading.local()
 
 
-async def get_or_create_mdns_protocol() -> mdns.MDnsProtocol:
+async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol:
     if not hasattr(_mdns, "lock"):
         _mdns.lock = asyncio.Lock()
         _mdns.protocol = None
+        _mdns.subscribers = set()
     async with _mdns.lock:
         if _mdns.protocol is None:
             _mdns.protocol = await mdns.create_mdns_protocol()
+        _mdns.subscribers.add(subscriber)
     return _mdns.protocol
+
+
+async def unref_mdns_protocol(subscriber: object) -> None:
+    if hasattr(_mdns, "lock"):
+        async with _mdns.lock:
+            _mdns.subscribers.discard(subscriber)
+            if _mdns.protocol and not _mdns.subscribers:
+                await _mdns.protocol.close()
+                _mdns.protocol = None
 
 
 def candidate_pair_priority(
@@ -364,7 +375,7 @@ class Connection:
 
         # resolve mDNS candidate
         if mdns.is_mdns_hostname(remote_candidate.host):
-            mdns_protocol = await get_or_create_mdns_protocol()
+            mdns_protocol = await get_or_create_mdns_protocol(self)
             remote_addr = await mdns_protocol.resolve(remote_candidate.host)
             if remote_addr is None:
                 self.__log_info(
@@ -497,6 +508,9 @@ class Connection:
         # stop check list
         if self._check_list and not self._check_list_done:
             await self._check_list_state.put(ICE_FAILED)
+
+        # unreference mDNS
+        await unref_mdns_protocol(self)
 
         self._nominated.clear()
         for protocol in self._protocols:

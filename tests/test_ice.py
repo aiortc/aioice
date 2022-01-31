@@ -1092,6 +1092,9 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 0)
         self.assertEqual(conn_a._remote_candidates_end, False)
 
+        # close
+        await conn_a.close()
+
     @asynctest
     async def test_add_remote_candidate_mdns_good(self):
         """
@@ -1118,6 +1121,8 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(conn_a.remote_candidates[0].host, "1.2.3.4")
         self.assertEqual(conn_a._remote_candidates_end, False)
 
+        # close
+        await conn_a.close()
         await publisher.close()
 
     @asynctest
