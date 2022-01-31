@@ -40,6 +40,10 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         self.tx_transport = tx_transport
 
     def connection_lost(self, exc: Exception) -> None:
+        # abort any outstanding queries
+        for name, futures in list(self.queries.items()):
+            for future in futures:
+                future.set_exception(asyncio.TimeoutError)
         self.__closed.set_result(True)
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -114,7 +118,9 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         rdata = dns.rdata.GenericRdata(rdclass=MDNS_RDCLASS, rdtype=rdtype, data=data)
         self.zone.replace_rdataset(name, dns.rdataset.from_rdata(120, rdata))
 
-    async def resolve(self, hostname: str, timeout: float = 1.0) -> Optional[str]:
+    async def resolve(
+        self, hostname: str, timeout: Optional[float] = 1.0
+    ) -> Optional[str]:
         name = dns.name.from_text(hostname)
         future: asyncio.Future[str] = asyncio.Future()
 
