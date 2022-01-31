@@ -34,6 +34,17 @@ class MdnsTest(unittest.TestCase):
             self.assertEqual(result, None)
 
     @asynctest
+    async def test_resolve_close(self):
+        hostname = mdns.create_mdns_hostname()
+
+        # close the querier while the query is ongoing
+        async with querier_and_responder() as (querier, _):
+            result = await asyncio.gather(
+                querier.resolve(hostname, timeout=None), querier.close()
+            )
+            self.assertEqual(result, [None, None])
+
+    @asynctest
     async def test_resolve_good_ipv4(self):
         hostaddr = "1.2.3.4"
         hostname = mdns.create_mdns_hostname()
