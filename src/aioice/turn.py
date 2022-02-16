@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import socket
 import struct
 import time
 from typing import Any, Callable, Dict, List, Optional, Text, Tuple, Union, cast
@@ -14,6 +15,7 @@ DEFAULT_CHANNEL_REFRESH_TIME = 500
 DEFAULT_ALLOCATION_LIFETIME = 600
 TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
+UDP_SOCKET_BUFFER_SIZE = 262144
 
 
 def is_channel_data(data: bytes) -> bool:
@@ -406,6 +408,9 @@ async def create_turn_endpoint(
             ),
             remote_addr=server_addr,
         )
+        sock = inner_transport.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, UDP_SOCKET_BUFFER_SIZE)
 
     try:
         protocol = protocol_factory()
