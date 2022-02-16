@@ -854,9 +854,14 @@ class Connection:
         for address in addresses:
             # create transport
             try:
-                _, protocol = await loop.create_datagram_endpoint(
+                transport, protocol = await loop.create_datagram_endpoint(
                     lambda: StunProtocol(self), local_addr=(address, 0)
                 )
+                sock = transport.get_extra_info("socket")
+                if sock is not None:
+                    sock.setsockopt(
+                        socket.SOL_SOCKET, socket.SO_RCVBUF, turn.UDP_SOCKET_BUFFER_SIZE
+                    )
             except OSError as exc:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
