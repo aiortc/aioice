@@ -163,6 +163,47 @@ class IceConnectionTest(unittest.TestCase):
             addresses, ["1.2.3.4", "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"]
         )
 
+    @mock.patch("netifaces.interfaces")
+    @mock.patch("netifaces.ifaddresses")
+    def test_block_allow_interfaces(self, mock_ifaddresses, mock_interfaces):
+        mock_interfaces.return_value = ["eth0", "docker0", "docker1"]
+        mock_ifaddresses.return_value = {
+            socket.AF_INET: [{"addr": "127.0.0.1"}, {"addr": "1.2.3.4"}],
+            socket.AF_INET6: [
+                {"addr": "::1"},
+                {"addr": "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"},
+                {"addr": "fe80::1234:5678:9abc:def0%eth0"},
+            ],
+        }
+
+        # IPv4 only
+        addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=False, block_list=["docker*"])
+        self.assertEqual(addresses, ["1.2.3.4"])
+
+        # IPv6 only
+        addresses = ice.get_host_addresses(use_ipv4=False, use_ipv6=True, block_list=["docker*"])
+        self.assertEqual(addresses, ["2a02:0db8:85a3:0000:0000:8a2e:0370:7334"])
+
+        # both
+        addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=True, block_list=["docker*"])
+        self.assertEqual(
+            addresses, ["1.2.3.4", "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"]
+        )
+
+        # IPv4 only
+        addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=False, allow_list=["eth*"])
+        self.assertEqual(addresses, ["1.2.3.4"])
+
+        # IPv6 only
+        addresses = ice.get_host_addresses(use_ipv4=False, use_ipv6=True, allow_list=["eth*"])
+        self.assertEqual(addresses, ["2a02:0db8:85a3:0000:0000:8a2e:0370:7334"])
+
+        # both
+        addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=True, allow_list=["eth*"])
+        self.assertEqual(
+            addresses, ["1.2.3.4", "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"]
+        )
+
     @asynctest
     async def test_close(self):
         conn_a = ice.Connection(ice_controlling=True)
