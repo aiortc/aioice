@@ -282,6 +282,7 @@ class Connection:
     :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
+    :param media_port: The port to bind to.
     """
 
     def __init__(
@@ -296,6 +297,7 @@ class Connection:
         turn_transport: str = "udp",
         use_ipv4: bool = True,
         use_ipv6: bool = True,
+        media_port: int = 0,
     ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
@@ -340,6 +342,7 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+        self._media_port = media_port
 
     @property
     def local_candidates(self) -> List[Candidate]:
@@ -855,7 +858,7 @@ class Connection:
             # create transport
             try:
                 transport, protocol = await loop.create_datagram_endpoint(
-                    lambda: StunProtocol(self), local_addr=(address, 0)
+                    lambda: StunProtocol(self), local_addr=(address, self._media_port)
                 )
                 sock = transport.get_extra_info("socket")
                 if sock is not None:
