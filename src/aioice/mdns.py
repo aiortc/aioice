@@ -189,4 +189,4 @@ async def create_mdns_protocol() -> MDnsProtocol:
         sock=rx_sock,
     )
 
-    return cast(MDnsProtocol, protocol)
+    return protocol
