@@ -2,6 +2,7 @@ import asyncio
 import copy
 import enum
 import ipaddress
+import fnmatch
 import logging
 import random
 import secrets
@@ -61,13 +62,20 @@ def candidate_pair_priority(
     D = ice_controlling and remote.priority or local.priority
     return (1 << 32) * min(G, D) + 2 * max(G, D) + (G > D and 1 or 0)
 
-
-def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> List[str]:
+def get_host_addresses(use_ipv4: bool, use_ipv6: bool, block_list: Optional[List[str]] = None,
+                       allow_list: Optional[List[str]] = None) -> List[str]:
     """
     Get local IP addresses.
     """
     addresses = []
-    for interface in netifaces.interfaces():
+    interfaces = netifaces.interfaces()
+    if block_list is not None:
+        blocked_interfaces = [item for blocked in block_list for item in fnmatch.filter(interfaces, blocked)]
+        interfaces = list(filter(lambda iface: iface not in blocked_interfaces, interfaces))
+    if allow_list is not None:
+        interfaces = [item for allowed in allow_list for item in fnmatch.filter(interfaces, allowed)]
+
+    for interface in interfaces:
         ifaddresses = netifaces.ifaddresses(interface)
         for address in ifaddresses.get(socket.AF_INET, []):
             if use_ipv4 and address["addr"] != "127.0.0.1":
@@ -282,6 +290,8 @@ class Connection:
     :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
+    :param block_interfaces: do not allow listed network interfaces
+    :param allow_interfaces: allow only listed network interfaces
     """
 
     def __init__(
@@ -296,7 +306,11 @@ class Connection:
         turn_transport: str = "udp",
         use_ipv4: bool = True,
         use_ipv6: bool = True,
+        block_interfaces: Optional[List[str]] = None,
+        allow_interfaces: Optional[List[str]] = None,
     ) -> None:
+        self.allow_interfaces = allow_interfaces
+        self.block_interfaces = block_interfaces
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
         self.local_username = random_string(4)
@@ -419,7 +433,9 @@ class Connection:
         if not self._local_candidates_start:
             self._local_candidates_start = True
             addresses = get_host_addresses(
-                use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
+                use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6,
+                block_list=self.block_interfaces,
+                allow_list=self.allow_interfaces
             )
             coros = [
                 self.get_component_candidates(component=component, addresses=addresses)
