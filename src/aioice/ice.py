@@ -865,7 +865,6 @@ class Connection:
             except OSError as exc:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
-            protocol = cast(StunProtocol, protocol)
             host_protocols.append(protocol)
 
             # add host candidate
@@ -911,7 +910,6 @@ class Connection:
                 ssl=self.turn_ssl,
                 transport=self.turn_transport,
             )
-            protocol = cast(StunProtocol, protocol)
             self._protocols.append(protocol)
 
             # add relayed candidate

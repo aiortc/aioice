@@ -4,7 +4,18 @@ import logging
 import socket
 import struct
 import time
-from typing import Any, Callable, Dict, List, Optional, Text, Tuple, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Text,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from . import stun
 from .utils import random_transaction_id
@@ -16,6 +27,8 @@ DEFAULT_ALLOCATION_LIFETIME = 600
 TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
 UDP_SOCKET_BUFFER_SIZE = 262144
+
+_ProtocolT = TypeVar("_ProtocolT", bound=asyncio.BaseProtocol)
 
 
 def is_channel_data(data: bytes) -> bool:
@@ -371,7 +384,7 @@ class TurnTransport:
 
 
 async def create_turn_endpoint(
-    protocol_factory: Callable,
+    protocol_factory: Callable[[], _ProtocolT],
     server_addr: Tuple[str, int],
     username: Optional[str],
     password: Optional[str],
@@ -379,11 +392,13 @@ async def create_turn_endpoint(
     channel_refresh_time: int = DEFAULT_CHANNEL_REFRESH_TIME,
     ssl: bool = False,
     transport: str = "udp",
-) -> Tuple[TurnTransport, asyncio.Protocol]:
+) -> Tuple[TurnTransport, _ProtocolT]:
     """
     Create datagram connection relayed over TURN.
     """
     loop = asyncio.get_event_loop()
+    inner_protocol: asyncio.BaseProtocol
+    inner_transport: asyncio.BaseTransport
     if transport == "tcp":
         inner_transport, inner_protocol = await loop.create_connection(
             lambda: TurnClientTcpProtocol(
