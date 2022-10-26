@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import os
+import random
 import socket
 import unittest
 from unittest import mock
@@ -1249,6 +1250,62 @@ class IceConnectionTest(unittest.TestCase):
         conn._id = 1
         self.assertEqual(repr(conn), "Connection(1)")
 
+    @asynctest
+    async def test_connection_ephemeral_ports(self):
+        addresses = ["127.0.0.1"]
+
+        # Let the OS pick a random port - should always yield a candidate
+        conn1 = ice.Connection(ice_controlling=True)
+        c = await conn1.get_component_candidates(0, addresses)
+        self.assertTrue(c[0].port >= 1 and c[0].port <= 65535)
+
+        # Try opening a new connection with the same port - should never yield candidates
+        conn2 = ice.Connection(ice_controlling=True, ephemeral_ports=[c[0].port])
+        c = await conn2.get_component_candidates(0, addresses)
+        self.assertEqual(len(c), 0) # port already in use, no candidates
+        await conn1.close()
+
+        # Empty set of ports - illegal argument
+        conn3 = ice.Connection(ice_controlling=True, ephemeral_ports=[])
+        with self.assertRaises(ValueError):
+            await conn3.get_component_candidates(0, addresses)
+
+        # Range of 100 ports
+        lower = random.randint(1024, 65536 - 100)
+        upper = lower + 100
+        ports = set(range(lower, upper)) - set([5353])
+
+        # Exhaust the range of ports - should always yield candidates
+        conns = []
+        for i in range(0, len(ports)):
+            conn = ice.Connection(ice_controlling=True, ephemeral_ports=ports)
+            c = await conn.get_component_candidates(i, addresses)
+            if c:
+                self.assertTrue(c[0].port >= lower and c[0].port < upper)
+                conns.append(conn)
+        self.assertGreaterEqual(len(conns), len(ports) - 1) # account for at most 1 port in use by another process
+
+        # Open one more connection from the same range - should never yield candidates
+        conn = ice.Connection(ice_controlling=True, ephemeral_ports=ports)
+        c = await conn.get_component_candidates(0, addresses)
+        self.assertEqual(len(c), 0) # all ports are exhausted, no candidates
+
+        # Close one connection and try again - should always yield a candidate
+        await conns.pop().close()
+        conn = ice.Connection(ice_controlling=True, ephemeral_ports=ports)
+        c = await conn.get_component_candidates(0, addresses)
+        self.assertTrue(c[0].port >= lower and c[0].port < upper)
+        await conn.close()
+
+        # cleanup
+        for conn in conns:
+            await conn.close()
+
+        # Bind to wildcard local address - should always yield a candidate
+        conn = ice.Connection(ice_controlling=True)
+        c = await conn.get_component_candidates(0, [None])
+        self.assertTrue(c[0].port >= 1 and c[0].port <= 65535)
+        await conn.close()
 
 class StunProtocolTest(unittest.TestCase):
     @asynctest
