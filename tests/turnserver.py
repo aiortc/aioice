@@ -351,7 +351,7 @@ class TurnServer:
         logger.info("Listening for UDP on %s", self.udp_address)
 
         # listen for TLS
-        ssl_context = ssl.SSLContext()
+        ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(CERT_FILE, KEY_FILE)
         self.tls_server = await loop.create_server(
             lambda: TurnServerTcpProtocol(server=self),

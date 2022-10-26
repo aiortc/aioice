@@ -63,7 +63,8 @@ class TurnTest(unittest.TestCase):
 
     @asynctest
     async def test_tls_transport(self):
-        ssl_context = ssl.SSLContext()
+        ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
 
         await self._test_transport("tcp", "tls_address", ssl=ssl_context)
