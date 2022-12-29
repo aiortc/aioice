@@ -325,6 +325,7 @@ class Connection:
         self._early_checks: List[
             Tuple[stun.Message, Tuple[str, int], StunProtocol]
         ] = []
+        self._early_checks_done = False
         self._event_waiter: Optional[asyncio.Future[ConnectionEvent]] = None
         self._id = next(connection_id)
         self._local_candidates: List[Candidate] = []
@@ -469,6 +470,7 @@ class Connection:
         for early_check in self._early_checks:
             self.check_incoming(*early_check)
         self._early_checks = []
+        self._early_checks_done = True
 
         # perform checks
         while True:
@@ -1021,7 +1023,7 @@ class Connection:
         response.add_message_integrity(self.local_password.encode("utf8"))
         protocol.send_stun(response, addr)
 
-        if not self._check_list:
+        if not self._check_list and not self._early_checks_done:
             self._early_checks.append((message, addr, protocol))
         else:
             self.check_incoming(message, addr, protocol)
