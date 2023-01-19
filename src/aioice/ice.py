@@ -30,6 +30,20 @@ protocol_id = count()
 _mdns = threading.local()
 
 
+class TransportPolicy(enum.Enum):
+    ALL = 0
+    """
+    All ICE candidates will be considered.
+    """
+
+    RELAY = 1
+    """
+    Only ICE candidates whose IP addresses are being relayed,
+    such as those being passed through a STUN or TURN server,
+    will be considered.
+    """
+
+
 async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol:
     if not hasattr(_mdns, "lock"):
         _mdns.lock = asyncio.Lock()
@@ -282,6 +296,7 @@ class Connection:
     :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
+    :param transport_policy: Transport policy.
     """
 
     def __init__(
@@ -296,6 +311,7 @@ class Connection:
         turn_transport: str = "udp",
         use_ipv4: bool = True,
         use_ipv6: bool = True,
+        transport_policy: TransportPolicy = TransportPolicy.ALL,
     ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
@@ -341,6 +357,17 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+
+        if (
+            stun_server is None
+            and turn_server is None
+            and transport_policy == TransportPolicy.RELAY
+        ):
+            raise ValueError(
+                "Relay transport policy requires a STUN and/or TURN server."
+            )
+
+        self._transport_policy = transport_policy
 
     @property
     def local_candidates(self) -> List[Candidate]:
@@ -880,7 +907,8 @@ class Connection:
                 port=candidate_address[1],
                 type="host",
             )
-            candidates.append(protocol.local_candidate)
+            if self._transport_policy == TransportPolicy.ALL:
+                candidates.append(protocol.local_candidate)
         self._protocols += host_protocols
 
         # query STUN server for server-reflexive candidates (IPv4 only)
