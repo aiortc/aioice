@@ -756,7 +756,7 @@ class Connection:
 
         # triggered check
         if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
-            pair.task = asyncio.create_task(self.check_start(pair))
+            self.check_start_task(pair)
 
         # 7.2.1.5. Updating the Nominated Flag
         if "USE-CANDIDATE" in message.attributes and not self.ice_controlling:
@@ -770,13 +770,13 @@ class Connection:
         # find the highest-priority pair that is in the waiting state
         for pair in self._check_list:
             if pair.state == CandidatePair.State.WAITING:
-                pair.task = asyncio.create_task(self.check_start(pair))
+                self.check_start_task(pair)
                 return True
 
         # find the highest-priority pair that is in the frozen state
         for pair in self._check_list:
             if pair.state == CandidatePair.State.FROZEN:
-                pair.task = asyncio.create_task(self.check_start(pair))
+                self.check_start_task(pair)
                 return True
 
         # if we expect more candidates, keep going
@@ -845,6 +845,13 @@ class Connection:
             pair.nominated = True
         self.check_state(pair, CandidatePair.State.SUCCEEDED)
         self.check_complete(pair)
+
+    def check_start_task(self, pair: CandidatePair) -> None:
+        """
+        Starts a check in a task, unless already started.
+        """
+        if pair.task is None:
+            pair.task = asyncio.create_task(self.check_start(pair))
 
     def check_state(self, pair: CandidatePair, state: CandidatePair.State) -> None:
         """
