@@ -50,6 +50,7 @@ class TurnStreamMixin:
 
         while len(self.buffer) >= 4:
             _, length = struct.unpack("!HH", self.buffer[0:4])
+            length += stun.padding_length(length)
             if is_channel_data(self.buffer):
                 full_length = 4 + length
             else:
@@ -60,6 +61,13 @@ class TurnStreamMixin:
             addr = self.transport.get_extra_info("peername")
             self.datagram_received(self.buffer[0:full_length], addr)
             self.buffer = self.buffer[full_length:]
+
+    def _padded(self, data: bytes) -> bytes:
+        # TCP and TCP-over-TLS must pad messages to 4-byte boundaries.
+        padding = stun.padding_length(len(data))
+        if padding:
+            data += bytes(padding)
+        return data
 
 
 class TurnClientMixin:
@@ -319,7 +327,7 @@ class TurnClientTcpProtocol(TurnClientMixin, TurnStreamMixin, asyncio.Protocol):
     """
 
     def _send(self, data: bytes) -> None:
-        self.transport.write(data)
+        self.transport.write(self._padded(data))
 
     def __repr__(self) -> str:
         return "turn/tcp"

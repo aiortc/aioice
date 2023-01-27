@@ -224,8 +224,8 @@ class Message:
                 v = attr_pack(attr_value)
 
             attr_len = len(v)
-            pad_len = 4 * ((attr_len + 3) // 4) - attr_len
-            data += pack("!HH", attr_type, attr_len) + v + (b"\x00" * pad_len)
+            pad_len = padding_length(attr_len)
+            data += pack("!HH", attr_type, attr_len) + v + bytes(pad_len)
         return (
             pack(
                 "!HHI12s",
@@ -317,6 +317,17 @@ class Transaction:
         self.__tries += 1
 
 
+def padding_length(length: int) -> int:
+    """
+    STUN message attributes are padded to a 4-byte boundary.
+    """
+    rest = length % 4
+    if rest == 0:
+        return 0
+    else:
+        return 4 - rest
+
+
 def parse_message(data: bytes, integrity_key: Optional[bytes] = None) -> Message:
     """
     Parses a STUN message.
@@ -336,7 +347,7 @@ def parse_message(data: bytes, integrity_key: Optional[bytes] = None) -> Message
     while pos <= len(data) - 4:
         attr_type, attr_len = unpack("!HH", data[pos : pos + 4])
         v = data[pos + 4 : pos + 4 + attr_len]
-        pad_len = 4 * ((attr_len + 3) // 4) - attr_len
+        pad_len = padding_length(attr_len)
         if attr_type in ATTRIBUTES_BY_TYPE:
             _, attr_name, attr_pack, attr_unpack = ATTRIBUTES_BY_TYPE[attr_type]
             if attr_unpack == unpack_xor_address:
