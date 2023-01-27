@@ -140,10 +140,13 @@ class TurnTest(unittest.TestCase):
             self.assertIsNone(transport.get_extra_info("peername"))
             self.assertIsNotNone(transport.get_extra_info("sockname"))
 
-            # bind channel, send ping, expect pong
+            # Bind channel, send ping, expect pong.
+            #
+            # We use different lengths to trigger both padded an unpadded
+            # ChannelData messages over TCP.
             async with run_echo_server() as echo_server1:
                 async with run_echo_server() as echo_server2:
-                    transport.sendto(b"ping10", echo_server1.udp_address)
+                    transport.sendto(b"ping", echo_server1.udp_address)  # never padded
                     transport.sendto(b"ping11", echo_server1.udp_address)
                     transport.sendto(b"ping20", echo_server2.udp_address)
                     transport.sendto(b"ping21", echo_server2.udp_address)
@@ -151,7 +154,7 @@ class TurnTest(unittest.TestCase):
                     self.assertEqual(
                         sorted(protocol.received),
                         [
-                            (b"ping10", echo_server1.udp_address),
+                            (b"ping", echo_server1.udp_address),
                             (b"ping11", echo_server1.udp_address),
                             (b"ping20", echo_server2.udp_address),
                             (b"ping21", echo_server2.udp_address),

@@ -294,7 +294,7 @@ class TurnServerMixin:
 
 class TurnServerTcpProtocol(TurnServerMixin, TurnStreamMixin, asyncio.Protocol):
     def _send(self, data, addr):
-        self.transport.write(data)
+        self.transport.write(self._padded(data))
 
 
 class TurnServerUdpProtocol(TurnServerMixin, asyncio.DatagramProtocol):
