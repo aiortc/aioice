@@ -268,6 +268,51 @@ class IceConnectionTest(unittest.TestCase):
         await conn_b.close()
 
     @asynctest
+    async def test_connect_early_checks_2(self):
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # both sides gather local candidates and exchange credentials
+        await conn_a.gather_candidates()
+        await conn_b.gather_candidates()
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+
+        async def connect_b():
+            # side B receives offer and connects
+            for candidate in conn_a.local_candidates:
+                await conn_b.add_remote_candidate(candidate)
+            await conn_b.add_remote_candidate(None)
+            await conn_b.connect()
+
+            # side A receives candidates
+            for candidate in conn_b.local_candidates:
+                await conn_a.add_remote_candidate(candidate)
+            await conn_a.add_remote_candidate(None)
+
+        # The sequence is:
+        # - side A starts connecting immediately, but has no candidates
+        # - side B receives candidates and connects
+        # - side A receives candidates, and connection completes
+        await asyncio.gather(conn_a.connect(), connect_b())
+
+        # send data a -> b
+        await conn_a.send(b"howdee")
+        data = await conn_b.recv()
+        self.assertEqual(data, b"howdee")
+
+        # send data b -> a
+        await conn_b.send(b"gotcha")
+        data = await conn_a.recv()
+        self.assertEqual(data, b"gotcha")
+
+        # close
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
     async def test_connect_two_components(self):
         conn_a = ice.Connection(ice_controlling=True, components=2)
         conn_b = ice.Connection(ice_controlling=False, components=2)
