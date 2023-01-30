@@ -198,8 +198,8 @@ class Message:
         transaction_id: Optional[bytes] = None,
         attributes: Optional[OrderedDict] = None,
     ) -> None:
-        self.message_method = Method(message_method)
-        self.message_class = Class(message_class)
+        self.message_method = message_method
+        self.message_class = message_class
         self.transaction_id = transaction_id or random_transaction_id()
         self.attributes = attributes or OrderedDict()
 
@@ -238,10 +238,13 @@ class Message:
         )
 
     def __repr__(self) -> str:
-        return "Message(message_method=%s, message_class=%s, transaction_id=%s)" % (
-            self.message_method,
-            self.message_class,
-            repr(self.transaction_id),
+        return (
+            "Message(message_method=Method.%s, message_class=Class.%s, transaction_id=%s)"
+            % (
+                self.message_method.name,
+                self.message_class.name,
+                repr(self.transaction_id),
+            )
         )
 
 
@@ -351,9 +354,12 @@ def parse_message(data: bytes, integrity_key: Optional[bytes] = None) -> Message
                     raise ValueError("STUN message integrity does not match")
 
         pos += 4 + attr_len + pad_len
+
     return Message(
-        message_method=message_type & 0x3EEF,
-        message_class=message_type & 0x0110,
+        # An unknown method raises a `ValueError`.
+        message_method=Method(message_type & 0x3EEF),
+        # This cast cannot fail, as all 4 possible classes are defined.
+        message_class=Class(message_type & 0x0110),
         transaction_id=transaction_id,
         attributes=attributes,
     )
