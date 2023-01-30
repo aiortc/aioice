@@ -201,6 +201,11 @@ class MessageTest(unittest.TestCase):
             stun.parse_message(b"123")
         self.assertEqual(str(cm.exception), "STUN message length is less than 20 bytes")
 
+    def test_message_with_unknown_method(self):
+        with self.assertRaises(ValueError) as cm:
+            stun.parse_message(bytes(20))
+        self.assertEqual(str(cm.exception), "0 is not a valid Method")
+
 
 class TransactionTest(unittest.TestCase):
     def setUp(self):
