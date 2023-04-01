@@ -10,7 +10,7 @@ import threading
 from itertools import count
 from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
 
-import netifaces
+import ifaddr
 
 from . import mdns, stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
@@ -81,14 +81,12 @@ def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> List[str]:
     Get local IP addresses.
     """
     addresses = []
-    for interface in netifaces.interfaces():
-        ifaddresses = netifaces.ifaddresses(interface)
-        for address in ifaddresses.get(socket.AF_INET, []):
-            if use_ipv4 and address["addr"] != "127.0.0.1":
-                addresses.append(address["addr"])
-        for address in ifaddresses.get(socket.AF_INET6, []):
-            if use_ipv6 and address["addr"] != "::1" and "%" not in address["addr"]:
-                addresses.append(address["addr"])
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if isinstance(ip.ip, str) and use_ipv4 and ip.ip != "127.0.0.1":
+                addresses.append(ip.ip)
+            elif use_ipv6 and ip.ip[0] != "::1" and ip.ip[2] == 0:
+                addresses.append(ip.ip[0])
     return addresses
 
 

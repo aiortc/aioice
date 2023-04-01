@@ -1,9 +1,10 @@
 import asyncio
 import functools
 import os
-import socket
 import unittest
 from unittest import mock
+
+import ifaddr
 
 from aioice import Candidate, TransportPolicy, ice, mdns, stun
 
@@ -136,18 +137,39 @@ class IceConnectionTest(unittest.TestCase):
         ice.CONSENT_INTERVAL = 5
         stun.RETRY_MAX = 6
 
-    @mock.patch("netifaces.interfaces")
-    @mock.patch("netifaces.ifaddresses")
-    def test_get_host_addresses(self, mock_ifaddresses, mock_interfaces):
-        mock_interfaces.return_value = ["eth0"]
-        mock_ifaddresses.return_value = {
-            socket.AF_INET: [{"addr": "127.0.0.1"}, {"addr": "1.2.3.4"}],
-            socket.AF_INET6: [
-                {"addr": "::1"},
-                {"addr": "2a02:0db8:85a3:0000:0000:8a2e:0370:7334"},
-                {"addr": "fe80::1234:5678:9abc:def0%eth0"},
-            ],
-        }
+    @mock.patch("ifaddr.get_adapters")
+    def test_get_host_addresses(self, mock_get_adapters):
+        mock_get_adapters.return_value = [
+            ifaddr.Adapter(
+                ips=[
+                    ifaddr.IP(ip="127.0.0.1", network_prefix=8, nice_name="lo"),
+                    ifaddr.IP(ip=("::1", 0, 0), network_prefix=128, nice_name="lo"),
+                ],
+                name="lo",
+                nice_name="lo",
+            ),
+            ifaddr.Adapter(
+                ips=[
+                    ifaddr.IP(
+                        ip="1.2.3.4",
+                        network_prefix=24,
+                        nice_name="eth0",
+                    ),
+                    ifaddr.IP(
+                        ip=("2a02:0db8:85a3:0000:0000:8a2e:0370:7334", 0, 0),
+                        network_prefix=64,
+                        nice_name="eth0",
+                    ),
+                    ifaddr.IP(
+                        ip=("fe80::1234:5678:9abc:def0", 0, 2),
+                        network_prefix=64,
+                        nice_name="eth0",
+                    ),
+                ],
+                name="eth0",
+                nice_name="eth0",
+            ),
+        ]
 
         # IPv4 only
         addresses = ice.get_host_addresses(use_ipv4=True, use_ipv6=False)
