@@ -1249,6 +1249,10 @@ class IceConnectionTest(unittest.TestCase):
             # we whould only have a server-reflexive candidate in connection a
             self.assertCandidateTypes(conn_a, set(["srflx"]))
 
+            # close
+            await conn_a.close()
+            await conn_b.close()
+
     @asynctest
     async def test_gather_candidates_relay_only_with_turn_server(self):
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
@@ -1266,6 +1270,10 @@ class IceConnectionTest(unittest.TestCase):
 
             # we whould only have a server-reflexive candidate in connection a
             self.assertCandidateTypes(conn_a, set(["relay"]))
+
+            # close
+            await conn_a.close()
+            await conn_b.close()
 
     @asynctest
     async def test_repr(self):
