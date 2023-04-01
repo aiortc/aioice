@@ -40,6 +40,6 @@ setuptools.setup(
     package_dir={"": "src"},
     package_data={"aioice": ["py.typed"]},
     packages=["aioice"],
-    install_requires=["dnspython>=2.0.0", "netifaces"],
+    install_requires=["dnspython>=2.0.0", "ifaddr>=0.2.0"],
     python_requires=">=3.7",
 )
