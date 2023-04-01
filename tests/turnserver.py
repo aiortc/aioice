@@ -134,7 +134,7 @@ class TurnServerMixin:
             return
 
         if message.message_method == stun.Method.ALLOCATE:
-            asyncio.ensure_future(self.handle_allocate(message, addr, integrity_key))
+            asyncio.create_task(self.handle_allocate(message, addr, integrity_key))
             return
         elif message.message_method == stun.Method.REFRESH:
             response = self.handle_refresh(message, addr)
@@ -314,11 +314,12 @@ class TurnServer:
         self.simulated_failure: Optional[Tuple[int, str]] = None
         self.users = users
 
-        self._expire_handle = None
+        self._expire_task = None
 
     async def close(self):
         # stop expiry loop
-        self._expire_handle.cancel()
+        if self._expire_task is not None:
+            self._expire_task.cancel()
 
         # close allocations
         for key in list(self.allocations.keys()):
@@ -363,7 +364,7 @@ class TurnServer:
         logger.info("Listening for TLS on %s", self.tls_address)
 
         # start expiry loop
-        self._expire_handle = asyncio.ensure_future(self._expire_allocations())
+        self._expire_task = asyncio.create_task(self._expire_allocations())
 
     async def _expire_allocations(self):
         while True:

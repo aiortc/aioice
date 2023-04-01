@@ -96,7 +96,7 @@ class TurnClientMixin:
         self.password = password
         self.receiver = None
         self.realm: Optional[str] = None
-        self.refresh_handle: Optional[asyncio.Future] = None
+        self.refresh_task: Optional[asyncio.Task] = None
         self.relayed_address: Optional[Tuple[str, int]] = None
         self.server = server
         self.transactions: Dict[bytes, stun.Transaction] = {}
@@ -131,7 +131,7 @@ class TurnClientMixin:
         )
 
         # periodically refresh allocation
-        self.refresh_handle = asyncio.ensure_future(self.refresh(time_to_expiry))
+        self.refresh_task = asyncio.create_task(self.refresh(time_to_expiry))
 
         return self.relayed_address
 
@@ -176,9 +176,9 @@ class TurnClientMixin:
         """
         Delete the TURN allocation.
         """
-        if self.refresh_handle:
-            self.refresh_handle.cancel()
-            self.refresh_handle = None
+        if self.refresh_task:
+            self.refresh_task.cancel()
+            self.refresh_task = None
 
         request = stun.Message(
             message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
@@ -363,7 +363,7 @@ class TurnTransport:
         After the TURN allocation has been deleted, the protocol's
         `connection_lost()` method will be called with None as its argument.
         """
-        asyncio.ensure_future(self.__inner_protocol.delete())
+        asyncio.create_task(self.__inner_protocol.delete())
 
     def get_extra_info(self, name: str, default: Any = None) -> Any:
         """
@@ -384,7 +384,7 @@ class TurnTransport:
 
         This will bind a TURN channel as necessary.
         """
-        asyncio.ensure_future(self.__inner_protocol.send_data(data, addr))
+        asyncio.create_task(self.__inner_protocol.send_data(data, addr))
 
     async def _connect(self) -> None:
         self.__relayed_address = await self.__inner_protocol.connect()

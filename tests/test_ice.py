@@ -45,7 +45,10 @@ class IceComponentTest(unittest.TestCase):
         connection = ice.Connection(ice_controlling=True)
         connection.remote_password = "remote-password"
         connection.remote_username = "remote-username"
+
         protocol = ProtocolMock()
+        protocol.response_addr = ("2.3.4.5", 2345)
+        protocol.response_message = "bad"
 
         request = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
@@ -73,14 +76,13 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(pair.remote_candidate, candidate)
 
         # check a triggered check was scheduled
-        self.assertIsNotNone(pair.handle)
-        protocol.response_addr = ("2.3.4.5", 2345)
-        protocol.response_message = "bad"
-        await pair.handle
+        self.assertIsNotNone(pair.task)
+        await pair.task
 
     @asynctest
     async def test_request_with_invalid_method(self):
         connection = ice.Connection(ice_controlling=True)
+
         protocol = ProtocolMock()
 
         request = stun.Message(
@@ -250,8 +252,8 @@ class IceConnectionTest(unittest.TestCase):
         await conn_b.close()
         done, pending = await asyncio.wait(
             [
-                asyncio.ensure_future(conn_a.connect()),
-                asyncio.ensure_future(delay(conn_a.close)),
+                asyncio.create_task(conn_a.connect()),
+                asyncio.create_task(delay(conn_a.close)),
             ]
         )
         for task in pending:
@@ -574,8 +576,8 @@ class IceConnectionTest(unittest.TestCase):
         # connect
         done, pending = await asyncio.wait(
             [
-                asyncio.ensure_future(conn_a.connect()),
-                asyncio.ensure_future(conn_b.connect()),
+                asyncio.create_task(conn_a.connect()),
+                asyncio.create_task(conn_b.connect()),
             ],
             return_when=asyncio.FIRST_EXCEPTION,
         )
@@ -612,8 +614,8 @@ class IceConnectionTest(unittest.TestCase):
         # connect
         done, pending = await asyncio.wait(
             [
-                asyncio.ensure_future(conn_a.connect()),
-                asyncio.ensure_future(conn_b.connect()),
+                asyncio.create_task(conn_a.connect()),
+                asyncio.create_task(conn_b.connect()),
             ]
         )
         for task in pending:
