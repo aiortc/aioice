@@ -183,9 +183,7 @@ async def create_mdns_protocol() -> MDnsProtocol:
         rx_sock.bind((MDNS_ADDRESS, MDNS_PORT))
 
     _, protocol = await loop.create_datagram_endpoint(
-        lambda: MDnsProtocol(
-            tx_transport=cast(asyncio.DatagramTransport, tx_transport)
-        ),
+        lambda: MDnsProtocol(tx_transport=tx_transport),
         sock=rx_sock,
     )
 
