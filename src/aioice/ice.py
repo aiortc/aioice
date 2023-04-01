@@ -148,7 +148,7 @@ def validate_remote_candidate(candidate: Candidate) -> Candidate:
 
 class CandidatePair:
     def __init__(self, protocol, remote_candidate: Candidate) -> None:
-        self.handle: Optional[asyncio.Future[None]] = None
+        self.task: Optional[asyncio.Task] = None
         self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
@@ -350,7 +350,7 @@ class Connection:
         self._protocols: List[StunProtocol] = []
         self._remote_candidates: List[Candidate] = []
         self._remote_candidates_end = False
-        self._query_consent_handle: Optional[asyncio.Future[None]] = None
+        self._query_consent_task: Optional[asyncio.Task] = None
         self._queue: asyncio.Queue = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
@@ -511,30 +511,30 @@ class Connection:
 
         # cancel remaining checks
         for check in self._check_list:
-            if check.handle:
-                check.handle.cancel()
+            if check.task:
+                check.task.cancel()
 
         if res != ICE_COMPLETED:
             raise ConnectionError("ICE negotiation failed")
 
         # start consent freshness tests
-        self._query_consent_handle = asyncio.ensure_future(self.query_consent())
+        self._query_consent_task = asyncio.create_task(self.query_consent())
 
     async def close(self) -> None:
         """
         Close the connection.
         """
         # stop consent freshness tests
-        if self._query_consent_handle and not self._query_consent_handle.done():
-            self._query_consent_handle.cancel()
+        if self._query_consent_task and not self._query_consent_task.done():
+            self._query_consent_task.cancel()
             try:
-                await self._query_consent_handle
+                await self._query_consent_task
             except asyncio.CancelledError:
                 pass
 
         # stop check list
         if self._check_list and not self._check_list_done:
-            await self._check_list_state.put(ICE_FAILED)
+            self._check_list_state.put_nowait(ICE_FAILED)
 
         # unreference mDNS
         await unref_mdns_protocol(self)
@@ -664,7 +664,7 @@ class Connection:
         return request
 
     def check_complete(self, pair: CandidatePair) -> None:
-        pair.handle = None
+        pair.task = None
 
         if pair.state == CandidatePair.State.SUCCEEDED:
             if pair.nominated:
@@ -688,7 +688,7 @@ class Connection:
             if len(self._nominated) == len(self._components):
                 if not self._check_list_done:
                     self.__log_info("ICE completed")
-                    asyncio.ensure_future(self._check_list_state.put(ICE_COMPLETED))
+                    self._check_list_state.put_nowait(ICE_COMPLETED)
                     self._check_list_done = True
                 return
 
@@ -714,7 +714,7 @@ class Connection:
 
         if not self._check_list_done:
             self.__log_info("ICE failed")
-            asyncio.ensure_future(self._check_list_state.put(ICE_FAILED))
+            self._check_list_state.put_nowait(ICE_FAILED)
             self._check_list_done = True
 
     def check_incoming(
@@ -756,7 +756,7 @@ class Connection:
 
         # triggered check
         if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
-            pair.handle = asyncio.ensure_future(self.check_start(pair))
+            pair.task = asyncio.create_task(self.check_start(pair))
 
         # 7.2.1.5. Updating the Nominated Flag
         if "USE-CANDIDATE" in message.attributes and not self.ice_controlling:
@@ -770,13 +770,13 @@ class Connection:
         # find the highest-priority pair that is in the waiting state
         for pair in self._check_list:
             if pair.state == CandidatePair.State.WAITING:
-                pair.handle = asyncio.ensure_future(self.check_start(pair))
+                pair.task = asyncio.create_task(self.check_start(pair))
                 return True
 
         # find the highest-priority pair that is in the frozen state
         for pair in self._check_list:
             if pair.state == CandidatePair.State.FROZEN:
-                pair.handle = asyncio.ensure_future(self.check_start(pair))
+                pair.task = asyncio.create_task(self.check_start(pair))
                 return True
 
         # if we expect more candidates, keep going
@@ -915,7 +915,7 @@ class Connection:
             for protocol in host_protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
                     tasks.append(
-                        asyncio.ensure_future(
+                        asyncio.create_task(
                             server_reflexive_candidate(protocol, self.stun_server)
                         )
                     )
@@ -995,7 +995,7 @@ class Connection:
                     failures += 1
                 if failures >= CONSENT_FAILURES:
                     self.__log_info("Consent to send expired")
-                    self._query_consent_handle = None
+                    self._query_consent_task = None
                     return await self.close()
 
     def data_received(self, data: bytes, component: int) -> None:
