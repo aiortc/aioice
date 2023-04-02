@@ -96,7 +96,8 @@ class CandidateTest(unittest.TestCase):
 
         self.assertEqual(
             candidate.to_sdp(),
-            "1 1 UDP 1686052863 1.2.3.4 42705 typ srflx raddr 192.168.1.101 rport 42705",
+            "1 1 UDP 1686052863 1.2.3.4 42705 typ srflx raddr 192.168.1.101 "
+            "rport 42705",
         )
 
     def test_from_sdp_tcp(self):
@@ -116,7 +117,8 @@ class CandidateTest(unittest.TestCase):
 
         self.assertEqual(
             candidate.to_sdp(),
-            "1936595596 1 tcp 1518214911 1.2.3.4 9 typ host tcptype active generation 0",
+            "1936595596 1 tcp 1518214911 1.2.3.4 9 typ host tcptype active "
+            "generation 0",
         )
 
     def test_from_sdp_no_generation(self):

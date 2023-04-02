@@ -239,12 +239,9 @@ class Message:
 
     def __repr__(self) -> str:
         return (
-            "Message(message_method=Method.%s, message_class=Class.%s, transaction_id=%s)"
-            % (
-                self.message_method.name,
-                self.message_class.name,
-                repr(self.transaction_id),
-            )
+            f"Message(message_method=Method.{self.message_method.name}, "
+            f"message_class=Class.{self.message_class.name}, "
+            f"transaction_id={repr(self.transaction_id)})"
         )
 
 
