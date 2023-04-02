@@ -58,9 +58,9 @@ jobs:
         with:
           python-version: 3.7
       - name: Install packages
-        run: pip install wheel
+        run: pip install build wheel
       - name: Build package
-        run: python setup.py sdist bdist_wheel
+        run: python -m build
       - name: Publish package
         if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')
         uses: pypa/gh-action-pypi-publish@master
