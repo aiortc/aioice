@@ -310,6 +310,7 @@ class Connection:
         use_ipv4: bool = True,
         use_ipv6: bool = True,
         transport_policy: TransportPolicy = TransportPolicy.ALL,
+        use_trickle_ice: bool = False,
     ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
@@ -366,6 +367,7 @@ class Connection:
             )
 
         self._transport_policy = transport_policy
+        self._use_trickle_ice = use_trickle_ice
 
     @property
     def local_candidates(self) -> List[Candidate]:
@@ -877,9 +879,9 @@ class Connection:
                 return pair
         return None
 
-    async def get_component_candidates(
-        self, component: int, addresses: List[str], timeout: int = 5
-    ) -> List[Candidate]:
+    async def _get_host_candidates(
+        self, component: int, addresses: List[str]
+    ) -> Tuple[List[Candidate], List[StunProtocol]]:
         candidates = []
         loop = asyncio.get_event_loop()
 
@@ -916,7 +918,13 @@ class Connection:
                 candidates.append(protocol.local_candidate)
         self._protocols += host_protocols
 
-        # query STUN server for server-reflexive candidates (IPv4 only)
+        return candidates, host_protocols
+
+    async def _query_stun_server(
+        self, host_protocols: List[StunProtocol], timeout: int = 5
+    ) -> List[Candidate]:
+        candidates = []
+
         if self.stun_server:
             tasks = []
             for protocol in host_protocols:
@@ -933,8 +941,11 @@ class Connection:
                 ]
                 for task in pending:
                     task.cancel()
+        return candidates
 
-        # connect to TURN server
+    async def _connect_turn_server(self, component: int) -> Optional[Candidate]:
+        candidate = None
+
         if self.turn_server:
             # create transport
             _, protocol = await turn.create_turn_endpoint(
@@ -961,7 +972,29 @@ class Connection:
                 related_address=related_address[0],
                 related_port=related_address[1],
             )
-            candidates.append(protocol.local_candidate)
+            candidate = protocol.local_candidate
+        return candidate
+
+    async def get_component_candidates(
+        self, component: int, addresses: List[str], timeout: int = 5
+    ) -> List[Candidate]:
+        candidates = []
+
+        host_candidates, host_protocols = await self._get_host_candidates(
+            component, addresses
+        )
+        candidates += host_candidates
+
+        # query STUN server for server-reflexive candidates (IPv4 only)
+        srflx_candidates = await self._query_stun_server(
+            host_protocols=host_protocols, timeout=timeout
+        )
+        candidates += srflx_candidates
+
+        # connect to TURN server
+        relay_candidate = await self._connect_turn_server(component=component)
+        if relay_candidate:
+            candidates.append(relay_candidate)
 
         return candidates
 
