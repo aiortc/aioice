@@ -382,7 +382,7 @@ class Connection:
         """
         return self._remote_candidates[:]
 
-    async def add_remote_candidate(self, remote_candidate: Candidate) -> None:
+    async def add_remote_candidate(self, remote_candidate: Optional[Candidate]) -> None:
         """
         Add a remote candidate or signal end-of-candidates.
 
