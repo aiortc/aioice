@@ -295,6 +295,8 @@ class Connection:
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
     :param transport_policy: Transport policy.
+    :param local_username: local ice-ufrag.
+    :param local_password: local ice-pwd.
     """
 
     def __init__(
@@ -310,12 +312,21 @@ class Connection:
         use_ipv4: bool = True,
         use_ipv6: bool = True,
         transport_policy: TransportPolicy = TransportPolicy.ALL,
+        local_username: Optional[str] = None,
+        local_password: Optional[str] = None,
     ) -> None:
         self.ice_controlling = ice_controlling
+
+        if local_username is not None and len(local_username) not in range(4, 256):
+            raise ValueError("local ice username must satisfy 4*256ice-char")
         #: Local username, automatically set to a random value.
-        self.local_username = random_string(4)
+        self.local_username = local_username or random_string(4)
+
+        if local_password is not None and len(local_password) not in range(22, 256):
+            raise ValueError("local ice password must satisfy 22*256ice-char")
         #: Local password, automatically set to a random value.
-        self.local_password = random_string(22)
+        self.local_password = local_password or random_string(22)
+
         #: Whether the remote party is an ICE Lite implementation.
         self.remote_is_lite = False
         #: Remote username, which you need to set.
