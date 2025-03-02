@@ -4,6 +4,7 @@ import enum
 import ipaddress
 import logging
 import random
+import re
 import secrets
 import socket
 import threading
@@ -136,6 +137,16 @@ def sort_candidate_pairs(pairs, ice_controlling: bool) -> None:
     pairs.sort(key=pair_priority)
 
 
+def validate_password(value: str) -> None:
+    """
+    Check the password is well-formed.
+
+    See RFC 5245 - 15.4. "ice-ufrag" and "ice-pwd" Attributes
+    """
+    if not re.match("^[a-z0-9+/]{22,256}$", value):
+        raise ValueError("Password must satisfy 22*256ice-char")
+
+
 def validate_remote_candidate(candidate: Candidate) -> Candidate:
     """
     Check the remote candidate is supported.
@@ -144,6 +155,16 @@ def validate_remote_candidate(candidate: Candidate) -> Candidate:
         raise ValueError('Unexpected candidate type "%s"' % candidate.type)
     ipaddress.ip_address(candidate.host)
     return candidate
+
+
+def validate_username(value: str) -> None:
+    """
+    Check the username is well-formed.
+
+    See RFC 5245 - 15.4. "ice-ufrag" and "ice-pwd" Attributes
+    """
+    if not re.match("^[a-z0-9+/]{4,256}$", value):
+        raise ValueError("Username must satisfy 4*256ice-char")
 
 
 class CandidatePair:
@@ -295,6 +316,10 @@ class Connection:
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
     :param transport_policy: Transport policy.
+    :param local_username: An optional local username, otherwise a random one
+                           will be generated.
+    :param local_password: An optional local password, otherwise a random one
+                           will be generated.
     """
 
     def __init__(
@@ -310,12 +335,21 @@ class Connection:
         use_ipv4: bool = True,
         use_ipv6: bool = True,
         transport_policy: TransportPolicy = TransportPolicy.ALL,
+        local_username: Optional[str] = None,
+        local_password: Optional[str] = None,
     ) -> None:
         self.ice_controlling = ice_controlling
-        #: Local username, automatically set to a random value.
-        self.local_username = random_string(4)
-        #: Local password, automatically set to a random value.
-        self.local_password = random_string(22)
+
+        if local_username is None:
+            local_username = random_string(4)
+        else:
+            validate_username(local_username)
+
+        if local_password is None:
+            local_password = random_string(22)
+        else:
+            validate_password(local_password)
+
         #: Whether the remote party is an ICE Lite implementation.
         self.remote_is_lite = False
         #: Remote username, which you need to set.
@@ -345,6 +379,8 @@ class Connection:
         self._local_candidates: List[Candidate] = []
         self._local_candidates_end = False
         self._local_candidates_start = False
+        self._local_password = local_password
+        self._local_username = local_username
         self._nominated: Dict[int, CandidatePair] = {}
         self._nominating: Set[int] = set()
         self._protocols: List[StunProtocol] = []
@@ -373,6 +409,20 @@ class Connection:
         Local candidates, automatically set by :meth:`gather_candidates`.
         """
         return self._local_candidates[:]
+
+    @property
+    def local_password(self) -> str:
+        """
+        Local password, set at construction time.
+        """
+        return self._local_password
+
+    @property
+    def local_username(self) -> str:
+        """
+        Local username, set at construction time.
+        """
+        return self._local_username
 
     @property
     def remote_candidates(self) -> List[Candidate]:
