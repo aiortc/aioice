@@ -139,6 +139,32 @@ class IceConnectionTest(unittest.TestCase):
         ice.CONSENT_INTERVAL = 5
         stun.RETRY_MAX = 6
 
+    @asynctest
+    async def test_local_username_and_password(self):
+        # No username or password.
+        connection = ice.Connection(ice_controlling=True)
+        self.assertEqual(len(connection.local_username), 4)
+        self.assertEqual(len(connection.local_password), 22)
+
+        # Valid username and password.
+        connection = ice.Connection(
+            ice_controlling=True,
+            local_username="test+user",
+            local_password="some+password/that+is/long+enough",
+        )
+        self.assertEqual(connection.local_username, "test+user")
+        self.assertEqual(connection.local_password, "some+password/that+is/long+enough")
+
+        # Invalid username.
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(ice_controlling=True, local_username="a")
+        self.assertEqual(str(cm.exception), "Username must satisfy 4*256ice-char")
+
+        # Invalid password.
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(ice_controlling=True, local_password="aaaaaa")
+        self.assertEqual(str(cm.exception), "Password must satisfy 22*256ice-char")
+
     @mock.patch("ifaddr.get_adapters")
     def test_get_host_addresses(self, mock_get_adapters):
         mock_get_adapters.return_value = [
