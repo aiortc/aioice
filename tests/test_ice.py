@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 import ifaddr
+
 from aioice import Candidate, TransportPolicy, ice, mdns, stun
 
 from .turnserver import run_turn_server
@@ -39,6 +40,16 @@ class ProtocolMock:
 
 
 class IceComponentTest(unittest.TestCase):
+    @asynctest
+    async def set_local_username_and_password(self):
+        pwd = "somepasswordthatislongenough"
+        connection1 = ice.Connection(local_username="test", local_password=pwd)
+        connection2 = ice.Connection(local_username="test", local_password=pwd)
+        self.assertEqual(connection1.local_username, connection2.local_username)
+        self.assertEqual(connection1.local_password, connection2.local_password)
+        self.assertRaises(ValueError, lambda: ice.Connection(local_username="a"))
+        self.assertRaises(ValueError, lambda: ice.Connection(local_password="aaaaaa"))
+
     @asynctest
     async def test_peer_reflexive(self):
         connection = ice.Connection(ice_controlling=True)
