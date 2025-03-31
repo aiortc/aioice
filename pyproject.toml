@@ -8,9 +8,7 @@ description = "An implementation of Interactive Connectivity Establishment (RFC 
 readme = "README.rst"
 requires-python = ">=3.9"
 license = "BSD-3-Clause"
-authors = [
-    { name = "Jeremy Lainé", email = "jeremy.laine@m4x.org" },
-]
+authors = [{ name = "Jeremy Lainé", email = "jeremy.laine@m4x.org" }]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Web Environment",
@@ -24,20 +22,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = [
-    "dnspython>=2.0.0",
-    "ifaddr>=0.2.0",
-]
+dependencies = ["dnspython>=2.0.0", "ifaddr>=0.2.0"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
-dev = [
-    "coverage[toml]>=7.2.2",
-    "mypy",
-    "pyopenssl",
-    "ruff",
-    "websockets",
-]
+dev = ["coverage[toml]>=7.2.2", "mypy", "pyopenssl", "ruff", "websockets"]
 
 [project.urls]
 homepage = "https://github.com/aiortc/aioice"
@@ -57,11 +46,11 @@ warn_unused_ignores = true
 
 [tool.ruff.lint]
 select = [
-    "E",  # pycodestyle
-    "F",  # Pyflakes
-    "W",  # pycodestyle
-    "I",  # isort
+    "E", # pycodestyle
+    "F", # Pyflakes
+    "W", # pycodestyle
+    "I", # isort
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "aioice.__version__"}
+version = { attr = "aioice.__version__" }

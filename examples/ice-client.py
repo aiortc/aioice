@@ -48,7 +48,7 @@ async def offer(components: int) -> None:
 
     await connection.connect()
     elapsed = time.time() - start_time
-    print(f"✅ connected in {elapsed:.2f} seconds")
+    print(f"connected in {elapsed:.2f} seconds")
 
     # send data
     data = b"hello"

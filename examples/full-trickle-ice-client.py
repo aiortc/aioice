@@ -37,11 +37,13 @@ async def offer(options):
 
     start_time = time.time()
     await websocket.send(
-        json.dumps({
-            "type": "offer",
-            "username": connection.local_username,
-            "password": connection.local_password,
-        })
+        json.dumps(
+            {
+                "type": "offer",
+                "username": connection.local_username,
+                "password": connection.local_password,
+            }
+        )
     )
 
     await connection.gather_candidates()
@@ -67,7 +69,7 @@ async def offer(options):
                 await connection.connect()
                 connected = True
                 elapsed = time.time() - start_time
-                print(f"✅ connected in {elapsed:.2f} seconds")
+                print(f"connected in {elapsed:.2f} seconds")
 
                 data = b"hello"
                 await connection.sendto(data, 1)
@@ -109,11 +111,15 @@ async def answer(options):
             connection.remote_username = message["username"]
             connection.remote_password = message["password"]
 
-            await websocket.send(json.dumps({
-                "type": "answer",
-                "username": connection.local_username,
-                "password": connection.local_password,
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "answer",
+                        "username": connection.local_username,
+                        "password": connection.local_password,
+                    }
+                )
+            )
 
             await connection.gather_candidates()
 
@@ -128,7 +134,7 @@ async def answer(options):
                 try:
                     await connection.connect()
                     connected = True
-                    print("✅ Connected via ICE.")
+                    print("Connected via ICE.")
 
                     data, component = await connection.recvfrom()
                     print("Echoing:", data)
