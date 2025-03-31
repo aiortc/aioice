@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import json
 import logging
+import time
+from typing import Optional
 
 import websockets
 
@@ -21,6 +23,7 @@ async def offer(components: int) -> None:
 
     websocket = await websockets.connect(WEBSOCKET_URI)
 
+    start_time = time.time()
     # send offer
     await websocket.send(
         json.dumps(
@@ -44,7 +47,8 @@ async def offer(components: int) -> None:
     await websocket.close()
 
     await connection.connect()
-    print("connected")
+    elapsed = time.time() - start_time
+    print(f"✅ connected in {elapsed:.2f} seconds")
 
     # send data
     data = b"hello"

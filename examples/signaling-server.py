@@ -1,19 +1,17 @@
 #!/usr/bin/env python
-#
-# Simple websocket server to perform signaling.
-#
 
 import asyncio
 import binascii
 import os
 
-from websockets.asyncio.server import ServerConnection, serve
+from websockets.asyncio.server import ServerConnection
+import websockets
 
 clients: dict[bytes, ServerConnection] = {}
 
 
-async def echo(websocket: ServerConnection) -> None:
-    client_id = binascii.hexlify(os.urandom(8))
+async def echo(websocket):
+    client_id = binascii.hexlify(os.urandom(8)).decode()
     clients[client_id] = websocket
 
     try:
@@ -25,9 +23,9 @@ async def echo(websocket: ServerConnection) -> None:
         clients.pop(client_id)
 
 
-async def main() -> None:
-    async with serve(echo, "0.0.0.0", 8765) as server:
-        await server.serve_forever()
+async def main():
+    async with websockets.serve(echo, "0.0.0.0", 8765):
+        await asyncio.Future()
 
 
 if __name__ == "__main__":
