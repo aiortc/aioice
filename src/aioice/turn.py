@@ -363,6 +363,7 @@ class TurnTransport:
         After the TURN allocation has been deleted, the protocol's
         `connection_lost()` method will be called with None as its argument.
         """
+        self.__inner_protocol.receiver = None
         asyncio.create_task(self.__inner_protocol.delete())
 
     def get_extra_info(self, name: str, default: Any = None) -> Any:
@@ -440,7 +441,7 @@ async def create_turn_endpoint(
         turn_transport = TurnTransport(protocol, inner_protocol)
         await turn_transport._connect()
     except Exception:
-        inner_protocol.receiver = None
+        turn_transport.close()
         inner_transport.close()
         raise
 
