@@ -440,6 +440,7 @@ async def create_turn_endpoint(
         turn_transport = TurnTransport(protocol, inner_protocol)
         await turn_transport._connect()
     except Exception:
+        inner_protocol.receiver = None
         inner_transport.close()
         raise
 
