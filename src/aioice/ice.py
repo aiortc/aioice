@@ -996,31 +996,38 @@ class Connection:
         # connect to TURN server
         if self.turn_server:
             # create transport
-            _, protocol = await turn.create_turn_endpoint(
-                lambda: StunProtocol(self),
-                server_addr=self.turn_server,
-                username=self.turn_username,
-                password=self.turn_password,
-                ssl=self.turn_ssl,
-                transport=self.turn_transport,
-            )
-            self._protocols.append(protocol)
+            try:
+                _, protocol = await asyncio.wait_for(
+                    turn.create_turn_endpoint(
+                        lambda: StunProtocol(self),
+                        server_addr=self.turn_server,
+                        username=self.turn_username,
+                        password=self.turn_password,
+                        ssl=self.turn_ssl,
+                        transport=self.turn_transport,
+                    ),
+                    timeout=timeout,
+                )
 
-            # add relayed candidate
-            candidate_address = protocol.transport.get_extra_info("sockname")
-            related_address = protocol.transport.get_extra_info("related_address")
-            protocol.local_candidate = Candidate(
-                foundation=candidate_foundation("relay", "udp", candidate_address[0]),
-                component=component,
-                transport="udp",
-                priority=candidate_priority(component, "relay"),
-                host=candidate_address[0],
-                port=candidate_address[1],
-                type="relay",
-                related_address=related_address[0],
-                related_port=related_address[1],
-            )
-            candidates.append(protocol.local_candidate)
+                # add relayed candidate
+                candidate_address = protocol.transport.get_extra_info("sockname")
+                related_address = protocol.transport.get_extra_info("related_address")
+                protocol.local_candidate = Candidate(
+                    foundation=candidate_foundation("relay", "udp", candidate_address[0]),
+                    component=component,
+                    transport="udp",
+                    priority=candidate_priority(component, "relay"),
+                    host=candidate_address[0],
+                    port=candidate_address[1],
+                    type="relay",
+                    related_address=related_address[0],
+                    related_port=related_address[1],
+                )
+                candidates.append(protocol.local_candidate)
+            except Exception as e:
+                # We only log the error here.
+                # Even if TURN connection is failed, the gathered `candidates` should be returned.
+                logger.exception("Failed to create turn endpoint", exc_info=e)
 
         return candidates
 
