@@ -9,7 +9,7 @@ import secrets
 import socket
 import threading
 from itertools import count
-from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
+from typing import Callable, Dict, List, Optional, Set, Text, Tuple, Union, cast
 
 import ifaddr
 
@@ -486,7 +486,9 @@ class Connection:
                 self._check_list.append(pair)
         self.sort_check_list()
 
-    async def gather_candidates(self) -> None:
+    async def gather_candidates(
+        self, error_handler: Optional[Callable[[Exception], None]] = None
+    ) -> None:
         """
         Gather local candidates.
 
@@ -501,7 +503,14 @@ class Connection:
                 self.get_component_candidates(component=component, addresses=addresses)
                 for component in self._components
             ]
-            for candidates in await asyncio.gather(*coros):
+            for candidates in await asyncio.gather(*coros, return_exceptions=True):
+                if isinstance(candidates, Exception):
+                    # Failure of each candidate gathering doesn't stop the whole process.
+                    logger.error(f"Error gathering candidates: {candidates}")
+                    # The error event will be delegated to onicecandidateerror handler.
+                    if error_handler:
+                        error_handler(candidates)
+                    continue
                 self._local_candidates += candidates
             self._local_candidates_end = True
 
