@@ -1,8 +1,7 @@
 import enum
 
 
-class Flag(enum.IntFlag):
-    ...
+class Flag(enum.IntFlag): ...
 
 
 AA: Flag

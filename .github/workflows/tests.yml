@@ -12,11 +12,11 @@ jobs:
         with:
           python-version: 3.9
       - name: Install packages
-        run: pip install black mypy ruff
+        run: pip install mypy ruff
       - name: Run linters
         run: |
-          ruff examples src tests
-          black --check --diff examples src tests
+          ruff check .
+          ruff format --check --diff .
           mypy src
 
   test:

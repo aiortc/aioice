@@ -1,8 +1,7 @@
 import enum
 
 
-class RdataClass(enum.IntEnum):
-    ...
+class RdataClass(enum.IntEnum): ...
 
 
 IN: RdataClass
