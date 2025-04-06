@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 import ifaddr
+
 from aioice import Candidate, TransportPolicy, ice, mdns, stun
 
 from .turnserver import run_turn_server
