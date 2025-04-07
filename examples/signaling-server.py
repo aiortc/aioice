@@ -7,12 +7,12 @@ import asyncio
 import binascii
 import os
 
-import websockets
+from websockets.asyncio.server import ServerConnection, serve
 
-clients = {}
+clients: dict[bytes, ServerConnection] = {}
 
 
-async def echo(websocket, path):
+async def echo(websocket: ServerConnection) -> None:
     client_id = binascii.hexlify(os.urandom(8))
     clients[client_id] = websocket
 
@@ -25,5 +25,10 @@ async def echo(websocket, path):
         clients.pop(client_id)
 
 
-asyncio.get_event_loop().run_until_complete(websockets.serve(echo, "0.0.0.0", 8765))
-asyncio.get_event_loop().run_forever()
+async def main() -> None:
+    async with serve(echo, "0.0.0.0", 8765) as server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -6,7 +6,8 @@ import os
 import ssl
 import struct
 import time
-from typing import Optional, Tuple
+from collections.abc import Callable
+from typing import AsyncGenerator, Optional, cast
 
 from aioice import stun
 from aioice.ice import get_host_addresses
@@ -27,8 +28,10 @@ ROOT = os.path.dirname(__file__)
 CERT_FILE = os.path.join(ROOT, "turnserver.crt")
 KEY_FILE = os.path.join(ROOT, "turnserver.key")
 
+Address = tuple[str, int]
 
-def create_self_signed_cert(name="localhost"):
+
+def create_self_signed_cert(name: str = "localhost") -> None:
     from OpenSSL import crypto
 
     # create key pair
@@ -52,20 +55,26 @@ def create_self_signed_cert(name="localhost"):
 
 
 class Allocation(asyncio.DatagramProtocol):
-    def __init__(self, client_address, client_protocol, expiry, username):
-        self.channel_to_peer = {}
-        self.peer_to_channel = {}
+    def __init__(
+        self,
+        client_address: Address,
+        client_protocol: "TurnServerMixin",
+        expiry: float,
+        username: str,
+    ) -> None:
+        self.channel_to_peer: dict[int, Address] = {}
+        self.peer_to_channel: dict[Address, int] = {}
 
         self.client_address = client_address
         self.client_protocol = client_protocol
         self.expiry = expiry
         self.username = username
 
-    def connection_made(self, transport):
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.relayed_address = transport.get_extra_info("sockname")
-        self.transport = transport
+        self.transport = cast(asyncio.DatagramTransport, transport)
 
-    def datagram_received(self, data, addr):
+    def datagram_received(self, data: bytes, addr: Address) -> None:
         """
         Relay data from peer to client.
         """
@@ -76,14 +85,19 @@ class Allocation(asyncio.DatagramProtocol):
             )
 
 
+AllocationKey = tuple["TurnServerMixin", Address]
+
+
 class TurnServerMixin:
-    def __init__(self, server):
+    _send: Callable[[bytes, Address], None]
+
+    def __init__(self, server: "TurnServer") -> None:
         self.server = server
 
-    def connection_made(self, transport):
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = transport
 
-    def datagram_received(self, data, addr):
+    def datagram_received(self, data: bytes, addr: Address) -> None:
         # demultiplex channel data
         if len(data) >= 4 and is_channel_data(data):
             channel, length = struct.unpack("!HH", data[0:4])
@@ -148,7 +162,9 @@ class TurnServerMixin:
         response.add_message_integrity(integrity_key)
         self.send_stun(response, addr)
 
-    async def handle_allocate(self, message, addr, integrity_key):
+    async def handle_allocate(
+        self, message: stun.Message, addr: Address, integrity_key: bytes
+    ) -> None:
         key = (self, addr)
         if key in self.server.allocations:
             response = self.error_response(message, 437, "Allocation already exists")
@@ -193,7 +209,7 @@ class TurnServerMixin:
         response.add_message_integrity(integrity_key)
         self.send_stun(response, addr)
 
-    def handle_binding(self, message, addr):
+    def handle_binding(self, message: stun.Message, addr: Address) -> stun.Message:
         response = stun.Message(
             message_method=message.message_method,
             message_class=stun.Class.RESPONSE,
@@ -202,7 +218,7 @@ class TurnServerMixin:
         response.attributes["XOR-MAPPED-ADDRESS"] = addr
         return response
 
-    def handle_channel_bind(self, message, addr):
+    def handle_channel_bind(self, message: stun.Message, addr: Address) -> stun.Message:
         try:
             key = (self, addr)
             allocation = self.server.allocations[key]
@@ -216,8 +232,8 @@ class TurnServerMixin:
             if attr not in message.attributes:
                 return self.error_response(message, 400, "Missing %s attribute" % attr)
 
-        channel = message.attributes["CHANNEL-NUMBER"]
-        peer_address = message.attributes["XOR-PEER-ADDRESS"]
+        channel: int = message.attributes["CHANNEL-NUMBER"]
+        peer_address: Address = message.attributes["XOR-PEER-ADDRESS"]
         if channel not in CHANNEL_RANGE:
             return self.error_response(
                 message, 400, "Channel number is outside valid range"
@@ -244,7 +260,9 @@ class TurnServerMixin:
         )
         return response
 
-    def handle_refresh(self, message, addr):
+    def handle_refresh(
+        self, message: stun.Message, addr: tuple[str, int]
+    ) -> stun.Message:
         try:
             key = (self, addr)
             allocation = self.server.allocations[key]
@@ -275,7 +293,9 @@ class TurnServerMixin:
         response.attributes["LIFETIME"] = lifetime
         return response
 
-    def error_response(self, request, code, message):
+    def error_response(
+        self, request: stun.Message, code: int, message: str
+    ) -> stun.Message:
         """
         Build an error response for the given request.
         """
@@ -287,18 +307,22 @@ class TurnServerMixin:
         response.attributes["ERROR-CODE"] = (code, message)
         return response
 
-    def send_stun(self, message, addr):
+    def send_stun(self, message: stun.Message, addr: Address) -> None:
         logger.debug("> %s %s", addr, message)
         self._send(bytes(message), addr)
 
 
 class TurnServerTcpProtocol(TurnServerMixin, TurnStreamMixin, asyncio.Protocol):
-    def _send(self, data, addr):
+    transport: asyncio.Transport
+
+    def _send(self, data: bytes, addr: Address) -> None:
         self.transport.write(self._padded(data))
 
 
 class TurnServerUdpProtocol(TurnServerMixin, asyncio.DatagramProtocol):
-    def _send(self, data, addr):
+    transport: asyncio.DatagramTransport
+
+    def _send(self, data: bytes, addr: Address) -> None:
         self.transport.sendto(data, addr)
 
 
@@ -307,16 +331,16 @@ class TurnServer:
     STUN / TURN server.
     """
 
-    def __init__(self, realm="test", users={}):
-        self.allocations = {}
+    def __init__(self, realm: str = "test", users: dict[str, str] = {}) -> None:
+        self.allocations: dict[AllocationKey, Allocation] = {}
         self.maximum_lifetime = 3600
         self.realm = realm
-        self.simulated_failure: Optional[Tuple[int, str]] = None
+        self.simulated_failure: Optional[tuple[int, str]] = None
         self.users = users
 
-        self._expire_task = None
+        self._expire_task: Optional[asyncio.Task[None]] = None
 
-    async def close(self):
+    async def close(self) -> None:
         # stop expiry loop
         if self._expire_task is not None:
             self._expire_task.cancel()
@@ -333,7 +357,7 @@ class TurnServer:
             self.tcp_server.wait_closed(), self.tls_server.wait_closed()
         )
 
-    async def listen(self, port=0, tls_port=0):
+    async def listen(self, port: int = 0, tls_port: int = 0) -> None:
         loop = asyncio.get_event_loop()
         hostaddr = get_host_addresses(use_ipv4=True, use_ipv6=False)[0]
 
@@ -366,24 +390,26 @@ class TurnServer:
         # start expiry loop
         self._expire_task = asyncio.create_task(self._expire_allocations())
 
-    async def _expire_allocations(self):
+    async def _expire_allocations(self) -> None:
         while True:
             now = time.time()
             for key, allocation in list(self.allocations.items()):
                 if allocation.expiry < now:
                     logger.info("Allocation expired %s", allocation.relayed_address)
-                    self.server._remove_allocation(key)
+                    self._remove_allocation(key)
 
             await asyncio.sleep(1)
 
-    def _remove_allocation(self, key):
+    def _remove_allocation(self, key: AllocationKey) -> None:
         allocation = self.allocations.pop(key)
         allocation.transport.close()
 
 
 @contextlib.asynccontextmanager
-async def run_turn_server(**kwargs):
-    server = TurnServer(**kwargs)
+async def run_turn_server(
+    users: dict[str, str] = {},
+) -> AsyncGenerator[TurnServer, None]:
+    server = TurnServer(users=users)
     await server.listen()
     try:
         yield server
@@ -399,7 +425,7 @@ if __name__ == "__main__":
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    srv = TurnServer(realm="test", users={"foo": "bar"})
+    srv = TurnServer(users={"foo": "bar"})
     loop = asyncio.get_event_loop()
     loop.run_until_complete(srv.listen(port=3478, tls_port=5349))
     loop.run_forever()

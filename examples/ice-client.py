@@ -13,9 +13,9 @@ STUN_SERVER = ("stun.l.google.com", 19302)
 WEBSOCKET_URI = "ws://127.0.0.1:8765"
 
 
-async def offer(options):
+async def offer(components: int) -> None:
     connection = aioice.Connection(
-        ice_controlling=True, components=options.components, stun_server=STUN_SERVER
+        ice_controlling=True, components=components, stun_server=STUN_SERVER
     )
     await connection.gather_candidates()
 
@@ -58,9 +58,9 @@ async def offer(options):
     await connection.close()
 
 
-async def answer(options):
+async def answer(components: int) -> None:
     connection = aioice.Connection(
-        ice_controlling=False, components=options.components, stun_server=STUN_SERVER
+        ice_controlling=False, components=components, stun_server=STUN_SERVER
     )
     await connection.gather_candidates()
 
@@ -100,14 +100,19 @@ async def answer(options):
     await connection.close()
 
 
-parser = argparse.ArgumentParser(description="ICE tester")
-parser.add_argument("action", choices=["offer", "answer"])
-parser.add_argument("--components", type=int, default=1)
-options = parser.parse_args()
+async def main() -> None:
+    parser = argparse.ArgumentParser(description="ICE tester")
+    parser.add_argument("action", choices=["offer", "answer"])
+    parser.add_argument("--components", type=int, default=1)
+    options = parser.parse_args()
 
-logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG)
 
-if options.action == "offer":
-    asyncio.get_event_loop().run_until_complete(offer(options))
-else:
-    asyncio.get_event_loop().run_until_complete(answer(options))
+    if options.action == "offer":
+        asyncio.run(offer(options.components))
+    else:
+        asyncio.run(answer(options.components))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

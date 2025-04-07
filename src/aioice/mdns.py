@@ -3,7 +3,7 @@ import re
 import socket
 import sys
 import uuid
-from typing import Dict, List, Optional, Set, Text, Tuple, Union, cast
+from typing import Optional, Union, cast
 
 import dns.exception
 import dns.flags
@@ -22,7 +22,7 @@ MDNS_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9-]{1,63}\.local$")
 MDNS_RDCLASS = dns.rdataclass.IN | 0x8000
 
 
-def create_mdns_hostname():
+def create_mdns_hostname() -> str:
     return str(uuid.uuid4()) + ".local"
 
 
@@ -34,7 +34,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
     def __init__(self, tx_transport: asyncio.DatagramTransport) -> None:
         self.__closed: asyncio.Future[bool] = asyncio.Future()
         self.zone = dns.zone.Zone("", relativize=False, rdclass=MDNS_RDCLASS)
-        self.queries: Dict[dns.name.Name, Set[asyncio.Future[str]]] = {}
+        self.queries: dict[dns.name.Name, set[asyncio.Future[str]]] = {}
 
         self.rx_transport: Optional[asyncio.DatagramTransport] = None
         self.tx_transport = tx_transport
@@ -49,7 +49,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.rx_transport = cast(asyncio.DatagramTransport, transport)
 
-    def datagram_received(self, data: Union[bytes, Text], addr: Tuple) -> None:
+    def datagram_received(self, data: Union[bytes, str], addr: tuple) -> None:
         # parse message
         try:
             message = dns.message.from_wire(cast(bytes, data))
@@ -59,7 +59,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         if isinstance(message, dns.message.QueryMessage):
             # answer question
             for question in message.question:
-                rdtypes: List[int] = []
+                rdtypes: list[int] = []
                 if question.rdtype in (
                     dns.rdatatype.ANY,
                     dns.rdatatype.A,
