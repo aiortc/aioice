@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from .name import Name
 from .rrset import RRset
@@ -7,8 +7,8 @@ from .rrset import RRset
 class Message:
     id: int
     flags: int
-    answer: List[RRset]
-    question: List[RRset]
+    answer: list[RRset]
+    question: list[RRset]
 
     def __init__(self, id: Optional[int] = None) -> None: ...
 

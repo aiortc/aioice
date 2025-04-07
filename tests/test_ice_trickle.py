@@ -7,12 +7,12 @@ from .utils import asynctest
 
 
 class IceTrickleTest(unittest.TestCase):
-    def assertCandidateTypes(self, conn, expected):
+    def assertCandidateTypes(self, conn: ice.Connection, expected: set[str]) -> None:
         types = set([c.type for c in conn.local_candidates])
         self.assertEqual(types, expected)
 
     @asynctest
-    async def test_connect(self):
+    async def test_connect(self) -> None:
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
@@ -39,7 +39,7 @@ class IceTrickleTest(unittest.TestCase):
         candidate = conn_a.get_default_candidate(2)
         self.assertIsNone(candidate)
 
-        async def add_candidates_later(a, b):
+        async def add_candidates_later(a: ice.Connection, b: ice.Connection) -> None:
             await asyncio.sleep(0.1)
             for candidate in b.local_candidates:
                 await a.add_remote_candidate(candidate)

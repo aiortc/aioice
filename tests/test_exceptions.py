@@ -4,7 +4,7 @@ from aioice import stun
 
 
 class ExceptionTest(unittest.TestCase):
-    def test_transaction_failed(self):
+    def test_transaction_failed(self) -> None:
         response = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.RESPONSE
         )
@@ -13,6 +13,6 @@ class ExceptionTest(unittest.TestCase):
         exc = stun.TransactionFailed(response)
         self.assertEqual(str(exc), "STUN transaction failed (487 - Role Conflict)")
 
-    def test_transaction_timeout(self):
+    def test_transaction_timeout(self) -> None:
         exc = stun.TransactionTimeout()
         self.assertEqual(str(exc), "STUN transaction timed out")

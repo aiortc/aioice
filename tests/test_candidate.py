@@ -4,7 +4,7 @@ from aioice import Candidate
 
 
 class CandidateTest(unittest.TestCase):
-    def test_can_pair_ipv4(self):
+    def test_can_pair_ipv4(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )
@@ -13,7 +13,7 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
-    def test_can_pair_ipv4_case_insensitive(self):
+    def test_can_pair_ipv4_case_insensitive(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )
@@ -22,7 +22,7 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
-    def test_can_pair_ipv6(self):
+    def test_can_pair_ipv6(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 2a02:0db8:85a3:0000:0000:8a2e:0370:7334 31102"
             " typ host generation 0"
@@ -33,7 +33,7 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
-    def test_cannot_pair_ipv4_ipv6(self):
+    def test_cannot_pair_ipv4_ipv6(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )
@@ -43,7 +43,7 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
-    def test_cannot_pair_different_components(self):
+    def test_cannot_pair_different_components(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )
@@ -52,7 +52,7 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
-    def test_cannot_pair_different_transports(self):
+    def test_cannot_pair_different_transports(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )
@@ -61,7 +61,7 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertFalse(candidate_a.can_pair_with(candidate_b))
 
-    def test_from_sdp_udp(self):
+    def test_from_sdp_udp(self) -> None:
         candidate = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )
@@ -79,7 +79,7 @@ class CandidateTest(unittest.TestCase):
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0",
         )
 
-    def test_from_sdp_udp_srflx(self):
+    def test_from_sdp_udp_srflx(self) -> None:
         candidate = Candidate.from_sdp(
             "1 1 UDP 1686052863 1.2.3.4 42705 typ srflx raddr 192.168.1.101 rport 42705"
         )
@@ -100,7 +100,7 @@ class CandidateTest(unittest.TestCase):
             "rport 42705",
         )
 
-    def test_from_sdp_tcp(self):
+    def test_from_sdp_tcp(self) -> None:
         candidate = Candidate.from_sdp(
             "1936595596 1 tcp 1518214911 1.2.3.4 9 typ host "
             "tcptype active generation 0 network-id 1 network-cost 10"
@@ -121,7 +121,7 @@ class CandidateTest(unittest.TestCase):
             "generation 0",
         )
 
-    def test_from_sdp_no_generation(self):
+    def test_from_sdp_no_generation(self) -> None:
         candidate = Candidate.from_sdp("6815297761 1 udp 659136 1.2.3.4 31102 typ host")
 
         self.assertEqual(candidate.foundation, "6815297761")
@@ -137,11 +137,11 @@ class CandidateTest(unittest.TestCase):
             candidate.to_sdp(), "6815297761 1 udp 659136 1.2.3.4 31102 typ host"
         )
 
-    def test_from_sdp_truncated(self):
+    def test_from_sdp_truncated(self) -> None:
         with self.assertRaises(ValueError):
             Candidate.from_sdp("6815297761 1 udp 659136 1.2.3.4 31102 typ")
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         candidate = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
         )

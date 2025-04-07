@@ -2,20 +2,11 @@ import asyncio
 import hashlib
 import logging
 import socket
+import ssl
 import struct
 import time
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Text,
-    Tuple,
-    TypeVar,
-    Union,
-    cast,
-)
+from collections.abc import Callable
+from typing import Any, Optional, TypeVar, Union, cast
 
 from . import stun
 from .utils import random_transaction_id
@@ -28,7 +19,7 @@ TCP_TRANSPORT = 0x06000000
 UDP_TRANSPORT = 0x11000000
 UDP_SOCKET_BUFFER_SIZE = 262144
 
-_ProtocolT = TypeVar("_ProtocolT", bound=asyncio.BaseProtocol)
+_ProtocolT = TypeVar("_ProtocolT", bound=asyncio.DatagramProtocol)
 
 
 def is_channel_data(data: bytes) -> bool:
@@ -40,7 +31,7 @@ def make_integrity_key(username: str, realm: str, password: str) -> bytes:
 
 
 class TurnStreamMixin:
-    datagram_received: Callable
+    datagram_received: Callable[[bytes, Any], None]
     transport: asyncio.BaseTransport
 
     def data_received(self, data: bytes) -> None:
@@ -71,22 +62,22 @@ class TurnStreamMixin:
 
 
 class TurnClientMixin:
-    _send: Callable
+    _send: Callable[[bytes], None]
 
     def __init__(
         self,
-        server: Tuple[str, int],
+        server: tuple[str, int],
         username: Optional[str],
         password: Optional[str],
         lifetime: int,
         channel_refresh_time: int,
     ) -> None:
-        self.channel_refresh_at: Dict[int, float] = {}
-        self.channel_to_peer: Dict[int, Tuple[str, int]] = {}
-        self.peer_connect_waiters: Dict[
-            Tuple[str, int], List[asyncio.Future[None]]
+        self.channel_refresh_at: dict[int, float] = {}
+        self.channel_to_peer: dict[int, tuple[str, int]] = {}
+        self.peer_connect_waiters: dict[
+            tuple[str, int], list[asyncio.Future[None]]
         ] = {}
-        self.peer_to_channel: Dict[Tuple[str, int], int] = {}
+        self.peer_to_channel: dict[tuple[str, int], int] = {}
 
         self.channel_number = 0x4000
         self.channel_refresh_time = channel_refresh_time
@@ -94,15 +85,15 @@ class TurnClientMixin:
         self.lifetime = lifetime
         self.nonce: Optional[bytes] = None
         self.password = password
-        self.receiver = None
+        self.receiver: Optional[asyncio.DatagramProtocol] = None
         self.realm: Optional[str] = None
         self.refresh_task: Optional[asyncio.Task] = None
-        self.relayed_address: Optional[Tuple[str, int]] = None
+        self.relayed_address: Optional[tuple[str, int]] = None
         self.server = server
-        self.transactions: Dict[bytes, stun.Transaction] = {}
+        self.transactions: dict[bytes, stun.Transaction] = {}
         self.username = username
 
-    async def channel_bind(self, channel_number: int, addr: Tuple[str, int]) -> None:
+    async def channel_bind(self, channel_number: int, addr: tuple[str, int]) -> None:
         request = stun.Message(
             message_method=stun.Method.CHANNEL_BIND, message_class=stun.Class.REQUEST
         )
@@ -111,7 +102,7 @@ class TurnClientMixin:
         await self.request_with_retry(request)
         logger.info("TURN channel bound %d %s", channel_number, addr)
 
-    async def connect(self) -> Tuple[str, int]:
+    async def connect(self) -> tuple[str, int]:
         """
         Create a TURN allocation.
         """
@@ -137,21 +128,21 @@ class TurnClientMixin:
 
     def connection_lost(self, exc: Exception) -> None:
         logger.debug("%s connection_lost(%s)", self, exc)
-        if self.receiver:
+        if self.receiver is not None:
             self.receiver.connection_lost(exc)
 
-    def connection_made(self, transport) -> None:
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
         logger.debug("%s connection_made(%s)", self, transport)
         self.transport = transport
 
-    def datagram_received(self, data: Union[bytes, Text], addr) -> None:
+    def datagram_received(self, data: Union[bytes, str], addr: tuple[str, int]) -> None:
         data = cast(bytes, data)
 
         # demultiplex channel data
         if len(data) >= 4 and is_channel_data(data):
             channel, length = struct.unpack("!HH", data[0:4])
 
-            if len(data) >= length + 4 and self.receiver:
+            if len(data) >= length + 4 and self.receiver is not None:
                 peer_address = self.channel_to_peer.get(channel)
                 if peer_address:
                     payload = data[4 : 4 + length]
@@ -193,7 +184,7 @@ class TurnClientMixin:
         logger.info("TURN allocation deleted %s", self.relayed_address)
         self.transport.close()
 
-    async def refresh(self, time_to_expiry) -> None:
+    async def refresh(self, time_to_expiry: int) -> None:
         """
         Periodically refresh the TURN allocation.
         """
@@ -215,7 +206,7 @@ class TurnClientMixin:
 
     async def request(
         self, request: stun.Message
-    ) -> Tuple[stun.Message, Tuple[str, int]]:
+    ) -> tuple[stun.Message, tuple[str, int]]:
         """
         Execute a STUN transaction and return the response.
         """
@@ -233,7 +224,7 @@ class TurnClientMixin:
 
     async def request_with_retry(
         self, request: stun.Message
-    ) -> Tuple[stun.Message, Tuple[str, int]]:
+    ) -> tuple[stun.Message, tuple[str, int]]:
         """
         Execute a STUN transaction and return the response.
 
@@ -268,7 +259,7 @@ class TurnClientMixin:
 
         return response, addr
 
-    async def send_data(self, data: bytes, addr: Tuple[str, int]) -> None:
+    async def send_data(self, data: bytes, addr: tuple[str, int]) -> None:
         """
         Send data to a remote host via the TURN server.
         """
@@ -307,7 +298,7 @@ class TurnClientMixin:
         header = struct.pack("!HH", channel, len(data))
         self._send(header + data)
 
-    def send_stun(self, message: stun.Message, addr: Tuple[str, int]) -> None:
+    def send_stun(self, message: stun.Message, addr: tuple[str, int]) -> None:
         """
         Send a STUN message to the TURN server.
         """
@@ -326,6 +317,8 @@ class TurnClientTcpProtocol(TurnClientMixin, TurnStreamMixin, asyncio.Protocol):
     Protocol for handling TURN over TCP.
     """
 
+    transport: asyncio.Transport
+
     def _send(self, data: bytes) -> None:
         self.transport.write(self._padded(data))
 
@@ -338,6 +331,8 @@ class TurnClientUdpProtocol(TurnClientMixin, asyncio.DatagramProtocol):
     Protocol for handling TURN over UDP.
     """
 
+    transport: asyncio.DatagramTransport
+
     def _send(self, data: bytes) -> None:
         self.transport.sendto(data)
 
@@ -345,16 +340,23 @@ class TurnClientUdpProtocol(TurnClientMixin, asyncio.DatagramProtocol):
         return "turn/udp"
 
 
+TurnClientProtocol = Union[TurnClientTcpProtocol, TurnClientUdpProtocol]
+
+
 class TurnTransport:
     """
     Behaves like a Datagram transport, but uses a TURN allocation.
     """
 
-    def __init__(self, protocol, inner_protocol) -> None:
+    def __init__(
+        self,
+        protocol: asyncio.DatagramProtocol,
+        inner_protocol: TurnClientProtocol,
+    ) -> None:
         self.protocol = protocol
         self.__inner_protocol = inner_protocol
         self.__inner_protocol.receiver = protocol
-        self.__relayed_address = None
+        self.__relayed_address: Optional[tuple[str, int]] = None
 
     def close(self) -> None:
         """
@@ -378,7 +380,7 @@ class TurnTransport:
             return self.__relayed_address
         return default
 
-    def sendto(self, data: bytes, addr: Tuple[str, int]) -> None:
+    def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
         """
         Sends the `data` bytes to the remote peer given `addr`.
 
@@ -388,24 +390,24 @@ class TurnTransport:
 
     async def _connect(self) -> None:
         self.__relayed_address = await self.__inner_protocol.connect()
-        self.protocol.connection_made(self)
+        self.protocol.connection_made(cast(asyncio.DatagramTransport, self))
 
 
 async def create_turn_endpoint(
     protocol_factory: Callable[[], _ProtocolT],
-    server_addr: Tuple[str, int],
+    server_addr: tuple[str, int],
     username: Optional[str],
     password: Optional[str],
     lifetime: int = DEFAULT_ALLOCATION_LIFETIME,
     channel_refresh_time: int = DEFAULT_CHANNEL_REFRESH_TIME,
-    ssl: bool = False,
+    ssl: Optional[Union[bool, ssl.SSLContext]] = None,
     transport: str = "udp",
-) -> Tuple[TurnTransport, _ProtocolT]:
+) -> tuple[TurnTransport, _ProtocolT]:
     """
     Create datagram connection relayed over TURN.
     """
     loop = asyncio.get_event_loop()
-    inner_protocol: asyncio.BaseProtocol
+    inner_protocol: TurnClientProtocol
     inner_transport: asyncio.BaseTransport
     if transport == "tcp":
         inner_transport, inner_protocol = await loop.create_connection(

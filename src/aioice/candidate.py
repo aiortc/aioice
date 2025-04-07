@@ -63,7 +63,7 @@ class Candidate:
         self.generation = generation
 
     @classmethod
-    def from_sdp(cls, sdp):
+    def from_sdp(cls, sdp: str) -> "Candidate":
         """
         Parse a :class:`Candidate` from SDP.
 
@@ -76,27 +76,33 @@ class Candidate:
         if len(bits) < 8:
             raise ValueError("SDP does not have enough properties")
 
-        kwargs = {
-            "foundation": bits[0],
-            "component": int(bits[1]),
-            "transport": bits[2],
-            "priority": int(bits[3]),
-            "host": bits[4],
-            "port": int(bits[5]),
-            "type": bits[7],
-        }
-
+        related_address: Optional[str] = None
+        related_port: Optional[int] = None
+        tcptype: Optional[str] = None
+        generation: Optional[int] = None
         for i in range(8, len(bits) - 1, 2):
             if bits[i] == "raddr":
-                kwargs["related_address"] = bits[i + 1]
+                related_address = bits[i + 1]
             elif bits[i] == "rport":
-                kwargs["related_port"] = int(bits[i + 1])
+                related_port = int(bits[i + 1])
             elif bits[i] == "tcptype":
-                kwargs["tcptype"] = bits[i + 1]
+                tcptype = bits[i + 1]
             elif bits[i] == "generation":
-                kwargs["generation"] = int(bits[i + 1])
+                generation = int(bits[i + 1])
 
-        return Candidate(**kwargs)
+        return Candidate(
+            foundation=bits[0],
+            component=int(bits[1]),
+            transport=bits[2],
+            priority=int(bits[3]),
+            host=bits[4],
+            port=int(bits[5]),
+            type=bits[7],
+            related_address=related_address,
+            related_port=related_port,
+            tcptype=tcptype,
+            generation=generation,
+        )
 
     def to_sdp(self) -> str:
         """
@@ -121,7 +127,7 @@ class Candidate:
             sdp += " generation %d" % self.generation
         return sdp
 
-    def can_pair_with(self, other) -> bool:
+    def can_pair_with(self, other: "Candidate") -> bool:
         """
         A local candidate is paired with a remote candidate if and only if
         the two candidates have the same component ID and have the same IP
