@@ -118,33 +118,49 @@ class TurnServerMixin:
         logger.debug("< %s %s", addr, message)
 
         assert message.message_class == stun.Class.REQUEST
+        response: Optional[stun.Message] = None
 
         if message.message_method == stun.Method.BINDING:
             response = self.handle_binding(message, addr)
             self.send_stun(response, addr)
             return
 
-        # generate failure for test purposes
+        # Generate failure for test purposes.
         if self.server.simulated_failure:
             response = self.error_response(message, *self.server.simulated_failure)
             self.server.simulated_failure = None
             self.send_stun(response, addr)
             return
 
-        if "USERNAME" not in message.attributes:
+        # Check authentication.
+        # See RFC 5389 - 10.2.2. Receiving a Request
+        integrity_key = b""
+        if "MESSAGE-INTEGRITY" not in message.attributes:
+            # Message is missing MESSAGE-INTEGRITY.
             response = self.error_response(message, 401, "Unauthorized")
-            response.attributes["NONCE"] = random_string(16).encode("ascii")
-            response.attributes["REALM"] = self.server.realm
+        elif (
+            "USERNAME" not in message.attributes
+            or "REALM" not in message.attributes
+            or "NONCE" not in message.attributes
+        ):
+            # Message is missing USERNAME, REALM or NONCE.
+            response = self.error_response(
+                message, 400, "Missing USERNAME, REALM or NONCE attribute"
+            )
+        elif message.attributes["USERNAME"] not in self.server.users:
+            # The USERNAME is unknown.
+            response = self.error_response(message, 401, "Unauthorized")
+        else:
+            username = message.attributes["USERNAME"]
+            password = self.server.users[username]
+            integrity_key = make_integrity_key(username, self.server.realm, password)
+            try:
+                stun.parse_message(data, integrity_key=integrity_key)
+            except ValueError:
+                # The password does not match.
+                response = self.error_response(message, 401, "Unauthorized")
+        if response is not None:
             self.send_stun(response, addr)
-            return
-
-        # check credentials
-        username = message.attributes["USERNAME"]
-        password = self.server.users[username]
-        integrity_key = make_integrity_key(username, self.server.realm, password)
-        try:
-            stun.parse_message(data, integrity_key=integrity_key)
-        except ValueError:
             return
 
         if message.message_method == stun.Method.ALLOCATE:
@@ -305,6 +321,9 @@ class TurnServerMixin:
             transaction_id=request.transaction_id,
         )
         response.attributes["ERROR-CODE"] = (code, message)
+        if code == 401:
+            response.attributes["NONCE"] = random_string(16).encode("ascii")
+            response.attributes["REALM"] = self.server.realm
         return response
 
     def send_stun(self, message: stun.Message, addr: Address) -> None:

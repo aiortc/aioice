@@ -186,6 +186,34 @@ class TurnTest(unittest.TestCase):
         self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            # Invalid username.
+            with self.assertRaises(stun.TransactionFailed) as cm:
+                await turn.create_turn_endpoint(
+                    DummyClientProtocol,
+                    server_addr=getattr(turn_server, server_addr_attr),
+                    username="unknown",
+                    password="bar",
+                    ssl=ssl,
+                    transport=transport,
+                )
+            self.assertEqual(
+                str(cm.exception), "STUN transaction failed (401 - Unauthorized)"
+            )
+
+            # Invalid password.
+            with self.assertRaises(stun.TransactionFailed) as cm:
+                await turn.create_turn_endpoint(
+                    DummyClientProtocol,
+                    server_addr=getattr(turn_server, server_addr_attr),
+                    username="foo",
+                    password="wrong",
+                    ssl=ssl,
+                    transport=transport,
+                )
+            self.assertEqual(
+                str(cm.exception), "STUN transaction failed (401 - Unauthorized)"
+            )
+
             # make the server reject the ALLOCATE request
             turn_server.simulated_failure = (403, "Forbidden")
 
@@ -198,7 +226,9 @@ class TurnTest(unittest.TestCase):
                     ssl=ssl,
                     transport=transport,
                 )
-        self.assertEqual(str(cm.exception), "STUN transaction failed (403 - Forbidden)")
+            self.assertEqual(
+                str(cm.exception), "STUN transaction failed (403 - Forbidden)"
+            )
 
     async def _test_transport_delete_failure(
         self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
