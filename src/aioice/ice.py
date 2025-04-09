@@ -9,6 +9,7 @@ import re
 import secrets
 import socket
 import threading
+from collections.abc import Callable
 from typing import Optional, Union, cast
 
 import ifaddr
@@ -91,9 +92,48 @@ def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> list[str]:
     return addresses
 
 
+async def relayed_candidate(
+    component: int,
+    protocol_factory: Callable[[], "StunProtocol"],
+    turn_server: tuple[str, int],
+    turn_username: Optional[str],
+    turn_password: Optional[str],
+    turn_ssl: bool,
+    turn_transport: str,
+) -> tuple[Candidate, "StunProtocol"]:
+    """
+    Connect to a TURN server to obtain a relayed candidate.
+    """
+    # Connect to TURN server.
+    _, protocol = await turn.create_turn_endpoint(
+        protocol_factory,
+        server_addr=turn_server,
+        username=turn_username,
+        password=turn_password,
+        ssl=turn_ssl,
+        transport=turn_transport,
+    )
+
+    # Build relayed candidate.
+    candidate_address = protocol.transport.get_extra_info("sockname")
+    related_address = protocol.transport.get_extra_info("related_address")
+    protocol.local_candidate = Candidate(
+        foundation=candidate_foundation("relay", "udp", candidate_address[0]),
+        component=component,
+        transport="udp",
+        priority=candidate_priority(component, "relay"),
+        host=candidate_address[0],
+        port=candidate_address[1],
+        type="relay",
+        related_address=related_address[0],
+        related_port=related_address[1],
+    )
+    return protocol.local_candidate, protocol
+
+
 async def server_reflexive_candidate(
     protocol: "StunProtocol", stun_server: tuple[str, int]
-) -> Candidate:
+) -> tuple[Candidate, None]:
     """
     Query STUN server to obtain a server-reflexive candidate.
     """
@@ -121,7 +161,7 @@ async def server_reflexive_candidate(
         type="srflx",
         related_address=local_candidate.host,
         related_port=local_candidate.port,
-    )
+    ), None
 
 
 def sort_candidate_pairs(pairs: list["CandidatePair"], ice_controlling: bool) -> None:
@@ -968,9 +1008,10 @@ class Connection:
                 candidates.append(protocol.local_candidate)
         self._protocols += host_protocols
 
-        # query STUN server for server-reflexive candidates (IPv4 only)
+        tasks: list[asyncio.Task[tuple[Candidate, Optional[StunProtocol]]]] = []
+
+        # Query STUN server for server-reflexive candidates (IPv4 only).
         if self.stun_server:
-            tasks = []
             for protocol in host_protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
                     tasks.append(
@@ -978,42 +1019,34 @@ class Connection:
                             server_reflexive_candidate(protocol, self.stun_server)
                         )
                     )
-            if len(tasks):
-                done, pending = await asyncio.wait(tasks, timeout=timeout)
-                candidates += [
-                    task.result() for task in done if task.exception() is None
-                ]
-                for task in pending:
-                    task.cancel()
 
-        # connect to TURN server
+        # Connect to TURN server.
         if self.turn_server:
-            # create transport
-            _, protocol = await turn.create_turn_endpoint(
-                lambda: StunProtocol(self),
-                server_addr=self.turn_server,
-                username=self.turn_username,
-                password=self.turn_password,
-                ssl=self.turn_ssl,
-                transport=self.turn_transport,
+            tasks.append(
+                asyncio.create_task(
+                    relayed_candidate(
+                        component=component,
+                        protocol_factory=lambda: StunProtocol(self),
+                        turn_server=self.turn_server,
+                        turn_username=self.turn_username,
+                        turn_password=self.turn_password,
+                        turn_ssl=self.turn_ssl,
+                        turn_transport=self.turn_transport,
+                    )
+                )
             )
-            self._protocols.append(protocol)
 
-            # add relayed candidate
-            candidate_address = protocol.transport.get_extra_info("sockname")
-            related_address = protocol.transport.get_extra_info("related_address")
-            protocol.local_candidate = Candidate(
-                foundation=candidate_foundation("relay", "udp", candidate_address[0]),
-                component=component,
-                transport="udp",
-                priority=candidate_priority(component, "relay"),
-                host=candidate_address[0],
-                port=candidate_address[1],
-                type="relay",
-                related_address=related_address[0],
-                related_port=related_address[1],
-            )
-            candidates.append(protocol.local_candidate)
+        # Run tasks in parallel and handle exceptions.
+        if len(tasks):
+            done, pending = await asyncio.wait(tasks, timeout=timeout)
+            for task in done:
+                if task.exception() is None:
+                    candidate, protocol = task.result()
+                    candidates.append(candidate)
+                    if protocol is not None:
+                        self._protocols.append(protocol)
+            for task in pending:
+                task.cancel()
 
         return candidates
 

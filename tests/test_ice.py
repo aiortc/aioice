@@ -151,6 +151,27 @@ class IceConnectionTest(unittest.TestCase):
         ice.CONSENT_INTERVAL = 5
         stun.RETRY_MAX = 6
 
+    async def connect_and_exchange_data(
+        self, conn_a: ice.Connection, conn_b: ice.Connection
+    ) -> None:
+        try:
+            # connect
+            await asyncio.gather(conn_a.connect(), conn_b.connect())
+
+            # send data a -> b
+            await conn_a.send(b"howdee")
+            data = await conn_b.recv()
+            self.assertEqual(data, b"howdee")
+
+            # send data b -> a
+            await conn_b.send(b"gotcha")
+            data = await conn_a.recv()
+            self.assertEqual(data, b"gotcha")
+        finally:
+            # close
+            await conn_a.close()
+            await conn_b.close()
+
     @asynctest
     async def test_local_username_and_password(self) -> None:
         # No username or password.
@@ -261,22 +282,7 @@ class IceConnectionTest(unittest.TestCase):
         candidate = conn_a.get_default_candidate(2)
         self.assertIsNone(candidate)
 
-        # connect
-        await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-        # send data a -> b
-        await conn_a.send(b"howdee")
-        data = await conn_b.recv()
-        self.assertEqual(data, b"howdee")
-
-        # send data b -> a
-        await conn_b.send(b"gotcha")
-        data = await conn_a.recv()
-        self.assertEqual(data, b"gotcha")
-
-        # close
-        await conn_a.close()
-        await conn_b.close()
+        await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_close(self) -> None:
@@ -493,22 +499,7 @@ class IceConnectionTest(unittest.TestCase):
         candidate = conn_a.get_default_candidate(2)
         self.assertIsNone(candidate)
 
-        # connect
-        await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-        # send data a -> b
-        await conn_a.send(b"howdee")
-        data = await conn_b.recv()
-        self.assertEqual(data, b"howdee")
-
-        # send data b -> a
-        await conn_b.send(b"gotcha")
-        data = await conn_a.recv()
-        self.assertEqual(data, b"gotcha")
-
-        # close
-        await conn_a.close()
-        await conn_b.close()
+        await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_to_ice_lite_nomination_fails(self) -> None:
@@ -554,22 +545,7 @@ class IceConnectionTest(unittest.TestCase):
         for candidate in conn_a.local_candidates:
             self.assertEqual(candidate.type, "host")
 
-        # connect
-        await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-        # send data a -> b
-        await conn_a.send(b"howdee")
-        data = await conn_b.recv()
-        self.assertEqual(data, b"howdee")
-
-        # send data b -> a
-        await conn_b.send(b"gotcha")
-        data = await conn_a.recv()
-        self.assertEqual(data, b"gotcha")
-
-        # close
-        await conn_a.close()
-        await conn_b.close()
+        await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_reverse_order(self) -> None:
@@ -830,22 +806,7 @@ class IceConnectionTest(unittest.TestCase):
             self.assertIsNotNone(candidate.related_address)
             self.assertIsNotNone(candidate.related_port)
 
-            # connect
-            await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-            # send data a -> b
-            await conn_a.send(b"howdee")
-            data = await conn_b.recv()
-            self.assertEqual(data, b"howdee")
-
-            # send data b -> a
-            await conn_b.send(b"gotcha")
-            data = await conn_a.recv()
-            self.assertEqual(data, b"gotcha")
-
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_with_stun_server_dns_lookup_error(self) -> None:
@@ -859,22 +820,7 @@ class IceConnectionTest(unittest.TestCase):
         self.assertCandidateTypes(conn_a, set(["host"]))
         self.assertCandidateTypes(conn_b, set(["host"]))
 
-        # connect
-        await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-        # send data a -> b
-        await conn_a.send(b"howdee")
-        data = await conn_b.recv()
-        self.assertEqual(data, b"howdee")
-
-        # send data b -> a
-        await conn_b.send(b"gotcha")
-        data = await conn_a.recv()
-        self.assertEqual(data, b"gotcha")
-
-        # close
-        await conn_a.close()
-        await conn_b.close()
+        await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_with_stun_server_timeout(self) -> None:
@@ -894,22 +840,7 @@ class IceConnectionTest(unittest.TestCase):
             self.assertCandidateTypes(conn_a, set(["host"]))
             self.assertCandidateTypes(conn_b, set(["host"]))
 
-            # connect
-            await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-            # send data a -> b
-            await conn_a.send(b"howdee")
-            data = await conn_b.recv()
-            self.assertEqual(data, b"howdee")
-
-            # send data b -> a
-            await conn_b.send(b"gotcha")
-            data = await conn_a.recv()
-            self.assertEqual(data, b"gotcha")
-
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            await self.connect_and_exchange_data(conn_a, conn_b)
 
     @unittest.skipIf(RUNNING_ON_CI, "CI lacks ipv6")
     @asynctest
@@ -933,22 +864,7 @@ class IceConnectionTest(unittest.TestCase):
             for candidate in conn_a.local_candidates:
                 self.assertEqual(candidate.type, "host")
 
-            # connect
-            await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-            # send data a -> b
-            await conn_a.send(b"howdee")
-            data = await conn_b.recv()
-            self.assertEqual(data, b"howdee")
-
-            # send data b -> a
-            await conn_b.send(b"gotcha")
-            data = await conn_a.recv()
-            self.assertEqual(data, b"gotcha")
-
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_with_turn_server_tcp(self) -> None:
@@ -966,7 +882,7 @@ class IceConnectionTest(unittest.TestCase):
             # invite / accept
             await invite_accept(conn_a, conn_b)
 
-            # we whould have both host and relayed candidates
+            # we should have both host and relayed candidates
             self.assertCandidateTypes(conn_a, set(["host", "relay"]))
             self.assertCandidateTypes(conn_b, set(["host"]))
 
@@ -977,22 +893,7 @@ class IceConnectionTest(unittest.TestCase):
             self.assertIsNotNone(candidate.related_address)
             self.assertIsNotNone(candidate.related_port)
 
-            # connect
-            await asyncio.gather(conn_a.connect(), conn_b.connect())
-
-            # send data a -> b
-            await conn_a.send(b"howdee")
-            data = await conn_b.recv()
-            self.assertEqual(data, b"howdee")
-
-            # send data b -> a
-            await conn_b.send(b"gotcha")
-            data = await conn_a.recv()
-            self.assertEqual(data, b"gotcha")
-
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_connect_with_turn_server_udp(self) -> None:
@@ -1009,7 +910,7 @@ class IceConnectionTest(unittest.TestCase):
             # invite / accept
             await invite_accept(conn_a, conn_b)
 
-            # we whould have both host and relayed candidates
+            # we should have both host and relayed candidates
             self.assertCandidateTypes(conn_a, set(["host", "relay"]))
             self.assertCandidateTypes(conn_b, set(["host"]))
 
@@ -1020,22 +921,66 @@ class IceConnectionTest(unittest.TestCase):
             self.assertIsNotNone(candidate.related_address)
             self.assertIsNotNone(candidate.related_port)
 
-            # connect
-            await asyncio.gather(conn_a.connect(), conn_b.connect())
+            await self.connect_and_exchange_data(conn_a, conn_b)
 
-            # send data a -> b
-            await conn_a.send(b"howdee")
-            data = await conn_b.recv()
-            self.assertEqual(data, b"howdee")
+    @asynctest
+    async def test_connect_with_turn_server_udp_auth_failed(self) -> None:
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            # create connections
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="incorrect",
+            )
+            conn_b = ice.Connection(ice_controlling=False)
 
-            # send data b -> a
-            await conn_b.send(b"gotcha")
-            data = await conn_a.recv()
-            self.assertEqual(data, b"gotcha")
+            # invite / accept
+            await invite_accept(conn_a, conn_b)
 
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            # we should only have host candidates
+            self.assertCandidateTypes(conn_a, set(["host"]))
+            self.assertCandidateTypes(conn_b, set(["host"]))
+
+            # the default candidate should be host
+            candidate = conn_a.get_default_candidate(1)
+            self.assertIsNotNone(candidate)
+            self.assertEqual(candidate.type, "host")
+            self.assertIsNone(candidate.related_address)
+            self.assertIsNone(candidate.related_port)
+
+            await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_turn_server_udp_timeout(self) -> None:
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            # immediately stop turn server
+            await turn_server.close()
+
+            # create connections
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            conn_b = ice.Connection(ice_controlling=False)
+
+            # invite / accept
+            await invite_accept(conn_a, conn_b)
+
+            # we should only have host candidates
+            self.assertCandidateTypes(conn_a, set(["host"]))
+            self.assertCandidateTypes(conn_b, set(["host"]))
+
+            # the default candidate should be host
+            candidate = conn_a.get_default_candidate(1)
+            self.assertIsNotNone(candidate)
+            self.assertEqual(candidate.type, "host")
+            self.assertIsNone(candidate.related_address)
+            self.assertIsNone(candidate.related_port)
+
+            await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
     async def test_consent_expired(self) -> None:
