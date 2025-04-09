@@ -109,9 +109,9 @@ async def main() -> None:
     logging.basicConfig(level=logging.DEBUG)
 
     if options.action == "offer":
-        asyncio.run(offer(options.components))
+        await offer(options.components)
     else:
-        asyncio.run(answer(options.components))
+        await answer(options.components)
 
 
 if __name__ == "__main__":
