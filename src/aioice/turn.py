@@ -348,14 +348,8 @@ class TurnTransport:
     Behaves like a Datagram transport, but uses a TURN allocation.
     """
 
-    def __init__(
-        self,
-        protocol: asyncio.DatagramProtocol,
-        inner_protocol: TurnClientProtocol,
-    ) -> None:
-        self.protocol = protocol
+    def __init__(self, inner_protocol: TurnClientProtocol) -> None:
         self.__inner_protocol = inner_protocol
-        self.__inner_protocol.receiver = protocol
         self.__relayed_address: Optional[tuple[str, int]] = None
 
     def close(self) -> None:
@@ -388,9 +382,13 @@ class TurnTransport:
         """
         asyncio.create_task(self.__inner_protocol.send_data(data, addr))
 
-    async def _connect(self) -> None:
+    async def _connect(self, protocol: asyncio.DatagramProtocol) -> None:
         self.__relayed_address = await self.__inner_protocol.connect()
-        self.protocol.connection_made(cast(asyncio.DatagramTransport, self))
+
+        # Once the allocation has succeeded, notify the protocol
+        # and start relaying received data.
+        self.__inner_protocol.receiver = protocol
+        protocol.connection_made(cast(asyncio.DatagramTransport, self))
 
 
 async def create_turn_endpoint(
@@ -439,8 +437,8 @@ async def create_turn_endpoint(
 
     try:
         protocol = protocol_factory()
-        turn_transport = TurnTransport(protocol, inner_protocol)
-        await turn_transport._connect()
+        turn_transport = TurnTransport(inner_protocol)
+        await turn_transport._connect(protocol)
     except Exception:
         inner_transport.close()
         raise
