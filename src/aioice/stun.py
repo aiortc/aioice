@@ -35,21 +35,24 @@ def message_integrity(data: bytes, key: bytes) -> bytes:
     return hmac.new(key, check_data, "sha1").digest()
 
 
-def xor_address(data: bytes, transaction_id: bytes) -> bytes:
+def xor_data(data: bytes, transaction_id: bytes) -> bytes:
     xpad = pack("!HI", COOKIE >> 16, COOKIE) + transaction_id
-    xdata = data[0:2]
-    for i in range(2, len(data)):
-        xdata += int.to_bytes(data[i] ^ xpad[i - 2], 1, "big", signed=False)
+    xdata = b""
+    for i in range(len(data)):
+        xdata += int.to_bytes(data[i] ^ xpad[i], 1, "big", signed=False)
     return xdata
 
 
-def pack_address(value: tuple[str, int]) -> bytes:
+def pack_address(
+    value: tuple[str, int],
+    xor: Callable[[bytes], bytes] = lambda x: x,
+) -> bytes:
     ip_address = ipaddress.ip_address(value[0])
     if isinstance(ip_address, ipaddress.IPv4Address):
         protocol = IPV4_PROTOCOL
     else:
         protocol = IPV6_PROTOCOL
-    return pack("!BBH", 0, protocol, value[1]) + ip_address.packed
+    return pack("!BB", 0, protocol) + xor(pack("!H", value[1]) + ip_address.packed)
 
 
 def pack_bytes(value: bytes) -> bytes:
@@ -81,28 +84,46 @@ def pack_unsigned_64(value: int) -> bytes:
 
 
 def pack_xor_address(value: tuple[str, int], transaction_id: bytes) -> bytes:
-    return xor_address(pack_address(value), transaction_id)
+    return pack_address(value, lambda x: xor_data(x, transaction_id))
 
 
-def unpack_address(data: bytes) -> tuple[str, int]:
+def unpack_address(
+    data: bytes,
+    xor: Callable[[bytes], bytes] = lambda x: x,
+) -> tuple[str, int]:
     if len(data) < 4:
         raise ValueError("STUN address length is less than 4 bytes")
-    reserved, protocol, port = unpack("!BBH", data[0:4])
-    address = data[4:]
+
+    # The first two bytes are a reserved byte and the protocol family.
+    reserved, protocol = unpack("!BB", data[0:2])
+
+    # The remaining data represents a port and an address.
+    port_address = data[2:]
+    print(len(port_address))
     if protocol == IPV4_PROTOCOL:
-        if len(address) != 4:
+        # For IPv4 we expect 2 bytes for the port, 4 bytes for the address.
+        if len(port_address) != 6:
             raise ValueError("STUN address has invalid length for IPv4")
-        return (str(ipaddress.IPv4Address(address)), port)
+        port_address = xor(port_address)
+        return (
+            str(ipaddress.IPv4Address(port_address[2:])),
+            unpack("!H", port_address[0:2])[0],
+        )
     elif protocol == IPV6_PROTOCOL:
-        if len(address) != 16:
+        # For IPv6 we expect 2 bytes for the port, 16 bytes for the address.
+        if len(port_address) != 18:
             raise ValueError("STUN address has invalid length for IPv6")
-        return (str(ipaddress.IPv6Address(address)), port)
+        port_address = xor(port_address)
+        return (
+            str(ipaddress.IPv6Address(port_address[2:])),
+            unpack("!H", port_address[0:2])[0],
+        )
     else:
         raise ValueError("STUN address has unknown protocol")
 
 
 def unpack_xor_address(data: bytes, transaction_id: bytes) -> tuple[str, int]:
-    return unpack_address(xor_address(data, transaction_id))
+    return unpack_address(data, lambda x: xor_data(x, transaction_id))
 
 
 def unpack_bytes(data: bytes) -> bytes:

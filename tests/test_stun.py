@@ -28,7 +28,18 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(address, "192.0.2.1")
         self.assertEqual(port, 32853)
 
-    def test_unpack_xor_address_ipv4_truncated(self) -> None:
+    def test_unpack_xor_address_ipv4_too_long(self) -> None:
+        transaction_id = unhexlify("b7e7a701bc34d686fa87dfae")
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_xor_address(
+                # Use 21 bytes for port + address, to check we don't try
+                # XOR'ing this data against the 20 bytes key.
+                unhexlify("0001a147e112a643000000000000000000000000000000"),
+                transaction_id,
+            )
+        self.assertEqual(str(cm.exception), "STUN address has invalid length for IPv4")
+
+    def test_unpack_xor_address_ipv4_too_short(self) -> None:
         transaction_id = unhexlify("b7e7a701bc34d686fa87dfae")
         with self.assertRaises(ValueError) as cm:
             stun.unpack_xor_address(unhexlify("0001a147e112a6"), transaction_id)
@@ -42,7 +53,18 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(address, "2001:db8:1234:5678:11:2233:4455:6677")
         self.assertEqual(port, 32853)
 
-    def test_unpack_xor_address_ipv6_truncated(self) -> None:
+    def test_unpack_xor_address_ipv6_too_long(self) -> None:
+        transaction_id = unhexlify("b7e7a701bc34d686fa87dfae")
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_xor_address(
+                # Use 21 bytes for port + address, to check we don't try
+                # XOR'ing this data against the 20 bytes key.
+                unhexlify("0002a1470113a9faa5d3f179bc25f4b5bed2b900000000"),
+                transaction_id,
+            )
+        self.assertEqual(str(cm.exception), "STUN address has invalid length for IPv6")
+
+    def test_unpack_xor_address_ipv6_too_short(self) -> None:
         transaction_id = unhexlify("b7e7a701bc34d686fa87dfae")
         with self.assertRaises(ValueError) as cm:
             stun.unpack_xor_address(
