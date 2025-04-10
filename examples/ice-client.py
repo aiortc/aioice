@@ -5,7 +5,6 @@ import asyncio
 import json
 import logging
 import time
-from typing import Optional
 
 import websockets
 

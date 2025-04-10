@@ -7,8 +7,9 @@ import logging
 import time
 from typing import Optional
 
-import aioice
 import websockets
+
+import aioice
 
 STUN_SERVER = ("stun.l.google.com", 19302)
 WEBSOCKET_URI = "ws://127.0.0.1:8765"

@@ -373,9 +373,9 @@ class Connection:
         self._check_list: list[CandidatePair] = []
         self._check_list_done = False
         self._check_list_state: asyncio.Queue = asyncio.Queue()
-        self._early_checks: list[tuple[stun.Message, tuple[str, int], StunProtocol]] = (
-            []
-        )
+        self._early_checks: list[
+            tuple[stun.Message, tuple[str, int], StunProtocol]
+        ] = []
         self._early_checks_done = False
         self._event_waiter: Optional[asyncio.Future[ConnectionEvent]] = None
         self._id = next(connection_id)

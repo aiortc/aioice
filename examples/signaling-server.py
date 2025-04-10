@@ -1,11 +1,14 @@
 #!/usr/bin/env python
+#
+# Simple websocket server to perform signaling.
+#
 
 import asyncio
 import binascii
 import os
 
-from websockets.asyncio.server import ServerConnection
 import websockets
+from websockets.asyncio.server import ServerConnection
 
 clients: dict[bytes, ServerConnection] = {}
 
