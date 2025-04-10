@@ -44,8 +44,6 @@ Example
 
 .. code:: python
 
-    #!/usr/bin/env python
-
     import asyncio
     import aioice
 
@@ -79,7 +77,7 @@ Example
         # close connection
         await connection.close()
 
-    asyncio.get_event_loop().run_until_complete(connect_using_ice())
+    asyncio.run(connect_using_ice())
 
 License
 -------
