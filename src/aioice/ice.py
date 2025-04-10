@@ -9,7 +9,7 @@ import re
 import secrets
 import socket
 import threading
-from typing import Optional, Union, cast
+from typing import Callable, Optional, Union, cast
 
 import ifaddr
 
@@ -320,6 +320,7 @@ class Connection:
                            will be generated.
     :param local_password: An optional local password, otherwise a random one
                            will be generated.
+    :param signal_candidate: Callback to signal a candidate.
     """
 
     def __init__(
@@ -337,6 +338,7 @@ class Connection:
         transport_policy: TransportPolicy = TransportPolicy.ALL,
         local_username: Optional[str] = None,
         local_password: Optional[str] = None,
+        signal_candidate: Optional[Callable[[Optional[Candidate]], None]] = None,
     ) -> None:
         self.ice_controlling = ice_controlling
 
@@ -363,6 +365,7 @@ class Connection:
         self.turn_password = turn_password
         self.turn_ssl = turn_ssl
         self.turn_transport = turn_transport
+        self.signal_candidate = signal_candidate
 
         # private
         self._closed = False
@@ -499,13 +502,21 @@ class Connection:
             addresses = get_host_addresses(
                 use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
             )
-            coros = [
-                self.get_component_candidates(component=component, addresses=addresses)
-                for component in self._components
-            ]
-            for candidates in await asyncio.gather(*coros):
-                self._local_candidates += candidates
+
+            async def gather_and_signal(component):
+                candidates = await self.get_component_candidates(
+                    component=component, addresses=addresses
+                )
+                for candidate in candidates:
+                    self._local_candidates.append(candidate)
+                    if self.signal_candidate:
+                        await self.signal_candidate(candidate)
+
+            coros = [gather_and_signal(component) for component in self._components]
+            await asyncio.gather(*coros)
             self._local_candidates_end = True
+            if self.signal_candidate:
+                await self.signal_candidate(None)
 
     def get_default_candidate(self, component: int) -> Optional[Candidate]:
         """
