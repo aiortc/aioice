@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import os
+import sys
 import unittest
 from collections.abc import Callable, Coroutine
 from typing import Optional
@@ -1074,14 +1075,17 @@ class IceConnectionTest(unittest.TestCase):
         await invite_accept(conn_a, conn_b)
 
         # connect
+        sys.stdout.write("CONNECTING\n")
         await asyncio.gather(conn_a.connect(), conn_b.connect())
         self.assertEqual(len(conn_a._nominated), 1)
 
         # check consent
+        sys.stdout.write("SLEEPING\n")
         await asyncio.sleep(2)
         self.assertEqual(len(conn_a._nominated), 1)
 
         # close
+        sys.stdout.write("CLOSING\n")
         await conn_a.close()
         await conn_b.close()
 
