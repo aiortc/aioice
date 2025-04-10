@@ -40,8 +40,9 @@ dev = [
 ]
 
 [project.urls]
-homepage = "https://github.com/aiortc/aioice"
-documentation = "https://aioice.readthedocs.io/"
+Homepage = "https://github.com/aiortc/aioice"
+Changelog = "https://aioice.readthedocs.io/en/stable/changelog.html"
+Documentation = "https://aioice.readthedocs.io/"
 
 [tool.coverage.run]
 source = ["aioice"]

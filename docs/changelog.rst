@@ -3,6 +3,27 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.10.0
+------
+
+ * Enforce full type annotations on all the code.
+ * Allow creating a connection with ufrag and pwd.
+ * Fix an `IndexError` when decoding an invalid XOR-MAPPED-ADDRESS.
+ * Connect to TURN server in parallel to STUN checks and catch errors.
+
+0.9.0
+-----
+
+ * Switch from `netifaces` to `ifaddr`.
+ * Do not start candidate pair check if already started.
+
+0.8.0
+-----
+
+ * Allow gathering only relay (STUN/TURN) candidates.
+ * Use padding when sending over data over TCP.
+ * Add support for Python 3.11.
+
 0.7.7
 -----
 
