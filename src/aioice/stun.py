@@ -99,7 +99,6 @@ def unpack_address(
 
     # The remaining data represents a port and an address.
     port_address = data[2:]
-    print(len(port_address))
     if protocol == IPV4_PROTOCOL:
         # For IPv4 we expect 2 bytes for the port, 4 bytes for the address.
         if len(port_address) != 6:
