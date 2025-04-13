@@ -3,6 +3,11 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.10.1
+------
+
+ * Remove a `print()` statement which was accidentally added in 0.10.0.
+
 0.10.0
 ------
 
