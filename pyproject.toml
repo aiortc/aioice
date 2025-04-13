@@ -62,7 +62,11 @@ select = [
     "F",  # Pyflakes
     "W",  # pycodestyle
     "I",  # isort
+    "T20",  # flake8-print
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/*.py" = ["T201"]
 
 [tool.setuptools.dynamic]
 version = {attr = "aioice.__version__"}
