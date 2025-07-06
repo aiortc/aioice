@@ -326,7 +326,10 @@ class Transaction:
                 self.__timeout_handle.cancel()
 
     def __retry(self) -> None:
-        if self.__tries >= self.__tries_max and not self.__future.done():
+        if self.__future.done():
+            return
+
+        if self.__tries >= self.__tries_max:
             self.__future.set_exception(TransactionTimeout())
             return
 
