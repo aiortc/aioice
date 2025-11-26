@@ -182,11 +182,11 @@ class IceConnectionTest(unittest.TestCase):
         # Valid username and password.
         connection = ice.Connection(
             ice_controlling=True,
-            local_username="test+user",
-            local_password="some+password/that+is/long+enough",
+            local_username="test+User1",
+            local_password="some+password/that+is/Long+en0ugh",
         )
-        self.assertEqual(connection.local_username, "test+user")
-        self.assertEqual(connection.local_password, "some+password/that+is/long+enough")
+        self.assertEqual(connection.local_username, "test+User1")
+        self.assertEqual(connection.local_password, "some+password/that+is/Long+en0ugh")
 
         # Invalid username.
         with self.assertRaises(ValueError) as cm:
