@@ -1,11 +1,17 @@
 import asyncio
 import contextlib
+import os
+import sys
 import unittest
 from typing import AsyncGenerator
 
 from aioice import mdns
 
 from .utils import asynctest
+
+RUNNING_ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
+# MDNS seems broken on Mac CI: https://github.com/actions/runner-images/issues/10924
+RUNNING_ON_MAC_CI = RUNNING_ON_CI and sys.platform == "darwin"
 
 
 @contextlib.asynccontextmanager
@@ -22,6 +28,7 @@ async def querier_and_responder() -> AsyncGenerator[
         await responder.close()
 
 
+@unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with MDNS")
 class MdnsTest(unittest.TestCase):
     @asynctest
     async def test_receive_junk(self) -> None:
