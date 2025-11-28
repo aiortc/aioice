@@ -1,7 +1,6 @@
 import asyncio
 import functools
 import os
-import sys
 import unittest
 from collections.abc import Callable, Coroutine
 from typing import Optional
@@ -15,8 +14,6 @@ from .turnserver import run_turn_server
 from .utils import asynctest, invite_accept
 
 RUNNING_ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
-# MDNS seems broken on Mac CI: https://github.com/actions/runner-images/issues/10924
-RUNNING_ON_MAC_CI = RUNNING_ON_CI and sys.platform == "darwin"
 
 
 async def delay(coro: Callable[[], Coroutine[None, None, None]]) -> None:
@@ -1132,7 +1129,6 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
 
-    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with MDNS")
     @asynctest
     async def test_add_remote_candidate_mdns_bad(self) -> None:
         """
@@ -1157,7 +1153,6 @@ class IceConnectionTest(unittest.TestCase):
         # close
         await conn_a.close()
 
-    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with MDNS")
     @asynctest
     async def test_add_remote_candidate_mdns_good(self) -> None:
         """
