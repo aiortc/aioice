@@ -3,7 +3,7 @@ Changelog
 
 .. currentmodule:: aioice
 
-0.10.3
+0.10.2
 ------
 
  * Fix local ice-ufrag/ice-pwd validation.
