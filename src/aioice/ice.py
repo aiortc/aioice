@@ -183,7 +183,7 @@ def validate_password(value: str) -> None:
 
     See RFC 5245 - 15.4. "ice-ufrag" and "ice-pwd" Attributes
     """
-    if not re.match("^[a-z0-9+/]{22,256}$", value):
+    if not re.match("^[a-zA-Z0-9+/]{22,256}$", value):
         raise ValueError("Password must satisfy 22*256ice-char")
 
 
@@ -203,7 +203,7 @@ def validate_username(value: str) -> None:
 
     See RFC 5245 - 15.4. "ice-ufrag" and "ice-pwd" Attributes
     """
-    if not re.match("^[a-z0-9+/]{4,256}$", value):
+    if not re.match("^[a-zA-Z0-9+/]{4,256}$", value):
         raise ValueError("Username must satisfy 4*256ice-char")
 
 
