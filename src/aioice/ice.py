@@ -10,12 +10,13 @@ import secrets
 import socket
 import threading
 from collections.abc import Callable
-from typing import Optional, Union, cast
+from typing import Any, Dict, Optional, Union, cast
 
 import ifaddr
 
 from . import mdns, stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
+from .socks5 import create_socks5_datagram_endpoint
 from .utils import random_string
 
 logger = logging.getLogger(__name__)
@@ -360,6 +361,8 @@ class Connection:
                            will be generated.
     :param local_password: An optional local password, otherwise a random one
                            will be generated.
+    :param socks5_proxy: Optional SOCKS5 proxy configuration as a dictionary with
+                         keys: 'host', 'port', 'username' (optional), 'password' (optional).
     """
 
     def __init__(
@@ -377,6 +380,7 @@ class Connection:
         transport_policy: TransportPolicy = TransportPolicy.ALL,
         local_username: Optional[str] = None,
         local_password: Optional[str] = None,
+        socks5_proxy: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.ice_controlling = ice_controlling
 
@@ -433,6 +437,7 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+        self._socks5_proxy = socks5_proxy
 
         if (
             stun_server is None
@@ -980,9 +985,20 @@ class Connection:
         for address in addresses:
             # create transport
             try:
-                transport, protocol = await loop.create_datagram_endpoint(
-                    lambda: StunProtocol(self), local_addr=(address, 0)
-                )
+                if self._socks5_proxy is not None:
+                    transport, protocol = await create_socks5_datagram_endpoint(
+                        loop,
+                        lambda: StunProtocol(self),
+                        local_addr=(address, 0),
+                        proxy_host=self._socks5_proxy['host'],
+                        proxy_port=self._socks5_proxy['port'],
+                        proxy_username=self._socks5_proxy.get('username'),
+                        proxy_password=self._socks5_proxy.get('password')
+                    )
+                else:
+                    transport, protocol = await loop.create_datagram_endpoint(
+                        lambda: StunProtocol(self), local_addr=(address, 0)
+                    )
                 sock = transport.get_extra_info("socket")
                 if sock is not None:
                     sock.setsockopt(
