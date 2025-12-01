@@ -10,7 +10,7 @@ from contextlib import contextmanager
 if sys.version_info >= (3, 10):
     from typing import ParamSpec, Any, Iterator
 else:
-    from typing_extensions import ParamSpec
+    from typing_extensions import ParamSpec, Any, Iterator
 
 from aioice import ice
 
