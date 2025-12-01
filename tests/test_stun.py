@@ -278,20 +278,14 @@ class TransactionTest(unittest.TestCase):
         class RespondImmediatelyProtocol:
             _transaction: Optional[stun.Transaction] = None
 
-            def set_transaction(self, transaction: stun.Transaction) -> None:
-                self._transaction = transaction
+            def set_transaction(self, new_transaction: stun.Transaction) -> None:
+                self._transaction = new_transaction
 
             def send_stun(
                     self, message: stun.Message, address: tuple[str, int]
             ) -> None:
                 asyncio.get_running_loop().call_soon(
-                    self._block_and_respond, address
-                )
-
-            def _block_and_respond(self, address: tuple[str, int]) -> None:
-                self._transaction.response_received(
-                    expected_response,
-                    address
+                    self._transaction.response_received, expected_response, address
                 )
 
         with detect_exceptions_in_loop():
