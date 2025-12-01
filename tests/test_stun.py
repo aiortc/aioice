@@ -1,13 +1,11 @@
 import asyncio
-import time
 import unittest
-from asyncio import AbstractEventLoop
 from binascii import unhexlify
 from collections import OrderedDict
-from typing import Optional, Any
+from typing import Optional
 
 from aioice import stun
-from utils import new_collect_exceptions_handler, detect_exceptions_in_loop
+from utils import detect_exceptions_in_loop
 
 from .utils import asynctest, read_message
 
