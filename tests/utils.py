@@ -3,10 +3,12 @@ import functools
 import logging
 import os
 import sys
+from asyncio import AbstractEventLoop
 from collections.abc import Callable, Coroutine
+from contextlib import contextmanager
 
 if sys.version_info >= (3, 10):
-    from typing import ParamSpec
+    from typing import ParamSpec, Any, Iterator
 else:
     from typing_extensions import ParamSpec
 
@@ -51,3 +53,42 @@ def read_message(name: str) -> bytes:
 
 if os.environ.get("AIOICE_DEBUG"):
     logging.basicConfig(level=logging.DEBUG)
+
+
+class CollectExceptionsHandler:
+    _exceptions: list[Exception] = []
+
+    def handle_exception(self, _loop: AbstractEventLoop, context: dict[str, Any]):
+        exception = context.get("exception")
+
+        if exception and isinstance(exception, Exception):
+            self._exceptions.append(exception)
+
+    @property
+    def exceptions(self) -> list[Exception]:
+        return self._exceptions
+
+
+@contextmanager
+def new_collect_exceptions_handler() -> Iterator[CollectExceptionsHandler]:
+    handler = CollectExceptionsHandler()
+    loop = asyncio.get_event_loop()
+    original_handler = loop.get_exception_handler()
+    loop.set_exception_handler(handler.handle_exception)
+
+    try:
+        yield handler
+    finally:
+        loop.set_exception_handler(original_handler)
+
+
+@contextmanager
+def detect_exceptions_in_loop() -> Iterator[None]:
+    with new_collect_exceptions_handler() as handler:
+        yield
+
+    if handler.exceptions:
+        raise ExceptionGroup(
+            "Exceptions were raised in the event loop",
+            handler.exceptions,
+        )
