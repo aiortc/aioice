@@ -58,7 +58,9 @@ if os.environ.get("AIOICE_DEBUG"):
 class CollectExceptionsHandler:
     _exceptions: list[Exception] = []
 
-    def handle_exception(self, _loop: AbstractEventLoop, context: dict[str, Any]):
+    def handle_exception(
+        self, _loop: AbstractEventLoop, context: dict[str, Any]
+    ) -> None:
         exception = context.get("exception")
 
         if exception and isinstance(exception, Exception):
@@ -85,10 +87,9 @@ def new_collect_exceptions_handler() -> Iterator[CollectExceptionsHandler]:
 @contextmanager
 def detect_exceptions_in_loop() -> Iterator[None]:
     with new_collect_exceptions_handler() as handler:
-        yield
+        yield None
 
     if handler.exceptions:
-        raise ExceptionGroup(
-            "Exceptions were raised in the event loop",
-            handler.exceptions,
-        )
+        raise Exception(
+            f"Found {len(handler.exceptions)} exceptions on loop."
+        ) from handler.exceptions[0]

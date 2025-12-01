@@ -4,8 +4,9 @@ from binascii import unhexlify
 from collections import OrderedDict
 from typing import Optional
 
-from aioice import stun
 from utils import detect_exceptions_in_loop
+
+from aioice import stun
 
 from .utils import asynctest, read_message
 
@@ -282,7 +283,7 @@ class TransactionTest(unittest.TestCase):
                 self._transaction = new_transaction
 
             def send_stun(
-                    self, message: stun.Message, address: tuple[str, int]
+                self, message: stun.Message, address: tuple[str, int]
             ) -> None:
                 asyncio.get_running_loop().call_soon(
                     self._transaction.response_received, expected_response, address
