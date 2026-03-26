@@ -1,6 +1,10 @@
+import asyncio
 import unittest
 from binascii import unhexlify
 from collections import OrderedDict
+from typing import Optional
+
+from utils import detect_exceptions_in_loop
 
 from aioice import stun
 
@@ -260,3 +264,37 @@ class TransactionTest(unittest.TestCase):
             message_method=stun.Method.BINDING, message_class=stun.Class.RESPONSE
         )
         transaction.response_received(response, ("127.0.0.1", 1234))
+
+    @asynctest
+    async def test_message_resolved_before_timeout(self) -> None:
+        socket_address = ("127.0.0.1", 1234)
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        expected_response = stun.Message(
+            message_method=stun.Method.BINDING,
+            message_class=stun.Class.RESPONSE,
+        )
+
+        class RespondImmediatelyProtocol:
+            _transaction: Optional[stun.Transaction] = None
+
+            def set_transaction(self, new_transaction: stun.Transaction) -> None:
+                self._transaction = new_transaction
+
+            def send_stun(
+                self, message: stun.Message, address: tuple[str, int]
+            ) -> None:
+                asyncio.get_running_loop().call_soon(
+                    self._transaction.response_received, expected_response, address
+                )
+
+        with detect_exceptions_in_loop():
+            protocol = RespondImmediatelyProtocol()
+            transaction = stun.Transaction(request, socket_address, protocol, 0)
+            protocol.set_transaction(transaction)
+
+            response_message, response_address = await transaction.run()
+
+            self.assertEqual(response_message, expected_response)
+            self.assertEqual(response_address, socket_address)
