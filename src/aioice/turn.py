@@ -439,7 +439,10 @@ async def create_turn_endpoint(
         protocol = protocol_factory()
         turn_transport = TurnTransport(inner_protocol)
         await turn_transport._connect(protocol)
-    except Exception:
+    except BaseException:
+        # A CancelledError is raised if the allocation is cancelled while it is
+        # being set up, e.g. when ICE candidate gathering times out. We must
+        # still close the underlying transport, otherwise its socket leaks.
         inner_transport.close()
         raise
 
