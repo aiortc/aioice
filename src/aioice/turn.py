@@ -494,7 +494,9 @@ async def create_turn_endpoint(
         protocol = protocol_factory()
         turn_transport = TurnTransport(inner_protocol)
         await turn_transport._connect(protocol)
-    except Exception:
+    except BaseException:
+        # Close the transport on any error, including a CancelledError raised when
+        # candidate gathering times out, otherwise its socket leaks.
         inner_transport.close()
         raise
 

@@ -471,3 +471,49 @@ class TurnTest(unittest.TestCase):
                     # is deleted, without reporting an error.
                     self.assertEqual(cancelled, [echo_server2.udp_address])
                     self.assertEqual(protocol.errors, [])
+
+    @asynctest
+    async def test_udp_transport_cancelled(self) -> None:
+        """
+        If the allocation is cancelled while it is being set up (for instance
+        when ICE candidate gathering times out and cancels the relay task),
+        the underlying transport must be closed rather than leaked.
+        """
+        loop = asyncio.get_event_loop()
+        real_create_datagram_endpoint = loop.create_datagram_endpoint
+        captured: dict[str, asyncio.BaseTransport] = {}
+
+        async def spy_create_datagram_endpoint(
+            *args: Any, **kwargs: Any
+        ) -> tuple[asyncio.BaseTransport, asyncio.BaseProtocol]:
+            transport, protocol = await real_create_datagram_endpoint(*args, **kwargs)
+            captured["transport"] = transport
+            return transport, protocol
+
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            with (
+                mock.patch.object(
+                    loop,
+                    "create_datagram_endpoint",
+                    spy_create_datagram_endpoint,
+                ),
+                mock.patch.object(
+                    turn.TurnClientMixin,
+                    "connect",
+                    side_effect=asyncio.CancelledError,
+                ),
+            ):
+                with self.assertRaises(asyncio.CancelledError):
+                    await turn.create_turn_endpoint(
+                        DummyClientProtocol,
+                        server_addr=turn_server.udp_address,
+                        username="foo",
+                        password="bar",
+                        transport="udp",
+                    )
+
+        # allow the transport to finish closing
+        await asyncio.sleep(0)
+
+        self.assertIn("transport", captured)
+        self.assertTrue(captured["transport"].is_closing())
