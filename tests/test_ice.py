@@ -1264,6 +1264,73 @@ class IceConnectionTest(unittest.TestCase):
             await conn_a.close()
             await conn_b.close()
 
+    def test_invalid_port_range(self) -> None:
+        # The first value must be greater than or equal to 1.
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(ice_controlling=True, port_range=(0, 100))
+        self.assertEqual(
+            str(cm.exception),
+            "port_range must be a tuple of two integers between 1 and 65535, "
+            "with the first value less than or equal to the second.",
+        )
+
+        # The first value must be less than or equal to the second.
+        with self.assertRaises(ValueError):
+            ice.Connection(ice_controlling=True, port_range=(100, 50))
+
+        # The second value must be less than or equal to 65535.
+        with self.assertRaises(ValueError):
+            ice.Connection(ice_controlling=True, port_range=(1, 70000))
+
+    @mock.patch("aioice.ice.get_host_addresses")
+    @asynctest
+    async def test_gather_candidates_port_range(
+        self, mock_get_host_addresses: mock.MagicMock
+    ) -> None:
+        """
+        When a port range is set, host candidates are bound within it.
+        """
+        mock_get_host_addresses.return_value = ["127.0.0.1"]
+        port_min, port_max = 51000, 51099
+
+        conn = ice.Connection(ice_controlling=True, port_range=(port_min, port_max))
+        await conn.gather_candidates()
+
+        host_candidates = [c for c in conn.local_candidates if c.type == "host"]
+        self.assertTrue(len(host_candidates) > 0)
+        for candidate in host_candidates:
+            self.assertTrue(port_min <= candidate.port <= port_max)
+
+        await conn.close()
+
+    @mock.patch("aioice.ice.get_host_addresses")
+    @asynctest
+    async def test_gather_candidates_port_range_exhausted(
+        self, mock_get_host_addresses: mock.MagicMock
+    ) -> None:
+        """
+        When the configured port range is exhausted, no host candidate is
+        produced for the affected address.
+        """
+        mock_get_host_addresses.return_value = ["127.0.0.1"]
+
+        # Occupy a port from the range.
+        conn1 = ice.Connection(ice_controlling=True, port_range=(52000, 52099))
+        await conn1.gather_candidates()
+        host_candidates = [c for c in conn1.local_candidates if c.type == "host"]
+        self.assertTrue(len(host_candidates) > 0)
+        occupied_port = host_candidates[0].port
+
+        # Restrict a second connection to exactly that single, occupied port.
+        conn2 = ice.Connection(
+            ice_controlling=True, port_range=(occupied_port, occupied_port)
+        )
+        await conn2.gather_candidates()
+        self.assertEqual([c for c in conn2.local_candidates if c.type == "host"], [])
+
+        await conn1.close()
+        await conn2.close()
+
     @asynctest
     async def test_repr(self) -> None:
         conn = ice.Connection(ice_controlling=True)
