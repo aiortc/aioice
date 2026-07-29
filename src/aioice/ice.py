@@ -364,8 +364,9 @@ class Connection:
                        the *local* UDP ports used for host candidates. When set,
                        each host candidate socket is bound to a free port within
                        this inclusive range instead of an ephemeral port picked by
-                       the operating system. This does not affect the local ports
-                       used for STUN, TURN or mDNS.
+                       the operating system. Both ports must be in the
+                       non-privileged range 1024-65535. This does not affect the
+                       local ports used for STUN, TURN or mDNS.
     """
 
     def __init__(
@@ -446,10 +447,10 @@ class Connection:
             if (
                 not isinstance(port_min, int)
                 or not isinstance(port_max, int)
-                or not (1 <= port_min <= port_max <= 65535)
+                or not (1024 <= port_min <= port_max <= 65535)
             ):
                 raise ValueError(
-                    "port_range must be a tuple of two integers between 1 and "
+                    "port_range must be a tuple of two integers between 1024 and "
                     "65535, with the first value less than or equal to the second."
                 )
         self._port_range = port_range

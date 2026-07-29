@@ -1265,22 +1265,26 @@ class IceConnectionTest(unittest.TestCase):
             await conn_b.close()
 
     def test_invalid_port_range(self) -> None:
-        # The first value must be greater than or equal to 1.
+        # The first value must be a non-privileged port (>= 1024).
         with self.assertRaises(ValueError) as cm:
             ice.Connection(ice_controlling=True, port_range=(0, 100))
         self.assertEqual(
             str(cm.exception),
-            "port_range must be a tuple of two integers between 1 and 65535, "
+            "port_range must be a tuple of two integers between 1024 and 65535, "
             "with the first value less than or equal to the second.",
         )
 
+        # A port just below 1024 is rejected.
+        with self.assertRaises(ValueError):
+            ice.Connection(ice_controlling=True, port_range=(1023, 2000))
+
         # The first value must be less than or equal to the second.
         with self.assertRaises(ValueError):
-            ice.Connection(ice_controlling=True, port_range=(100, 50))
+            ice.Connection(ice_controlling=True, port_range=(2000, 1500))
 
         # The second value must be less than or equal to 65535.
         with self.assertRaises(ValueError):
-            ice.Connection(ice_controlling=True, port_range=(1, 70000))
+            ice.Connection(ice_controlling=True, port_range=(1024, 70000))
 
     @mock.patch("aioice.ice.get_host_addresses")
     @asynctest
