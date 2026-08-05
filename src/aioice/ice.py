@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import dataclasses
 import enum
 import ipaddress
 import itertools
@@ -9,7 +10,7 @@ import re
 import secrets
 import socket
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Optional, Union, cast
 
 import ifaddr
@@ -44,6 +45,34 @@ class TransportPolicy(enum.Enum):
     such as those being passed through a STUN or TURN server,
     will be considered.
     """
+
+
+@dataclasses.dataclass(frozen=True)
+class StunServer:
+    """
+    A STUN server, used to obtain server-reflexive candidates.
+    """
+
+    #: The address of the STUN server.
+    address: tuple[str, int]
+
+
+@dataclasses.dataclass(frozen=True)
+class TurnServer:
+    """
+    A TURN server, used to obtain relayed candidates.
+    """
+
+    #: The address of the TURN server.
+    address: tuple[str, int]
+    #: The username for the TURN server.
+    username: Optional[str] = None
+    #: The password for the TURN server.
+    password: Optional[str] = None
+    #: Whether to use TLS for the TURN server.
+    ssl: bool = False
+    #: The transport for the TURN server, `"udp"` or `"tcp"`.
+    transport: str = "udp"
 
 
 async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol:
@@ -95,11 +124,7 @@ def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> list[str]:
 async def relayed_candidate(
     component: int,
     protocol_factory: Callable[[], "StunProtocol"],
-    turn_server: tuple[str, int],
-    turn_username: Optional[str],
-    turn_password: Optional[str],
-    turn_ssl: bool,
-    turn_transport: str,
+    turn_server: TurnServer,
 ) -> tuple[Candidate, "StunProtocol"]:
     """
     Connect to a TURN server to obtain a relayed candidate.
@@ -107,11 +132,11 @@ async def relayed_candidate(
     # Connect to TURN server.
     _, protocol = await turn.create_turn_endpoint(
         protocol_factory,
-        server_addr=turn_server,
-        username=turn_username,
-        password=turn_password,
-        ssl=turn_ssl,
-        transport=turn_transport,
+        server_addr=turn_server.address,
+        username=turn_server.username,
+        password=turn_server.password,
+        ssl=turn_server.ssl,
+        transport=turn_server.transport,
     )
 
     # Build relayed candidate.
@@ -348,11 +373,19 @@ class Connection:
     :param ice_controlling: Whether the local peer has the controlling role.
     :param components: The number of components.
     :param stun_server: The address of the STUN server or `None`.
+                        Deprecated, use `stun_servers` instead.
+    :param stun_servers: A list of STUN servers, or `None`.
     :param turn_server: The address of the TURN server or `None`.
+                        Deprecated, use `turn_servers` instead.
     :param turn_username: The username for the TURN server.
+                          Deprecated, use `turn_servers` instead.
     :param turn_password: The password for the TURN server.
+                          Deprecated, use `turn_servers` instead.
     :param turn_ssl: Whether to use TLS for the TURN server.
+                     Deprecated, use `turn_servers` instead.
     :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
+                           Deprecated, use `turn_servers` instead.
+    :param turn_servers: A list of TURN servers, or `None`.
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
     :param transport_policy: Transport policy.
@@ -367,11 +400,13 @@ class Connection:
         ice_controlling: bool,
         components: int = 1,
         stun_server: Optional[tuple[str, int]] = None,
+        stun_servers: Optional[Sequence[StunServer]] = None,
         turn_server: Optional[tuple[str, int]] = None,
         turn_username: Optional[str] = None,
         turn_password: Optional[str] = None,
         turn_ssl: bool = False,
         turn_transport: str = "udp",
+        turn_servers: Optional[Sequence[TurnServer]] = None,
         use_ipv4: bool = True,
         use_ipv6: bool = True,
         transport_policy: TransportPolicy = TransportPolicy.ALL,
@@ -397,12 +432,36 @@ class Connection:
         #: Remote password, which you need to set.
         self.remote_password: Optional[str] = None
 
-        self.stun_server = stun_server
-        self.turn_server = turn_server
-        self.turn_username = turn_username
-        self.turn_password = turn_password
-        self.turn_ssl = turn_ssl
-        self.turn_transport = turn_transport
+        # The singular `stun_server` / `turn_server` arguments predate support for
+        # multiple servers. Fold them into the plural form, which is what the rest
+        # of the code works with, and keep the singular attributes as views onto
+        # the first entry so existing code reading them keeps working.
+        if stun_server is not None and stun_servers is not None:
+            raise ValueError("Please use either stun_server or stun_servers, not both.")
+        if turn_server is not None and turn_servers is not None:
+            raise ValueError("Please use either turn_server or turn_servers, not both.")
+
+        if stun_servers is None:
+            stun_servers = [StunServer(address=stun_server)] if stun_server else []
+        if turn_servers is None:
+            turn_servers = (
+                [
+                    TurnServer(
+                        address=turn_server,
+                        username=turn_username,
+                        password=turn_password,
+                        ssl=turn_ssl,
+                        transport=turn_transport,
+                    )
+                ]
+                if turn_server
+                else []
+            )
+
+        #: The list of STUN servers.
+        self.stun_servers = list(stun_servers)
+        #: The list of TURN servers.
+        self.turn_servers = list(turn_servers)
 
         # private
         self._closed = False
@@ -435,8 +494,8 @@ class Connection:
         self._use_ipv6 = use_ipv6
 
         if (
-            stun_server is None
-            and turn_server is None
+            not self.stun_servers
+            and not self.turn_servers
             and transport_policy == TransportPolicy.RELAY
         ):
             raise ValueError(
@@ -444,6 +503,26 @@ class Connection:
             )
 
         self._transport_policy = transport_policy
+
+    @property
+    def stun_server(self) -> Optional[tuple[str, int]]:
+        """
+        The address of the first STUN server, or `None`.
+
+        .. deprecated::
+           Use :attr:`stun_servers` instead.
+        """
+        return self.stun_servers[0].address if self.stun_servers else None
+
+    @property
+    def turn_server(self) -> Optional[tuple[str, int]]:
+        """
+        The address of the first TURN server, or `None`.
+
+        .. deprecated::
+           Use :attr:`turn_servers` instead.
+        """
+        return self.turn_servers[0].address if self.turn_servers else None
 
     @property
     def local_candidates(self) -> list[Candidate]:
@@ -1010,28 +1089,24 @@ class Connection:
 
         tasks: list[asyncio.Task[tuple[Candidate, Optional[StunProtocol]]]] = []
 
-        # Query STUN server for server-reflexive candidates (IPv4 only).
-        if self.stun_server:
+        # Query STUN servers for server-reflexive candidates (IPv4 only).
+        for stun_server in self.stun_servers:
             for protocol in host_protocols:
                 if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
                     tasks.append(
                         asyncio.create_task(
-                            server_reflexive_candidate(protocol, self.stun_server)
+                            server_reflexive_candidate(protocol, stun_server.address)
                         )
                     )
 
-        # Connect to TURN server.
-        if self.turn_server:
+        # Connect to TURN servers.
+        for turn_server in self.turn_servers:
             tasks.append(
                 asyncio.create_task(
                     relayed_candidate(
                         component=component,
                         protocol_factory=lambda: StunProtocol(self),
-                        turn_server=self.turn_server,
-                        turn_username=self.turn_username,
-                        turn_password=self.turn_password,
-                        turn_ssl=self.turn_ssl,
-                        turn_transport=self.turn_transport,
+                        turn_server=turn_server,
                     )
                 )
             )
@@ -1042,6 +1117,18 @@ class Connection:
             for task in done:
                 if task.exception() is None:
                     candidate, protocol = task.result()
+                    # A server-reflexive candidate can be identical to one obtained
+                    # from another STUN server, as they observe the same public
+                    # address. Only keep the first one.
+                    if any(
+                        c.host == candidate.host
+                        and c.port == candidate.port
+                        and c.type == candidate.type
+                        for c in candidates
+                    ):
+                        if protocol is not None:
+                            await protocol.close()
+                        continue
                     candidates.append(candidate)
                     if protocol is not None:
                         self._protocols.append(protocol)

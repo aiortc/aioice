@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import ipaddress
 import os
 import unittest
 from collections.abc import Callable, Coroutine
@@ -983,6 +984,224 @@ class IceConnectionTest(unittest.TestCase):
             await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
+    async def test_connect_with_multiple_turn_servers(self) -> None:
+        """
+        Two TURN servers should each yield a relayed candidate.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server_1:
+            async with run_turn_server(users={"baz": "qux"}) as turn_server_2:
+                conn_a = ice.Connection(
+                    ice_controlling=True,
+                    turn_servers=[
+                        ice.TurnServer(
+                            address=turn_server_1.udp_address,
+                            username="foo",
+                            password="bar",
+                        ),
+                        ice.TurnServer(
+                            address=turn_server_2.udp_address,
+                            username="baz",
+                            password="qux",
+                        ),
+                    ],
+                )
+                conn_b = ice.Connection(ice_controlling=False)
+
+                # invite / accept
+                await invite_accept(conn_a, conn_b)
+
+                # we should have host candidates and one relayed candidate per server
+                self.assertCandidateTypes(conn_a, set(["host", "relay"]))
+                relayed = [c for c in conn_a.local_candidates if c.type == "relay"]
+                self.assertEqual(len(relayed), 2)
+
+                # the relayed candidates should be distinct
+                self.assertEqual(len(set((c.host, c.port) for c in relayed)), 2)
+
+                await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_multiple_turn_servers_mixed_transports(self) -> None:
+        """
+        A UDP and a TCP TURN server should both yield a relayed candidate.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_servers=[
+                    ice.TurnServer(
+                        address=turn_server.udp_address,
+                        username="foo",
+                        password="bar",
+                        transport="udp",
+                    ),
+                    ice.TurnServer(
+                        address=turn_server.tcp_address,
+                        username="foo",
+                        password="bar",
+                        transport="tcp",
+                    ),
+                ],
+            )
+            conn_b = ice.Connection(ice_controlling=False)
+
+            # invite / accept
+            await invite_accept(conn_a, conn_b)
+
+            self.assertCandidateTypes(conn_a, set(["host", "relay"]))
+            relayed = [c for c in conn_a.local_candidates if c.type == "relay"]
+            self.assertEqual(len(relayed), 2)
+
+            await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_multiple_turn_servers_one_fails(self) -> None:
+        """
+        A failing TURN server must not prevent the others from being used.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server_1:
+            async with run_turn_server(users={"baz": "qux"}) as turn_server_2:
+                # the second server will reject our credentials
+                conn_a = ice.Connection(
+                    ice_controlling=True,
+                    turn_servers=[
+                        ice.TurnServer(
+                            address=turn_server_1.udp_address,
+                            username="foo",
+                            password="bar",
+                        ),
+                        ice.TurnServer(
+                            address=turn_server_2.udp_address,
+                            username="baz",
+                            password="incorrect",
+                        ),
+                    ],
+                )
+                conn_b = ice.Connection(ice_controlling=False)
+
+                # invite / accept
+                await invite_accept(conn_a, conn_b)
+
+                # the working server still gives us a relayed candidate
+                self.assertCandidateTypes(conn_a, set(["host", "relay"]))
+                relayed = [c for c in conn_a.local_candidates if c.type == "relay"]
+                self.assertEqual(len(relayed), 1)
+
+                await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_multiple_stun_servers(self) -> None:
+        """
+        Two STUN servers observing the same address yield a single candidate.
+        """
+        async with run_turn_server() as stun_server_1:
+            async with run_turn_server() as stun_server_2:
+                conn_a = ice.Connection(
+                    ice_controlling=True,
+                    stun_servers=[
+                        ice.StunServer(address=stun_server_1.udp_address),
+                        ice.StunServer(address=stun_server_2.udp_address),
+                    ],
+                )
+                conn_b = ice.Connection(ice_controlling=False)
+
+                # invite / accept
+                await invite_accept(conn_a, conn_b)
+
+                self.assertCandidateTypes(conn_a, set(["host", "srflx"]))
+
+                # Both servers observe the same public address, so each host
+                # candidate yields a single server-reflexive candidate rather
+                # than one per server. STUN is only used for IPv4.
+                srflx = [c for c in conn_a.local_candidates if c.type == "srflx"]
+                ipv4_hosts = [
+                    c
+                    for c in conn_a.local_candidates
+                    if c.type == "host" and ipaddress.ip_address(c.host).version == 4
+                ]
+                self.assertEqual(len(srflx), len(ipv4_hosts))
+                self.assertEqual(len(set((c.host, c.port) for c in srflx)), len(srflx))
+
+                await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_multiple_stun_servers_one_fails(self) -> None:
+        """
+        A failing STUN server must not prevent the others from being used.
+        """
+        async with run_turn_server() as stun_server:
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                stun_servers=[
+                    ice.StunServer(address=("invalid.", 1234)),
+                    ice.StunServer(address=stun_server.udp_address),
+                ],
+            )
+            conn_b = ice.Connection(ice_controlling=False)
+
+            # invite / accept
+            await invite_accept(conn_a, conn_b)
+
+            # the working server still gives us a server-reflexive candidate
+            self.assertCandidateTypes(conn_a, set(["host", "srflx"]))
+
+            await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_stun_and_turn_servers(self) -> None:
+        """
+        STUN and TURN servers can be combined.
+        """
+        async with run_turn_server() as stun_server:
+            async with run_turn_server(users={"foo": "bar"}) as turn_server:
+                conn_a = ice.Connection(
+                    ice_controlling=True,
+                    stun_servers=[ice.StunServer(address=stun_server.udp_address)],
+                    turn_servers=[
+                        ice.TurnServer(
+                            address=turn_server.udp_address,
+                            username="foo",
+                            password="bar",
+                        )
+                    ],
+                )
+                conn_b = ice.Connection(ice_controlling=False)
+
+                # invite / accept
+                await invite_accept(conn_a, conn_b)
+
+                self.assertCandidateTypes(conn_a, set(["host", "srflx", "relay"]))
+
+                await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_with_turn_servers_relay_policy(self) -> None:
+        """
+        The relay transport policy is satisfied by the plural arguments.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_servers=[
+                    ice.TurnServer(
+                        address=turn_server.udp_address,
+                        username="foo",
+                        password="bar",
+                    )
+                ],
+                transport_policy=ice.TransportPolicy.RELAY,
+            )
+            conn_b = ice.Connection(ice_controlling=False)
+
+            # invite / accept
+            await invite_accept(conn_a, conn_b)
+
+            # only the relayed candidate is advertised
+            self.assertCandidateTypes(conn_a, set(["relay"]))
+
+            await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
     async def test_consent_expired(self) -> None:
         # lower consent timer
         ice.CONSENT_FAILURES = 1
@@ -1217,6 +1436,120 @@ class IceConnectionTest(unittest.TestCase):
     async def test_gather_candidates_relay_only_no_servers(self) -> None:
         with self.assertRaises(ValueError) as cm:
             ice.Connection(ice_controlling=True, transport_policy=TransportPolicy.RELAY)
+        self.assertEqual(
+            str(cm.exception),
+            "Relay transport policy requires a STUN and/or TURN server.",
+        )
+
+    def test_stun_and_turn_servers(self) -> None:
+        # No servers.
+        connection = ice.Connection(ice_controlling=True)
+        self.assertEqual(connection.stun_servers, [])
+        self.assertEqual(connection.turn_servers, [])
+        self.assertIsNone(connection.stun_server)
+        self.assertIsNone(connection.turn_server)
+
+        # The singular arguments are folded into the plural form.
+        connection = ice.Connection(
+            ice_controlling=True,
+            stun_server=("1.2.3.4", 1234),
+            turn_server=("5.6.7.8", 5678),
+            turn_username="foo",
+            turn_password="bar",
+            turn_ssl=True,
+            turn_transport="tcp",
+        )
+        self.assertEqual(
+            connection.stun_servers, [ice.StunServer(address=("1.2.3.4", 1234))]
+        )
+        self.assertEqual(
+            connection.turn_servers,
+            [
+                ice.TurnServer(
+                    address=("5.6.7.8", 5678),
+                    username="foo",
+                    password="bar",
+                    ssl=True,
+                    transport="tcp",
+                )
+            ],
+        )
+
+        # The singular attributes still reflect the first server.
+        self.assertEqual(connection.stun_server, ("1.2.3.4", 1234))
+        self.assertEqual(connection.turn_server, ("5.6.7.8", 5678))
+
+        # The plural arguments accept several servers.
+        connection = ice.Connection(
+            ice_controlling=True,
+            stun_servers=[
+                ice.StunServer(address=("1.2.3.4", 1234)),
+                ice.StunServer(address=("1.2.3.5", 1234)),
+            ],
+            turn_servers=[
+                ice.TurnServer(address=("5.6.7.8", 5678)),
+                ice.TurnServer(address=("5.6.7.9", 5678)),
+            ],
+        )
+        self.assertEqual(len(connection.stun_servers), 2)
+        self.assertEqual(len(connection.turn_servers), 2)
+        self.assertEqual(connection.stun_server, ("1.2.3.4", 1234))
+        self.assertEqual(connection.turn_server, ("5.6.7.8", 5678))
+
+        # A TURN server has sensible defaults.
+        turn_server = ice.TurnServer(address=("5.6.7.8", 5678))
+        self.assertIsNone(turn_server.username)
+        self.assertIsNone(turn_server.password)
+        self.assertFalse(turn_server.ssl)
+        self.assertEqual(turn_server.transport, "udp")
+
+    def test_stun_and_turn_servers_mutually_exclusive(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(
+                ice_controlling=True,
+                stun_server=("1.2.3.4", 1234),
+                stun_servers=[ice.StunServer(address=("1.2.3.5", 1234))],
+            )
+        self.assertEqual(
+            str(cm.exception),
+            "Please use either stun_server or stun_servers, not both.",
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(
+                ice_controlling=True,
+                turn_server=("5.6.7.8", 5678),
+                turn_servers=[ice.TurnServer(address=("5.6.7.9", 5678))],
+            )
+        self.assertEqual(
+            str(cm.exception),
+            "Please use either turn_server or turn_servers, not both.",
+        )
+
+    def test_relay_policy_with_plural_servers(self) -> None:
+        # The plural arguments satisfy the relay transport policy.
+        connection = ice.Connection(
+            ice_controlling=True,
+            turn_servers=[ice.TurnServer(address=("5.6.7.8", 5678))],
+            transport_policy=TransportPolicy.RELAY,
+        )
+        self.assertEqual(len(connection.turn_servers), 1)
+
+        connection = ice.Connection(
+            ice_controlling=True,
+            stun_servers=[ice.StunServer(address=("1.2.3.4", 1234))],
+            transport_policy=TransportPolicy.RELAY,
+        )
+        self.assertEqual(len(connection.stun_servers), 1)
+
+        # Empty lists do not.
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(
+                ice_controlling=True,
+                stun_servers=[],
+                turn_servers=[],
+                transport_policy=TransportPolicy.RELAY,
+            )
         self.assertEqual(
             str(cm.exception),
             "Relay transport policy requires a STUN and/or TURN server.",
