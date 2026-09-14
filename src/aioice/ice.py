@@ -383,6 +383,14 @@ class Connection:
                            will be generated.
     :param local_password: An optional local password, otherwise a random one
                            will be generated.
+    :param ice_lite: Whether this agent is an ICE Lite implementation
+                     (RFC 8445 §2.1 / §6.1.1). A Lite agent is always
+                     controlled, gathers host candidates only (STUN/TURN
+                     servers are ignored for gathering), answers Binding
+                     requests, and never initiates connectivity checks.
+                     Consent freshness checks are still performed. Advertising
+                     ``a=ice-lite`` in SDP is the application's responsibility.
+                     Must not be combined with ``ice_controlling=True``.
     """
 
     def __init__(
@@ -400,8 +408,14 @@ class Connection:
         transport_policy: TransportPolicy = TransportPolicy.ALL,
         local_username: str | None = None,
         local_password: str | None = None,
+        ice_lite: bool = False,
     ) -> None:
+        if ice_lite and ice_controlling:
+            raise ValueError("ICE Lite agents must use the controlled role")
+
         self.ice_controlling = ice_controlling
+        #: Whether this agent is an ICE Lite implementation.
+        self.ice_lite = ice_lite
 
         if local_username is None:
             local_username = random_string(4)
@@ -1022,6 +1036,17 @@ class Connection:
         """
         Starts a check.
         """
+        # ICE Lite agents never initiate connectivity checks (RFC 8445 §2.1).
+        # Mark the pair valid and honour remote nomination without putting a
+        # Binding request on the wire. Binding responses and consent freshness
+        # remain unchanged.
+        if self.ice_lite:
+            if pair.remote_nominated:
+                pair.nominated = True
+            self.check_state(pair, CandidatePair.State.SUCCEEDED)
+            self.check_complete(pair)
+            return
+
         # Checks only start once connect() has the remote password.
         assert self.remote_password is not None
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
@@ -1174,34 +1199,36 @@ class Connection:
 
         tasks: list[asyncio.Task[tuple[Candidate, StunProtocol | None]]] = []
 
-        # Query STUN server for server-reflexive candidates (IPv4 only).
-        if self.stun_server:
-            for protocol in host_protocols:
-                if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
-                    tasks.append(
-                        asyncio.create_task(
-                            server_reflexive_candidate(protocol, self.stun_server)
+        # ICE Lite agents only gather host candidates (RFC 8445 §2.1).
+        if not self.ice_lite:
+            # Query STUN server for server-reflexive candidates (IPv4 only).
+            if self.stun_server:
+                for protocol in host_protocols:
+                    if ipaddress.ip_address(protocol.local_candidate.host).version == 4:
+                        tasks.append(
+                            asyncio.create_task(
+                                server_reflexive_candidate(protocol, self.stun_server)
+                            )
+                        )
+
+            # Connect to TURN server.
+            if self.turn_server:
+                tasks.append(
+                    asyncio.create_task(
+                        relayed_candidate(
+                            component=component,
+                            hide_related_address=(
+                                self._transport_policy == TransportPolicy.RELAY
+                            ),
+                            protocol_factory=lambda: StunProtocol(self),
+                            turn_server=self.turn_server,
+                            turn_username=self.turn_username,
+                            turn_password=self.turn_password,
+                            turn_ssl=self.turn_ssl,
+                            turn_transport=self.turn_transport,
                         )
                     )
-
-        # Connect to TURN server.
-        if self.turn_server:
-            tasks.append(
-                asyncio.create_task(
-                    relayed_candidate(
-                        component=component,
-                        hide_related_address=(
-                            self._transport_policy == TransportPolicy.RELAY
-                        ),
-                        protocol_factory=lambda: StunProtocol(self),
-                        turn_server=self.turn_server,
-                        turn_username=self.turn_username,
-                        turn_password=self.turn_password,
-                        turn_ssl=self.turn_ssl,
-                        turn_transport=self.turn_transport,
-                    )
                 )
-            )
 
         # Run tasks in parallel and handle exceptions.
         if len(tasks):
@@ -1377,6 +1404,11 @@ class Connection:
         sort_candidate_pairs(self._check_list, self.ice_controlling)
 
     def switch_role(self, ice_controlling: bool) -> None:
+        # ICE Lite agents are always controlled and never switch (RFC 8445 §6.1.1).
+        if self.ice_lite:
+            self.__log_info("ICE Lite agent stays in controlled role")
+            return
+
         self.__log_info(
             "Switching to %s role", ice_controlling and "controlling" or "controlled"
         )
