@@ -533,6 +533,131 @@ class IceConnectionTest(unittest.TestCase):
         await conn_a.close()
         await conn_b.close()
 
+    @asynctest
+    async def test_connect_as_ice_lite(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.remote_is_lite = True
+        conn_b = ice.Connection(ice_controlling=False, ice_lite=True)
+
+        # invite / accept
+        await invite_accept(conn_a, conn_b)
+
+        self.assertCandidateTypes(conn_a, set(["host"]))
+        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertTrue(conn_b.ice_lite)
+        self.assertFalse(conn_b.ice_controlling)
+
+        await self.connect_and_exchange_data(conn_a, conn_b)
+
+        self.assertTrue(conn_a.ice_controlling)
+        self.assertFalse(conn_b.ice_controlling)
+
+    @asynctest
+    async def test_ice_lite_no_outbound_checks(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.remote_is_lite = True
+        conn_b = ice.Connection(ice_controlling=False, ice_lite=True)
+
+        await invite_accept(conn_a, conn_b)
+
+        request_count = 0
+        original_requests = []
+        for protocol in conn_b._protocols:
+            original = protocol.request
+
+            async def counting_request(
+                message: stun.Message,
+                addr: tuple[str, int],
+                integrity_key: Optional[bytes] = None,
+                retransmissions: Optional[int] = None,
+                _original: Callable[
+                    ..., Coroutine[None, None, tuple[stun.Message, tuple[str, int]]]
+                ] = original,
+            ) -> tuple[stun.Message, tuple[str, int]]:
+                nonlocal request_count
+                request_count += 1
+                return await _original(
+                    message,
+                    addr,
+                    integrity_key=integrity_key,
+                    retransmissions=retransmissions,
+                )
+
+            original_requests.append((protocol, original))
+            protocol.request = counting_request  # type: ignore
+
+        try:
+            await asyncio.gather(conn_a.connect(), conn_b.connect())
+            # Lite agents must not send establishment Binding requests.
+            # Consent freshness starts after connect and may send requests.
+            self.assertEqual(request_count, 0)
+
+            await conn_a.send(b"howdee")
+            data = await conn_b.recv()
+            self.assertEqual(data, b"howdee")
+        finally:
+            for protocol, original in original_requests:
+                protocol.request = original  # type: ignore
+            await conn_a.close()
+            await conn_b.close()
+
+    def test_ice_lite_rejects_controlling(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(ice_controlling=True, ice_lite=True)
+        self.assertEqual(
+            str(cm.exception), "ICE Lite agents must use the controlled role"
+        )
+
+    @asynctest
+    async def test_ice_lite_never_switches_role(self) -> None:
+        conn = ice.Connection(ice_controlling=False, ice_lite=True)
+        self.assertFalse(conn.ice_controlling)
+        conn.switch_role(ice_controlling=True)
+        self.assertFalse(conn.ice_controlling)
+        await conn.close()
+
+    @asynctest
+    async def test_ice_lite_check_start_honours_remote_nomination(self) -> None:
+        connection = ice.Connection(ice_controlling=False, ice_lite=True)
+        connection.remote_password = "remote-password"
+        connection.remote_username = "remote-username"
+
+        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+        pair = ice.CandidatePair(
+            protocol,
+            Candidate(
+                foundation="some-foundation",
+                component=1,
+                transport="udp",
+                priority=2345,
+                host="2.3.4.5",
+                port=2345,
+                type="host",
+            ),
+        )
+        pair.remote_nominated = True
+        connection._check_list.append(pair)
+        connection._components = {1}
+
+        await connection.check_start(pair)
+        self.assertTrue(pair.nominated)
+        self.assertEqual(pair.state, ice.CandidatePair.State.SUCCEEDED)
+        self.assertIs(connection._nominated[1], pair)
+        self.assertIsNone(protocol.sent_message)
+        await connection.close()
+
+    @asynctest
+    async def test_ice_lite_gathers_host_only(self) -> None:
+        async with run_turn_server() as stun_server:
+            conn = ice.Connection(
+                ice_controlling=False,
+                ice_lite=True,
+                stun_server=stun_server.udp_address,
+            )
+            await conn.gather_candidates()
+            self.assertCandidateTypes(conn, set(["host"]))
+            await conn.close()
+
     @unittest.skipIf(RUNNING_ON_CI, "CI lacks ipv6")
     @asynctest
     async def test_connect_ipv6(self) -> None:

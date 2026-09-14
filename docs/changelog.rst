@@ -3,6 +3,11 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.10.3
+------
+
+ * Add local ICE-Lite mode via ``Connection(..., ice_lite=True)``.
+
 0.10.2
 ------
 
