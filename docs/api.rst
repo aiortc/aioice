@@ -4,11 +4,12 @@ API Reference
 .. automodule:: aioice
 
    .. autoclass:: Connection
-      :members: local_candidates, local_username, local_password, remote_candidates, remote_username, remote_password
+      :members: candidate_pairs, local_candidates, local_username, local_password, remote_candidates, remote_username, remote_password
 
       .. automethod:: add_remote_candidate
       .. automethod:: gather_candidates
       .. automethod:: get_default_candidate
+      .. automethod:: get_selected_pair
       .. automethod:: connect
       .. automethod:: close
       .. automethod:: recv

@@ -9,6 +9,7 @@ import re
 import secrets
 import socket
 import threading
+import time
 from collections.abc import Callable
 from typing import Optional, Union, cast
 
@@ -216,6 +217,18 @@ class CandidatePair:
         self.remote_nominated = False
         self.state = CandidatePair.State.FROZEN
 
+        self.bytes_received = 0
+        self.bytes_sent = 0
+        self.consent_requests_sent = 0
+        self.current_round_trip_time: Optional[float] = None
+        self.packets_received = 0
+        self.packets_sent = 0
+        self.requests_received = 0
+        self.requests_sent = 0
+        self.responses_received = 0
+        self.responses_sent = 0
+        self.total_round_trip_time = 0.0
+
     def __repr__(self) -> str:
         return "CandidatePair(%s -> %s)" % (self.local_addr, self.remote_addr)
 
@@ -271,6 +284,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             message = stun.parse_message(data)
             self.__log_debug("< %s %s", addr, message)
         except ValueError:
+            self.receiver.pair_data_received(self, addr, len(data))
             self.receiver.data_received(data, self.local_candidate.component)
             return
 
@@ -446,6 +460,13 @@ class Connection:
         self._transport_policy = transport_policy
 
     @property
+    def candidate_pairs(self) -> list[CandidatePair]:
+        """
+        Candidate pairs in the check list.
+        """
+        return self._check_list[:]
+
+    @property
     def local_candidates(self) -> list[Candidate]:
         """
         Local candidates, automatically set by :meth:`gather_candidates`.
@@ -557,6 +578,12 @@ class Connection:
             if candidate.component == component:
                 return candidate
         return None
+
+    def get_selected_pair(self, component: int) -> Optional[CandidatePair]:
+        """
+        Get the candidate pair which is used to send data for a component.
+        """
+        return self._nominated.get(component)
 
     async def connect(self) -> None:
         """
@@ -707,6 +734,8 @@ class Connection:
         active_pair = self._nominated.get(component)
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
+            active_pair.bytes_sent += len(data)
+            active_pair.packets_sent += 1
         else:
             raise ConnectionError("Cannot send data, not connected")
 
@@ -845,6 +874,8 @@ class Connection:
             pair.state = CandidatePair.State.WAITING
             self._check_list.append(pair)
             self.sort_check_list()
+        pair.requests_received += 1
+        pair.responses_sent += 1
 
         # triggered check
         if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
@@ -886,11 +917,7 @@ class Connection:
         nominate = self.ice_controlling and not self.remote_is_lite
         request = self.build_request(pair, nominate=nominate)
         try:
-            response, addr = await pair.protocol.request(
-                request,
-                pair.remote_addr,
-                integrity_key=self.remote_password.encode("utf8"),
-            )
+            response, addr = await self.pair_request(pair, request)
         except stun.TransactionError as exc:
             # 7.1.3.1. Failure Cases
             if (
@@ -924,11 +951,7 @@ class Connection:
             self._nominating.add(pair.component)
             request = self.build_request(pair, nominate=True)
             try:
-                await pair.protocol.request(
-                    request,
-                    pair.remote_addr,
-                    integrity_key=self.remote_password.encode("utf8"),
-                )
+                await self.pair_request(pair, request)
             except stun.TransactionError:
                 self.__log_info("Check %s failed : could not nominate pair", pair)
                 self.check_state(pair, CandidatePair.State.FAILED)
@@ -1076,12 +1099,7 @@ class Connection:
             for pair in self._nominated.values():
                 request = self.build_request(pair, nominate=False)
                 try:
-                    await pair.protocol.request(
-                        request,
-                        pair.remote_addr,
-                        integrity_key=self.remote_password.encode("utf8"),
-                        retransmissions=0,
-                    )
+                    await self.pair_request(pair, request, consent=True)
                     failures = 0
                 except stun.TransactionError:
                     failures += 1
@@ -1092,6 +1110,41 @@ class Connection:
 
     def data_received(self, data: Optional[bytes], component: Optional[int]) -> None:
         self._queue.put_nowait((data, component))
+
+    def pair_data_received(
+        self, protocol: StunProtocol, addr: tuple[str, int], size: int
+    ) -> None:
+        pair = self._nominated.get(protocol.local_candidate.component)
+        if pair and pair.protocol == protocol and pair.remote_addr == addr:
+            pair.bytes_received += size
+            pair.packets_received += 1
+
+    async def pair_request(
+        self,
+        pair: CandidatePair,
+        request: stun.Message,
+        consent: bool = False,
+    ) -> tuple[stun.Message, tuple[str, int]]:
+        """
+        Execute a STUN transaction on a candidate pair and update its statistics.
+
+        Consent checks are not retransmitted.
+        """
+        if consent:
+            pair.consent_requests_sent += 1
+        else:
+            pair.requests_sent += 1
+        start = time.monotonic()
+        response, addr = await pair.protocol.request(
+            request,
+            pair.remote_addr,
+            integrity_key=self.remote_password.encode("utf8"),
+            retransmissions=0 if consent else None,
+        )
+        pair.responses_received += 1
+        pair.current_round_trip_time = time.monotonic() - start
+        pair.total_round_trip_time += pair.current_round_trip_time
+        return response, addr
 
     def request_received(
         self,

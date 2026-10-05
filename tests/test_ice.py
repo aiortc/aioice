@@ -285,6 +285,42 @@ class IceConnectionTest(unittest.TestCase):
         await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
+    async def test_connect_pair_stats(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # invite / accept
+        await invite_accept(conn_a, conn_b)
+
+        # connect
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+        self.assertIsNone(conn_a.get_selected_pair(2))
+
+        # send data a -> b
+        await conn_a.send(b"howdee")
+        data = await conn_b.recv()
+        self.assertEqual(data, b"howdee")
+
+        pair_a = conn_a.get_selected_pair(1)
+        self.assertIn(pair_a, conn_a.candidate_pairs)
+        self.assertEqual(pair_a.bytes_sent, 6)
+        self.assertEqual(pair_a.packets_sent, 1)
+        self.assertGreaterEqual(pair_a.requests_sent, 1)
+        self.assertGreaterEqual(pair_a.responses_received, 1)
+        self.assertIsNotNone(pair_a.current_round_trip_time)
+        self.assertGreater(pair_a.total_round_trip_time, 0)
+
+        pair_b = conn_b.get_selected_pair(1)
+        self.assertEqual(pair_b.bytes_received, 6)
+        self.assertEqual(pair_b.packets_received, 1)
+        self.assertGreaterEqual(pair_b.requests_received, 1)
+        self.assertEqual(pair_b.responses_sent, pair_b.requests_received)
+
+        # close
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
     async def test_connect_close(self) -> None:
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
@@ -1021,10 +1057,19 @@ class IceConnectionTest(unittest.TestCase):
         # connect
         await asyncio.gather(conn_a.connect(), conn_b.connect())
         self.assertEqual(len(conn_a._nominated), 1)
+        pair = conn_a.get_selected_pair(1)
+        requests_sent = pair.requests_sent
+        responses_received = pair.responses_received
+        self.assertEqual(pair.consent_requests_sent, 0)
 
         # check consent
         await asyncio.sleep(2)
         self.assertEqual(len(conn_a._nominated), 1)
+        self.assertGreater(pair.consent_requests_sent, 0)
+        self.assertEqual(pair.requests_sent, requests_sent)
+        self.assertEqual(
+            pair.responses_received, responses_received + pair.consent_requests_sent
+        )
 
         # close
         await conn_a.close()
