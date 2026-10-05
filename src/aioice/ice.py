@@ -767,12 +767,13 @@ class Connection:
                 # The agent MUST remove all Waiting and Frozen pairs in the check
                 # list and triggered check queue for the same component as the
                 # nominated pairs for that media stream.
-                for p in self._check_list:
-                    if p.component == pair.component and p.state in [
-                        CandidatePair.State.WAITING,
-                        CandidatePair.State.FROZEN,
-                    ]:
-                        self.check_state(p, CandidatePair.State.FAILED)
+                self._check_list = [
+                    p
+                    for p in self._check_list
+                    if p.component != pair.component
+                    or p.state
+                    not in [CandidatePair.State.WAITING, CandidatePair.State.FROZEN]
+                ]
 
             # Once there is at least one nominated pair in the valid list for
             # every component of at least one media stream and the state of the

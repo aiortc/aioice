@@ -94,6 +94,42 @@ class IceComponentTest(unittest.TestCase):
         await pair.task
 
     @asynctest
+    async def test_nomination_removes_waiting_and_frozen_pairs(self) -> None:
+        connection = ice.Connection(ice_controlling=True)
+        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+
+        def create_pair(port: int, state: ice.CandidatePair.State) -> ice.CandidatePair:
+            pair = ice.CandidatePair(
+                protocol,
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=2345,
+                    host="2.3.4.5",
+                    port=port,
+                    type="host",
+                ),
+            )
+            pair.state = state
+            return pair
+
+        nominated = create_pair(1000, ice.CandidatePair.State.SUCCEEDED)
+        nominated.nominated = True
+        failed = create_pair(1001, ice.CandidatePair.State.FAILED)
+        in_progress = create_pair(1002, ice.CandidatePair.State.IN_PROGRESS)
+        connection._check_list = [
+            nominated,
+            failed,
+            create_pair(1003, ice.CandidatePair.State.WAITING),
+            in_progress,
+            create_pair(1004, ice.CandidatePair.State.FROZEN),
+        ]
+
+        connection.check_complete(nominated)
+        self.assertEqual(connection._check_list, [nominated, failed, in_progress])
+
+    @asynctest
     async def test_request_with_invalid_method(self) -> None:
         connection = ice.Connection(ice_controlling=True)
 
