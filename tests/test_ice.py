@@ -1184,6 +1184,36 @@ class IceConnectionTest(unittest.TestCase):
         await publisher.close()
 
     @asynctest
+    async def test_add_remote_candidate_mdns_relay(self) -> None:
+        """
+        Add an mDNS candidate with the relay transport policy.
+        """
+        hostname = mdns.create_mdns_hostname()
+        publisher = await mdns.create_mdns_protocol()
+        await publisher.publish(hostname, "1.2.3.4")
+
+        conn_a = ice.Connection(
+            ice_controlling=True, transport_policy=TransportPolicy.RELAY
+        )
+
+        await conn_a.add_remote_candidate(
+            Candidate(
+                foundation="some-foundation",
+                component=1,
+                transport="udp",
+                priority=1234,
+                host=hostname,
+                port=1234,
+                type="host",
+            )
+        )
+        self.assertEqual(len(conn_a.remote_candidates), 0)
+
+        # close
+        await conn_a.close()
+        await publisher.close()
+
+    @asynctest
     async def test_add_remote_candidate_unknown_type(self) -> None:
         conn_a = ice.Connection(ice_controlling=True)
 

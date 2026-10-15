@@ -482,8 +482,10 @@ class Connection:
             self._remote_candidates_end = True
             return
 
-        # resolve mDNS candidate
+        # resolve mDNS candidate, unless only relayed candidates are used
         if mdns.is_mdns_hostname(remote_candidate.host):
+            if self._transport_policy == TransportPolicy.RELAY:
+                return
             mdns_protocol = await get_or_create_mdns_protocol(self)
             remote_addr = await mdns_protocol.resolve(remote_candidate.host)
             if remote_addr is None:
