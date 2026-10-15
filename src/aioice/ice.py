@@ -41,7 +41,7 @@ class TransportPolicy(enum.Enum):
     RELAY = 1
     """
     Only ICE candidates whose IP addresses are being relayed,
-    such as those being passed through a STUN or TURN server,
+    such as those being passed through a TURN server,
     will be considered.
     """
 
@@ -434,15 +434,6 @@ class Connection:
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
 
-        if (
-            stun_server is None
-            and turn_server is None
-            and transport_policy == TransportPolicy.RELAY
-        ):
-            raise ValueError(
-                "Relay transport policy requires a STUN and/or TURN server."
-            )
-
         self._transport_policy = transport_policy
 
     @property
@@ -536,9 +527,11 @@ class Connection:
         """
         if not self._local_candidates_start:
             self._local_candidates_start = True
-            addresses = get_host_addresses(
-                use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
-            )
+            addresses = []
+            if self._transport_policy == TransportPolicy.ALL:
+                addresses = get_host_addresses(
+                    use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
+                )
             coros = [
                 self.get_component_candidates(component=component, addresses=addresses)
                 for component in self._components
@@ -1004,8 +997,7 @@ class Connection:
                 port=candidate_address[1],
                 type="host",
             )
-            if self._transport_policy == TransportPolicy.ALL:
-                candidates.append(protocol.local_candidate)
+            candidates.append(protocol.local_candidate)
         self._protocols += host_protocols
 
         tasks: list[asyncio.Task[tuple[Candidate, Optional[StunProtocol]]]] = []

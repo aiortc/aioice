@@ -1215,32 +1215,24 @@ class IceConnectionTest(unittest.TestCase):
 
     @asynctest
     async def test_gather_candidates_relay_only_no_servers(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            ice.Connection(ice_controlling=True, transport_policy=TransportPolicy.RELAY)
-        self.assertEqual(
-            str(cm.exception),
-            "Relay transport policy requires a STUN and/or TURN server.",
+        conn = ice.Connection(
+            ice_controlling=True, transport_policy=TransportPolicy.RELAY
         )
+        await conn.gather_candidates()
+        self.assertEqual(conn.local_candidates, [])
+        await conn.close()
 
     @asynctest
     async def test_gather_candidates_relay_only_with_stun_server(self) -> None:
         async with run_turn_server() as stun_server:
-            conn_a = ice.Connection(
+            conn = ice.Connection(
                 ice_controlling=True,
                 stun_server=stun_server.udp_address,
                 transport_policy=TransportPolicy.RELAY,
             )
-            conn_b = ice.Connection(ice_controlling=False)
-
-            # invite / accept
-            await invite_accept(conn_a, conn_b)
-
-            # we whould only have a server-reflexive candidate in connection a
-            self.assertCandidateTypes(conn_a, set(["srflx"]))
-
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            await conn.gather_candidates()
+            self.assertEqual(conn.local_candidates, [])
+            await conn.close()
 
     @asynctest
     async def test_gather_candidates_relay_only_with_turn_server(self) -> None:
@@ -1257,8 +1249,13 @@ class IceConnectionTest(unittest.TestCase):
             # invite / accept
             await invite_accept(conn_a, conn_b)
 
-            # we whould only have a server-reflexive candidate in connection a
+            # we should only have a relayed candidate in connection a
             self.assertCandidateTypes(conn_a, set(["relay"]))
+
+            # and no host sockets which could be used for checks
+            self.assertEqual(
+                [p.local_candidate.type for p in conn_a._protocols], ["relay"]
+            )
 
             # close
             await conn_a.close()
