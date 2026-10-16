@@ -360,6 +360,13 @@ class Connection:
                            will be generated.
     :param local_password: An optional local password, otherwise a random one
                            will be generated.
+    :param port_range: An optional two-tuple `(min_port, max_port)` restricting
+                       the *local* UDP ports used for host candidates. When set,
+                       each host candidate socket is bound to a free port within
+                       this inclusive range instead of an ephemeral port picked by
+                       the operating system. Both ports must be in the
+                       non-privileged range 1024-65535. This does not affect the
+                       local ports used for STUN, TURN or mDNS.
     """
 
     def __init__(
@@ -377,6 +384,7 @@ class Connection:
         transport_policy: TransportPolicy = TransportPolicy.ALL,
         local_username: Optional[str] = None,
         local_password: Optional[str] = None,
+        port_range: Optional[tuple[int, int]] = None,
     ) -> None:
         self.ice_controlling = ice_controlling
 
@@ -433,6 +441,19 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+
+        if port_range is not None:
+            port_min, port_max = port_range
+            if (
+                not isinstance(port_min, int)
+                or not isinstance(port_max, int)
+                or not (1024 <= port_min <= port_max <= 65535)
+            ):
+                raise ValueError(
+                    "port_range must be a tuple of two integers between 1024 and "
+                    "65535, with the first value less than or equal to the second."
+                )
+        self._port_range = port_range
 
         if (
             stun_server is None
@@ -969,6 +990,35 @@ class Connection:
                 return pair
         return None
 
+    async def _create_host_endpoint(
+        self, loop: asyncio.AbstractEventLoop, address: str
+    ) -> tuple[asyncio.DatagramTransport, StunProtocol]:
+        """
+        Create a UDP datagram endpoint bound to the local `address` for a host
+        candidate.
+
+        If a local port range was configured via `port_range`, the ports in
+        that range are tried in ascending order until a free one is found; if
+        the whole range is exhausted an `OSError` is raised. Otherwise an
+        ephemeral port chosen by the operating system is used.
+        """
+        if self._port_range is None:
+            return await loop.create_datagram_endpoint(
+                lambda: StunProtocol(self), local_addr=(address, 0)
+            )
+
+        port_min, port_max = self._port_range
+        for port in range(port_min, port_max + 1):
+            try:
+                return await loop.create_datagram_endpoint(
+                    lambda: StunProtocol(self), local_addr=(address, port)
+                )
+            except OSError:
+                continue
+        raise OSError(
+            f"No free port in range {port_min}-{port_max} to bind to on {address}"
+        )
+
     async def get_component_candidates(
         self, component: int, addresses: list[str], timeout: int = 5
     ) -> list[Candidate]:
@@ -980,9 +1030,7 @@ class Connection:
         for address in addresses:
             # create transport
             try:
-                transport, protocol = await loop.create_datagram_endpoint(
-                    lambda: StunProtocol(self), local_addr=(address, 0)
-                )
+                transport, protocol = await self._create_host_endpoint(loop, address)
                 sock = transport.get_extra_info("socket")
                 if sock is not None:
                     sock.setsockopt(
