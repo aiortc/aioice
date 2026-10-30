@@ -254,6 +254,11 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     def connection_lost(self, exc: Exception) -> None:
         self.__log_debug("connection_lost(%s)", exc)
+
+        # abort pending transactions, the transport cannot send anymore
+        for transaction in self.transactions.values():
+            transaction.abort()
+
         if not self.__closed.done():
             self.receiver.data_received(None, None)
             self.__closed.set_result(True)

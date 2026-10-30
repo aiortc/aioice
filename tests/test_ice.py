@@ -1282,3 +1282,23 @@ class StunProtocolTest(unittest.TestCase):
         protocol = ice.StunProtocol(None)
         protocol.id = 1
         self.assertEqual(repr(protocol), "protocol(1)")
+
+    @asynctest
+    async def test_close_aborts_transactions(self) -> None:
+        loop = asyncio.get_running_loop()
+        _, protocol = await loop.create_datagram_endpoint(
+            lambda: ice.StunProtocol(None), local_addr=("127.0.0.1", 0)
+        )
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        task = asyncio.create_task(protocol.request(request, ("127.0.0.1", 9)))
+        await asyncio.sleep(0)
+        self.assertEqual(len(protocol.transactions), 1)
+
+        with mock.patch.object(protocol, "receiver"):
+            await protocol.close()
+
+        with self.assertRaises(stun.TransactionAborted):
+            await asyncio.wait_for(task, timeout=1)
+        self.assertEqual(protocol.transactions, {})

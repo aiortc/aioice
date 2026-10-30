@@ -286,6 +286,11 @@ class TransactionTimeout(TransactionError):
         return "STUN transaction timed out"
 
 
+class TransactionAborted(TransactionError):
+    def __str__(self) -> str:
+        return "STUN transaction aborted"
+
+
 class TransactionSender(Protocol):
     def send_stun(self, message: Message, addr: tuple[str, int]) -> None: ...
 
@@ -317,6 +322,15 @@ class Transaction:
                 self.__future.set_result((message, addr))
             else:
                 self.__future.set_exception(TransactionFailed(message))
+
+    def abort(self) -> None:
+        """
+        Stop retransmitting and fail the transaction.
+        """
+        if self.__timeout_handle:
+            self.__timeout_handle.cancel()
+        if not self.__future.done():
+            self.__future.set_exception(TransactionAborted())
 
     async def run(self) -> tuple[Message, tuple[str, int]]:
         try:

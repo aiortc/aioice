@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from binascii import unhexlify
 from collections import OrderedDict
@@ -260,3 +261,38 @@ class TransactionTest(unittest.TestCase):
             message_method=stun.Method.BINDING, message_class=stun.Class.RESPONSE
         )
         transaction.response_received(response, ("127.0.0.1", 1234))
+
+    @asynctest
+    async def test_abort(self) -> None:
+        class DummyProtocol:
+            sent = 0
+
+            def send_stun(
+                self, message: stun.Message, address: tuple[str, int]
+            ) -> None:
+                self.sent += 1
+
+        stun.RETRY_MAX = 6
+        stun.RETRY_RTO = 0.05
+
+        protocol = DummyProtocol()
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        transaction = stun.Transaction(request, ("127.0.0.1", 1234), protocol)
+        task = asyncio.create_task(transaction.run())
+        await asyncio.sleep(0)
+        self.assertEqual(protocol.sent, 1)
+
+        # abort
+        transaction.abort()
+        with self.assertRaises(stun.TransactionAborted) as cm:
+            await task
+        self.assertEqual(str(cm.exception), "STUN transaction aborted")
+
+        # no more retransmissions
+        await asyncio.sleep(0.2)
+        self.assertEqual(protocol.sent, 1)
+
+        # abort again
+        transaction.abort()
