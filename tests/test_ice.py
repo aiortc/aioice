@@ -11,7 +11,7 @@ import ifaddr
 from aioice import Candidate, TransportPolicy, ice, mdns, stun
 
 from .turnserver import run_turn_server
-from .utils import asynctest, invite_accept
+from .utils import RUNNING_ON_MAC_CI, asynctest, invite_accept
 
 RUNNING_ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -1129,6 +1129,7 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(conn_a.remote_candidates), 1)
         self.assertEqual(conn_a._remote_candidates_end, True)
 
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
     @asynctest
     async def test_add_remote_candidate_mdns_bad(self) -> None:
         """
@@ -1153,6 +1154,7 @@ class IceConnectionTest(unittest.TestCase):
         # close
         await conn_a.close()
 
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
     @asynctest
     async def test_add_remote_candidate_mdns_good(self) -> None:
         """
