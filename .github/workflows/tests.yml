@@ -4,6 +4,18 @@ on: [push, pull_request]
 
 jobs:
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Build documentation
+        run: |
+          pip install . -r requirements/docs.txt
+          make -C docs html SPHINXOPTS=-W
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -11,17 +23,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - name: Install packages
-        run: pip install .[dev]
       - name: Run linters
         run: |
-          ruff check --diff
-          ruff format --diff
-          mypy examples src tests
+          pip install . -r requirements/lint.txt
+          ruff check
+          ruff format --check --diff
+          check-manifest
+          mypy
 
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-14, windows-latest]
         python:
@@ -42,7 +55,7 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          pip install .[dev]
+          pip install . -r requirements/test.txt
           coverage run -m unittest discover -v
           coverage xml
       - name: Upload coverage report

@@ -1,4 +1,7 @@
+exclude .readthedocs.yaml
 include LICENSE
 recursive-include docs *.py *.rst Makefile
 recursive-include examples *.py
-recursive-include tests *.bin *.py
+recursive-include requirements *.txt
+recursive-include stubs *.py
+recursive-include tests *.bin *.crt *.key *.py
