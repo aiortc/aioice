@@ -2,6 +2,7 @@ import asyncio
 import ssl
 import unittest
 from typing import Any, Optional
+from unittest import mock
 
 from aioice import stun, turn
 
@@ -12,7 +13,11 @@ from .utils import asynctest, read_message
 
 class DummyClientProtocol(asyncio.DatagramProtocol):
     def __init__(self) -> None:
+        self.errors: list[Exception] = []
         self.received: list[tuple[bytes, tuple[str, int]]] = []
+
+    def error_received(self, exc: Exception) -> None:
+        self.errors.append(exc)
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         self.received.append((data, addr))
@@ -106,6 +111,16 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
     def test_repr(self) -> None:
         self.assertEqual(repr(self.protocol), "turn/udp")
 
+    @asynctest
+    async def test_send_data_no_channel_number(self) -> None:
+        # All channel numbers are in use (RFC 8656 section 12).
+        self.protocol.channel_number = turn.CHANNEL_NUMBER_MAX + 1
+
+        with self.assertRaises(ConnectionError) as cm:
+            await self.protocol.send_data(b"ping", ("5.6.7.8", 1000))
+        self.assertEqual(str(cm.exception), "No TURN channel number available")
+        self.assertEqual(self.protocol.peer_connect_waiters, {})
+
 
 class TurnTest(unittest.TestCase):
     @asynctest
@@ -143,6 +158,12 @@ class TurnTest(unittest.TestCase):
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
         )
         await self._test_transport_delete_failure(
+            transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
+        )
+        await self._test_transport_channel_bind_failure(
+            transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
+        )
+        await self._test_transport_close_pending_send(
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
         )
 
@@ -335,3 +356,118 @@ class TurnTest(unittest.TestCase):
             # close client
             turn_transport.close()
             await asyncio.sleep(0)
+
+    async def _test_transport_channel_bind_failure(
+        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+    ) -> None:
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            turn_transport, protocol = await turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=getattr(turn_server, server_addr_attr),
+                username="foo",
+                password="bar",
+                ssl=ssl,
+                transport=transport,
+            )
+
+            async with run_echo_server() as echo_server:
+                # Make the server reject the CHANNEL-BIND request.
+                turn_server.simulated_failure = (403, "Forbidden")
+
+                # The failure is reported to the protocol, for the send that
+                # binds the channel and for the one queued behind it.
+                turn_transport.sendto(b"ping", echo_server.udp_address)
+                turn_transport.sendto(b"ping", echo_server.udp_address)
+                await asyncio.sleep(1)
+                self.assertEqual(protocol.received, [])
+                self.assertEqual(
+                    [str(exc) for exc in protocol.errors],
+                    ["STUN transaction failed (403 - Forbidden)"] * 2,
+                )
+
+                # A later send binds the channel again, with the same number.
+                turn_transport.sendto(b"ping", echo_server.udp_address)
+                await asyncio.sleep(1)
+                self.assertEqual(
+                    protocol.received, [(b"ping", echo_server.udp_address)]
+                )
+                self.assertEqual(
+                    [
+                        allocation.channel_to_peer
+                        for allocation in turn_server.allocations.values()
+                    ],
+                    [{0x4000: echo_server.udp_address}],
+                )
+
+            # close
+            turn_transport.close()
+            await asyncio.sleep(0)
+
+    async def _test_transport_close_pending_send(
+        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+    ) -> None:
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            turn_transport, protocol = await turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=getattr(turn_server, server_addr_attr),
+                username="foo",
+                password="bar",
+                ssl=ssl,
+                transport=transport,
+            )
+
+            async with run_echo_server() as echo_server1:
+                async with run_echo_server() as echo_server2:
+                    # Bind a channel.
+                    turn_transport.sendto(b"ping", echo_server1.udp_address)
+                    await asyncio.sleep(1)
+
+                    # Make channel bindings hang until they are cancelled.
+                    bound = []
+                    cancelled = []
+
+                    async def channel_bind(channel: int, addr: tuple[str, int]) -> None:
+                        bound.append(addr)
+                        try:
+                            await asyncio.Event().wait()
+                        except asyncio.CancelledError:
+                            cancelled.append(addr)
+                            raise
+
+                    with (
+                        mock.patch.object(
+                            turn.TurnClientMixin,
+                            "channel_bind",
+                            side_effect=channel_bind,
+                        ),
+                        mock.patch.object(
+                            turn.TurnClientMixin,
+                            "delete",
+                            autospec=True,
+                            side_effect=turn.TurnClientMixin.delete,
+                        ) as delete,
+                    ):
+                        # Data sent before closing goes out.
+                        turn_transport.sendto(b"pending", echo_server2.udp_address)
+                        turn_transport.sendto(b"last", echo_server1.udp_address)
+                        turn_transport.close()
+
+                        # Data sent after closing is ignored, and binds no channel.
+                        turn_transport.sendto(b"ignored", echo_server1.udp_address)
+                        turn_transport.sendto(b"ignored", ("127.0.0.1", 9))
+
+                        # Closing again does nothing.
+                        turn_transport.close()
+                        await asyncio.sleep(1)
+
+                    self.assertEqual(delete.call_count, 1)
+                    self.assertEqual(
+                        echo_server1.udp_server.received, [b"ping", b"last"]
+                    )
+                    self.assertEqual(echo_server2.udp_server.received, [])
+                    self.assertEqual(bound, [echo_server2.udp_address])
+
+                    # The pending channel binding is cancelled once the allocation
+                    # is deleted, without reporting an error.
+                    self.assertEqual(cancelled, [echo_server2.udp_address])
+                    self.assertEqual(protocol.errors, [])
