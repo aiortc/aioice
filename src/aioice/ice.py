@@ -255,7 +255,7 @@ class StunProtocol(asyncio.DatagramProtocol):
     def connection_lost(self, exc: Exception) -> None:
         self.__log_debug("connection_lost(%s)", exc)
         if not self.__closed.done():
-            self.receiver.data_received(None, None)
+            self.receiver.protocol_lost(self)
             self.__closed.set_result(True)
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -616,7 +616,7 @@ class Connection:
         """
         Close the connection.
         """
-        # stop consent freshness tests
+        # Stop consent freshness tests.
         if self._query_consent_task and not self._query_consent_task.done():
             self._query_consent_task.cancel()
             try:
@@ -624,11 +624,11 @@ class Connection:
             except asyncio.CancelledError:
                 pass
 
-        # stop check list
+        # Stop the check list.
         if self._check_list and not self._check_list_done:
             self._check_list_state.put_nowait(ICE_FAILED)
 
-        # unreference mDNS
+        # Unreference mDNS.
         await unref_mdns_protocol(self)
 
         self._nominated.clear()
@@ -637,7 +637,10 @@ class Connection:
         self._protocols.clear()
         self._local_candidates.clear()
 
-        # emit event
+        # Wake up any pending recv().
+        self.data_received(None, None)
+
+        # Emit an event.
         if not self._closed:
             self._emit_event(ConnectionClosed())
             self._closed = True
@@ -1098,6 +1101,14 @@ class Connection:
 
     def data_received(self, data: Optional[bytes], component: Optional[int]) -> None:
         self._queue.put_nowait((data, component))
+
+    def protocol_lost(self, protocol: StunProtocol) -> None:
+        # Only a nominated pair carries data, so losing any other
+        # protocol must not abort a pending recv().
+        for pair in self._nominated.values():
+            if pair.protocol is protocol:
+                self.data_received(None, None)
+                return
 
     def request_received(
         self,

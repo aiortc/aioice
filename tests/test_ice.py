@@ -1233,6 +1233,56 @@ class IceConnectionTest(unittest.TestCase):
         await conn_b.close()
 
     @asynctest
+    async def test_recv_nominated_protocol_lost(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # Exchange candidates and credentials.
+        await invite_accept(conn_a, conn_b)
+
+        # Connect.
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+
+        # Lose the nominated protocol.
+        await conn_a._nominated[1].protocol.close()
+
+        with self.assertRaises(ConnectionError) as cm:
+            await conn_a.recv()
+        self.assertEqual(str(cm.exception), "Connection lost while receiving data")
+
+        # Close.
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
+    async def test_recv_unnominated_protocol_lost(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # Exchange candidates and credentials.
+        await invite_accept(conn_a, conn_b)
+
+        # Connect.
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+
+        # Lose a protocol which is not nominated.
+        loop = asyncio.get_running_loop()
+        _, protocol = await loop.create_datagram_endpoint(
+            lambda: ice.StunProtocol(conn_a), local_addr=("127.0.0.1", 0)
+        )
+        conn_a._protocols.append(protocol)
+        await protocol.close()
+
+        # Data is still received on the nominated pair.
+        await conn_b.send(b"howdee")
+        data = await conn_a.recv()
+        self.assertEqual(data, b"howdee")
+
+        # Close.
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
     async def test_send_not_connected(self) -> None:
         conn_a = ice.Connection(ice_controlling=True)
         with self.assertRaises(ConnectionError) as cm:
