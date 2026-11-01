@@ -492,9 +492,9 @@ class Connection:
             self._prune_components()
             self._remote_candidates_end = True
 
-            # The pairs may all have failed while waiting for end-of-candidates
-            # (RFC 8838 section 14).
-            if self._early_checks_done:
+            # Removing components may leave all the remaining ones nominated, or
+            # the pairs may all have failed meanwhile (RFC 8838 section 14).
+            if self._early_checks_done and not self._check_list_maybe_complete():
                 self._check_list_maybe_fail()
             return
 
@@ -790,14 +790,7 @@ class Connection:
                         p.task.cancel()
                     self._check_list.remove(p)
 
-            # Once there is at least one nominated pair in the valid list for
-            # every component of at least one media stream and the state of the
-            # check list is Running:
-            if len(self._nominated) == len(self._components):
-                if not self._check_list_done:
-                    self.__log_info("ICE completed")
-                    self._check_list_state.put_nowait(ICE_COMPLETED)
-                    self._check_list_done = True
+            if self._check_list_maybe_complete():
                 return
 
             # Updating candidate pair states (RFC 8445 section 7.2.5.3.3).
@@ -860,6 +853,21 @@ class Connection:
             if pair.state == CandidatePair.State.SUCCEEDED:
                 pair.nominated = True
                 self.check_complete(pair)
+
+    def _check_list_maybe_complete(self) -> bool:
+        """
+        Mark the check list as completed if every component has a nominated pair.
+        """
+        # Once there is at least one nominated pair in the valid list for
+        # every component of at least one media stream and the state of the
+        # check list is Running:
+        if self._nominated and len(self._nominated) == len(self._components):
+            if not self._check_list_done:
+                self.__log_info("ICE completed")
+                self._check_list_state.put_nowait(ICE_COMPLETED)
+                self._check_list_done = True
+            return True
+        return False
 
     def _check_list_maybe_fail(self) -> None:
         """

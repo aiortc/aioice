@@ -849,6 +849,28 @@ class IceConnectionTest(unittest.TestCase):
         await conn.close()
 
     @asynctest
+    async def test_connect_no_remote_candidates_trickled(self) -> None:
+        """
+        If end-of-candidates arrives during connect without any remote
+        candidates, connect fails.
+        """
+        conn = ice.Connection(ice_controlling=True)
+        await conn.gather_candidates()
+        conn.remote_username = "foo"
+        conn.remote_password = "bar"
+        connect_task = asyncio.create_task(conn.connect())
+        await asyncio.sleep(0.1)
+        self.assertFalse(connect_task.done())
+
+        with self.assertLogs("aioice.ice", level="INFO") as logs:
+            await conn.add_remote_candidate(None)
+            with self.assertRaises(ConnectionError) as cm:
+                await connect_task
+        self.assertEqual(str(cm.exception), "ICE negotiation failed")
+        self.assertFalse(any("ICE completed" in line for line in logs.output))
+        await conn.close()
+
+    @asynctest
     async def test_connect_no_remote_credentials(self) -> None:
         """
         If remote credentials have not been provided, connect fails.
@@ -997,6 +1019,40 @@ class IceConnectionTest(unittest.TestCase):
             await connect_task
         self.assertEqual(str(cm.exception), "ICE negotiation failed")
         await conn.close()
+
+    @asynctest
+    async def test_connect_trickle_prunes_component(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True, components=2)
+        conn_b = ice.Connection(ice_controlling=False, components=1)
+        await conn_a.gather_candidates()
+        await conn_b.gather_candidates()
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+
+        # Side B only has candidates for the first component.
+        for candidate in conn_a.local_candidates:
+            await conn_b.add_remote_candidate(candidate)
+        await conn_b.add_remote_candidate(None)
+        for candidate in conn_b.local_candidates:
+            await conn_a.add_remote_candidate(candidate)
+        connect_task = asyncio.gather(conn_a.connect(), conn_b.connect())
+
+        async def wait_nominated() -> None:
+            while 1 not in conn_a._nominated:
+                await asyncio.sleep(0.1)
+
+        await asyncio.wait_for(wait_nominated(), timeout=5)
+        self.assertFalse(connect_task.done())
+
+        # Side A completes once end-of-candidates removes the second component.
+        await conn_a.add_remote_candidate(None)
+        await asyncio.wait_for(connect_task, timeout=5)
+        self.assertEqual(conn_a._components, {1})
+
+        await conn_a.close()
+        await conn_b.close()
 
     @asynctest
     async def test_connect_with_stun_server(self) -> None:
