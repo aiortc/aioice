@@ -328,6 +328,11 @@ class Transaction:
                 self.__timeout_handle.cancel()
 
     def __retry(self) -> None:
+        # Retransmissions stop once a response is received (RFC 5389 section 7.2.1),
+        # which may have happened before run() could cancel the timer.
+        if self.__future.done():
+            return
+
         if self.__tries >= self.__tries_max:
             self.__future.set_exception(TransactionTimeout())
             return
