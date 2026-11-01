@@ -928,6 +928,76 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(str(cm.exception), "ICE negotiation failed")
         await conn.close()
 
+    async def start_trickle_with_failed_pairs(
+        self, conn: ice.Connection
+    ) -> asyncio.Task[None]:
+        """
+        Start connecting with a single unreachable remote candidate, without
+        end-of-candidates, and wait for its pairs to fail.
+        """
+        await conn.add_remote_candidate(
+            Candidate.from_sdp(
+                "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+            )
+        )
+        connect_task = asyncio.create_task(conn.connect())
+        while not conn._check_list or any(
+            p.state != ice.CandidatePair.State.FAILED for p in conn._check_list
+        ):
+            await asyncio.sleep(0.1)
+
+        # More candidates may still be trickled, so ICE has not failed.
+        await asyncio.sleep(0.1)
+        self.assertFalse(connect_task.done())
+        return connect_task
+
+    @asynctest
+    async def test_connect_trickle_after_failed_pairs(self) -> None:
+        # lower STUN retries
+        stun.RETRY_MAX = 1
+
+        conn_a = ice.Connection(ice_controlling=False)
+        conn_b = ice.Connection(ice_controlling=True)
+        await conn_a.gather_candidates()
+        await conn_b.gather_candidates()
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+
+        connect_task = await self.start_trickle_with_failed_pairs(conn_a)
+
+        # Working candidates are trickled after the first pairs failed.
+        for candidate in conn_b.local_candidates:
+            await conn_a.add_remote_candidate(candidate)
+        await conn_a.add_remote_candidate(None)
+        for candidate in conn_a.local_candidates:
+            await conn_b.add_remote_candidate(candidate)
+        await conn_b.add_remote_candidate(None)
+        await asyncio.gather(connect_task, conn_b.connect())
+
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
+    async def test_connect_trickle_fails_after_end_of_candidates(self) -> None:
+        # lower STUN retries
+        stun.RETRY_MAX = 1
+
+        conn = ice.Connection(ice_controlling=True)
+        await conn.gather_candidates()
+        conn.remote_username = "foo"
+        conn.remote_password = "bar"
+
+        connect_task = await self.start_trickle_with_failed_pairs(conn)
+
+        # ICE fails once end-of-candidates is received.
+        await conn.add_remote_candidate(None)
+        with self.assertRaises(ConnectionError) as cm:
+            await connect_task
+        self.assertEqual(str(cm.exception), "ICE negotiation failed")
+        await conn.close()
+
     @asynctest
     async def test_connect_with_stun_server(self) -> None:
         async with run_turn_server() as stun_server:
