@@ -13,6 +13,7 @@ from .utils import random_transaction_id
 
 logger = logging.getLogger(__name__)
 
+CHANNEL_NUMBER_MAX = 0x4FFF
 DEFAULT_CHANNEL_REFRESH_TIME = 500
 DEFAULT_ALLOCATION_LIFETIME = 600
 TCP_TRANSPORT = 0x06000000
@@ -78,6 +79,7 @@ class TurnClientMixin:
             tuple[str, int], list[asyncio.Future[None]]
         ] = {}
         self.peer_to_channel: dict[tuple[str, int], int] = {}
+        self.peer_to_failed_channel: dict[tuple[str, int], int] = {}
 
         self.channel_number = 0x4000
         self.channel_refresh_time = channel_refresh_time
@@ -286,12 +288,25 @@ class TurnClientMixin:
         channel = self.peer_to_channel.get(addr)
         now = time.time()
         if channel is None:
-            self.peer_connect_waiters[addr] = []
-            channel = self.channel_number
-            self.channel_number += 1
+            # Retry a failed binding with the same number, which is always
+            # allowed for the same peer (RFC 8656 section 12).
+            channel = self.peer_to_failed_channel.pop(addr, None)
+            if channel is None:
+                if self.channel_number > CHANNEL_NUMBER_MAX:
+                    raise ConnectionError("No TURN channel number available")
+                channel = self.channel_number
+                self.channel_number += 1
 
             # bind channel
-            await self.channel_bind(channel, addr)
+            self.peer_connect_waiters[addr] = []
+            try:
+                await self.channel_bind(channel, addr)
+            except Exception as exc:
+                # Fail the queued sends, so that a later send binds again.
+                self.peer_to_failed_channel[addr] = channel
+                for waiter in self.peer_connect_waiters.pop(addr):
+                    waiter.set_exception(exc)
+                raise
 
             # update state
             self.channel_refresh_at[channel] = now + self.channel_refresh_time
@@ -362,17 +377,23 @@ class TurnTransport:
     """
 
     def __init__(self, inner_protocol: TurnClientProtocol) -> None:
+        self.__close_task: Optional[asyncio.Task[None]] = None
         self.__inner_protocol = inner_protocol
         self.__relayed_address: Optional[tuple[str, int]] = None
+        self.__send_tasks: set[asyncio.Task[None]] = set()
 
     def close(self) -> None:
         """
         Close the transport.
 
-        After the TURN allocation has been deleted, the protocol's
+        Data passed to `sendto()` before closing is still sent, later data is
+        ignored. After the TURN allocation has been deleted, the protocol's
         `connection_lost()` method will be called with None as its argument.
         """
-        asyncio.create_task(self.__inner_protocol.delete())
+        if self.__close_task is not None:
+            return
+
+        self.__close_task = asyncio.create_task(self._close())
 
     def get_extra_info(self, name: str, default: Any = None) -> Any:
         """
@@ -391,9 +412,22 @@ class TurnTransport:
         """
         Sends the `data` bytes to the remote peer given `addr`.
 
-        This will bind a TURN channel as necessary.
+        This will bind a TURN channel as necessary. If sending fails, the
+        protocol's `error_received()` method is called with the exception.
         """
-        asyncio.create_task(self.__inner_protocol.send_data(data, addr))
+        if self.__close_task is not None:
+            return
+
+        task = asyncio.create_task(self.__inner_protocol.send_data(data, addr))
+        self.__send_tasks.add(task)
+        task.add_done_callback(self._send_done)
+
+    async def _close(self) -> None:
+        await self.__inner_protocol.delete()
+
+        # Sends still waiting for a channel binding are pointless now.
+        for task in self.__send_tasks:
+            task.cancel()
 
     async def _connect(self, protocol: asyncio.DatagramProtocol) -> None:
         self.__relayed_address = await self.__inner_protocol.connect()
@@ -402,6 +436,14 @@ class TurnTransport:
         # and start relaying received data.
         self.__inner_protocol.receiver = protocol
         protocol.connection_made(cast(asyncio.DatagramTransport, self))
+
+    def _send_done(self, task: asyncio.Task[None]) -> None:
+        self.__send_tasks.discard(task)
+        if not task.cancelled():
+            exc = task.exception()
+            if exc is not None:
+                assert self.__inner_protocol.receiver is not None
+                self.__inner_protocol.receiver.error_received(cast(Exception, exc))
 
 
 async def create_turn_endpoint(

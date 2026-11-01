@@ -4,10 +4,14 @@ from typing import AsyncGenerator, cast
 
 
 class EchoServerProtocol(asyncio.DatagramProtocol):
+    def __init__(self) -> None:
+        self.received: list[bytes] = []
+
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = cast(asyncio.DatagramTransport, transport)
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        self.received.append(data)
         self.transport.sendto(data, addr)
 
 
