@@ -94,6 +94,80 @@ class IceComponentTest(unittest.TestCase):
         await pair.task
 
     @asynctest
+    async def test_nomination_removes_waiting_and_frozen_pairs(self) -> None:
+        connection = ice.Connection(ice_controlling=True, components=2)
+
+        def create_pair(
+            *, component: int, port: int, state: ice.CandidatePair.State
+        ) -> ice.CandidatePair:
+            # The pair's component is that of its local candidate.
+            protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+            protocol.local_candidate.component = component
+            pair = ice.CandidatePair(
+                protocol,
+                Candidate(
+                    foundation="some-foundation",
+                    component=component,
+                    transport="udp",
+                    priority=2345,
+                    host="2.3.4.5",
+                    port=port,
+                    type="host",
+                ),
+            )
+            pair.state = state
+            return pair
+
+        nominated = create_pair(
+            component=1, port=1000, state=ice.CandidatePair.State.SUCCEEDED
+        )
+        nominated.nominated = True
+        succeeded = create_pair(
+            component=1, port=1001, state=ice.CandidatePair.State.SUCCEEDED
+        )
+        waiting = create_pair(
+            component=1, port=1002, state=ice.CandidatePair.State.WAITING
+        )
+        frozen = create_pair(
+            component=1, port=1003, state=ice.CandidatePair.State.FROZEN
+        )
+        in_progress = create_pair(
+            component=1, port=1004, state=ice.CandidatePair.State.IN_PROGRESS
+        )
+        failed = create_pair(
+            component=1, port=1005, state=ice.CandidatePair.State.FAILED
+        )
+        other_component = [
+            create_pair(component=2, port=2000 + i, state=state)
+            for i, state in enumerate(ice.CandidatePair.State)
+        ]
+        connection._check_list = [
+            nominated,
+            succeeded,
+            waiting,
+            frozen,
+            in_progress,
+            failed,
+            *other_component,
+        ]
+
+        # A check scheduled but not yet started must be cancelled.
+        connection.check_start_task(waiting)
+        self.assertIsNotNone(waiting.task)
+
+        connection.check_complete(nominated)
+        self.assertEqual(
+            connection._check_list,
+            [nominated, succeeded, in_progress, failed, *other_component],
+        )
+        with self.assertRaises(asyncio.CancelledError):
+            await waiting.task
+        self.assertEqual(waiting.state, ice.CandidatePair.State.WAITING)
+
+        # No check is left running.
+        self.assertEqual(asyncio.all_tasks(), {asyncio.current_task()})
+
+    @asynctest
     async def test_request_with_invalid_method(self) -> None:
         connection = ice.Connection(ice_controlling=True)
 
@@ -283,6 +357,27 @@ class IceConnectionTest(unittest.TestCase):
         self.assertIsNone(candidate)
 
         await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_nomination_removes_unchecked_pairs(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        # Add a lowest-priority candidate which is never checked.
+        unchecked = Candidate(
+            foundation="unchecked",
+            component=1,
+            transport="udp",
+            priority=1,
+            host="192.0.2.1",
+            port=1234,
+            type="host",
+        )
+        await conn_a.add_remote_candidate(unchecked)
+        await invite_accept(conn_a, conn_b)
+
+        await self.connect_and_exchange_data(conn_a, conn_b)
+        self.assertNotIn(unchecked, [p.remote_candidate for p in conn_a._check_list])
 
     @asynctest
     async def test_connect_close(self) -> None:
