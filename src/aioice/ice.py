@@ -762,17 +762,21 @@ class Connection:
             if pair.nominated:
                 self._nominated[pair.component] = pair
 
-                # 8.1.2.  Updating States
-                #
-                # The agent MUST remove all Waiting and Frozen pairs in the check
-                # list and triggered check queue for the same component as the
-                # nominated pairs for that media stream.
-                for p in self._check_list:
-                    if p.component == pair.component and p.state in [
-                        CandidatePair.State.WAITING,
-                        CandidatePair.State.FROZEN,
-                    ]:
-                        self.check_state(p, CandidatePair.State.FAILED)
+                # Remove the component's pairs which have not been checked yet,
+                # cancelling any check already scheduled for them (RFC 8445
+                # section 8.1.2).
+                unchecked = [
+                    p
+                    for p in self._check_list
+                    if p.component == pair.component
+                    and p.state
+                    in [CandidatePair.State.WAITING, CandidatePair.State.FROZEN]
+                ]
+                for p in unchecked:
+                    self.__log_info("Check %s %s -> removed", p, p.state)
+                    if p.task is not None:
+                        p.task.cancel()
+                    self._check_list.remove(p)
 
             # Once there is at least one nominated pair in the valid list for
             # every component of at least one media stream and the state of the
