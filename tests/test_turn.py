@@ -55,6 +55,51 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
             channel_refresh_time=turn.DEFAULT_CHANNEL_REFRESH_TIME,
         )
 
+    def _data_indication(
+        self, peer_address: Optional[tuple[str, int]], data: Optional[bytes]
+    ) -> bytes:
+        message = stun.Message(
+            message_method=stun.Method.DATA, message_class=stun.Class.INDICATION
+        )
+        if peer_address is not None:
+            message.attributes["XOR-PEER-ADDRESS"] = peer_address
+        if data is not None:
+            message.attributes["DATA"] = data
+        return bytes(message)
+
+    def test_receive_data_indication(self) -> None:
+        receiver = DummyClientProtocol()
+        self.protocol.receiver = receiver
+        self.protocol.peer_to_channel[("5.6.7.8", 1000)] = 0x4000
+
+        # The permission covers the IP address of the peer, whatever its port.
+        self.protocol.datagram_received(
+            self._data_indication(("5.6.7.8", 2000), b"ping"), ("1.2.3.4", 1234)
+        )
+        self.assertEqual(receiver.received, [(b"ping", ("5.6.7.8", 2000))])
+
+    def test_receive_data_indication_invalid(self) -> None:
+        receiver = DummyClientProtocol()
+        self.protocol.receiver = receiver
+        self.protocol.peer_to_channel[("5.6.7.8", 1000)] = 0x4000
+
+        # No permission for the peer.
+        self.protocol.datagram_received(
+            self._data_indication(("9.9.9.9", 1000), b"ping"), ("1.2.3.4", 1234)
+        )
+
+        # No DATA attribute.
+        self.protocol.datagram_received(
+            self._data_indication(("5.6.7.8", 1000), None), ("1.2.3.4", 1234)
+        )
+
+        # No XOR-PEER-ADDRESS attribute.
+        self.protocol.datagram_received(
+            self._data_indication(None, b"ping"), ("1.2.3.4", 1234)
+        )
+
+        self.assertEqual(receiver.received, [])
+
     def test_receive_junk(self) -> None:
         self.protocol.datagram_received(b"\x00" * 20, ("1.2.3.4", 1234))
 
@@ -89,6 +134,9 @@ class TurnTest(unittest.TestCase):
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
         )
         await self._test_transport_ok_multi(
+            transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
+        )
+        await self._test_transport_data_indication(
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
         )
         await self._test_transport_allocate_failure(
@@ -175,6 +223,42 @@ class TurnTest(unittest.TestCase):
                             (b"ping11", echo_server1.udp_address),
                             (b"ping20", echo_server2.udp_address),
                             (b"ping21", echo_server2.udp_address),
+                        ],
+                    )
+
+            # close
+            turn_transport.close()
+            await asyncio.sleep(0)
+
+    async def _test_transport_data_indication(
+        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+    ) -> None:
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            turn_transport, protocol = await turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=getattr(turn_server, server_addr_attr),
+                username="foo",
+                password="bar",
+                ssl=ssl,
+                transport=transport,
+            )
+            relayed_address = turn_transport.get_extra_info("sockname")
+
+            async with run_echo_server() as echo_server1:
+                async with run_echo_server() as echo_server2:
+                    # Bind a channel, which grants a permission for the IP address.
+                    turn_transport.sendto(b"ping", echo_server1.udp_address)
+                    await asyncio.sleep(1)
+
+                    # A peer with the same IP address but no channel is relayed
+                    # using a Data indication.
+                    echo_server2.udp_server.transport.sendto(b"hello", relayed_address)
+                    await asyncio.sleep(1)
+                    self.assertEqual(
+                        protocol.received,
+                        [
+                            (b"ping", echo_server1.udp_address),
+                            (b"hello", echo_server2.udp_address),
                         ],
                     )
 

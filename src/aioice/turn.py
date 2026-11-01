@@ -162,6 +162,19 @@ class TurnClientMixin:
         ) and message.transaction_id in self.transactions:
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
+        elif (
+            message.message_method == stun.Method.DATA
+            and message.message_class == stun.Class.INDICATION
+            and "DATA" in message.attributes
+            and "XOR-PEER-ADDRESS" in message.attributes
+            and self.receiver is not None
+        ):
+            # Discard data from peers without a permission (RFC 8656 section 11.4).
+            peer_address = message.attributes["XOR-PEER-ADDRESS"]
+            if any(peer[0] == peer_address[0] for peer in self.peer_to_channel):
+                self.receiver.datagram_received(
+                    message.attributes["DATA"], peer_address
+                )
 
     async def delete(self) -> None:
         """
