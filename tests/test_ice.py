@@ -214,6 +214,55 @@ class IceComponentTest(unittest.TestCase):
         await connection.check_start(pair)
         self.assertEqual(pair.state, ice.CandidatePair.State.FAILED)
 
+    @asynctest
+    async def test_triggered_check(self) -> None:
+        expected = {
+            ice.CandidatePair.State.FROZEN: True,
+            ice.CandidatePair.State.WAITING: True,
+            ice.CandidatePair.State.IN_PROGRESS: False,
+            ice.CandidatePair.State.SUCCEEDED: False,
+            ice.CandidatePair.State.FAILED: True,
+        }
+        for state, triggered in expected.items():
+            with self.subTest(state=state):
+                connection = ice.Connection(ice_controlling=True)
+                connection.remote_password = "remote-password"
+                connection.remote_username = "remote-username"
+
+                protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+                remote_candidate = Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=2345,
+                    host="2.3.4.5",
+                    port=2345,
+                    type="host",
+                )
+                connection._remote_candidates.append(remote_candidate)
+                pair = ice.CandidatePair(protocol, remote_candidate)
+                pair.state = state
+                connection._check_list.append(pair)
+
+                request = stun.Message(
+                    message_method=stun.Method.BINDING,
+                    message_class=stun.Class.REQUEST,
+                )
+                request.attributes["PRIORITY"] = 456789
+                connection.check_incoming(request, ("2.3.4.5", 2345), protocol)
+
+                # No new pair is formed.
+                self.assertEqual(connection._check_list, [pair])
+
+                if triggered:
+                    self.assertEqual(pair.state, ice.CandidatePair.State.WAITING)
+                    self.assertIsNotNone(pair.task)
+                    await pair.task
+                    self.assertEqual(pair.state, ice.CandidatePair.State.SUCCEEDED)
+                else:
+                    self.assertIsNone(pair.task)
+                    self.assertEqual(pair.state, state)
+
 
 class IceConnectionTest(unittest.TestCase):
     def assertCandidateTypes(self, conn: ice.Connection, expected: set[str]) -> None:

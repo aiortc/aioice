@@ -571,7 +571,7 @@ class Connection:
         if self.remote_username is None or self.remote_password is None:
             raise ConnectionError("Remote username or password is missing")
 
-        # 5.7.1. Forming Candidate Pairs
+        # Forming candidate pairs (RFC 8445 section 6.1.2.2).
         for remote_candidate in self._remote_candidates:
             for protocol in self._protocols:
                 if protocol.local_candidate.can_pair_with(
@@ -788,7 +788,7 @@ class Connection:
                     self._check_list_done = True
                 return
 
-            # 7.1.3.2.3.  Updating Pair States
+            # Updating candidate pair states (RFC 8445 section 7.2.5.3.3).
             for p in self._check_list:
                 if (
                     p.local_candidate.foundation == pair.local_candidate.foundation
@@ -829,7 +829,7 @@ class Connection:
                 assert remote_candidate.component == component
                 break
         if remote_candidate is None:
-            # 7.2.1.3. Learning Peer Reflexive Candidates
+            # Learning peer-reflexive candidates (RFC 8445 section 7.3.1.3).
             remote_candidate = Candidate(
                 foundation=random_string(10),
                 component=component,
@@ -850,11 +850,13 @@ class Connection:
             self._check_list.append(pair)
             self.sort_check_list()
 
-        # triggered check
-        if pair.state in [CandidatePair.State.WAITING, CandidatePair.State.FAILED]:
+        # Triggered check (RFC 8445 section 7.3.1.4).
+        if pair.state in [CandidatePair.State.FROZEN, CandidatePair.State.FAILED]:
+            self.check_state(pair, CandidatePair.State.WAITING)
+        if pair.state == CandidatePair.State.WAITING:
             self.check_start_task(pair)
 
-        # 7.2.1.5. Updating the Nominated Flag
+        # Updating the nominated flag (RFC 8445 section 7.3.1.5).
         if "USE-CANDIDATE" in message.attributes and not self.ice_controlling:
             pair.remote_nominated = True
 
@@ -896,7 +898,7 @@ class Connection:
                 integrity_key=self.remote_password.encode("utf8"),
             )
         except stun.TransactionError as exc:
-            # 7.1.3.1. Failure Cases
+            # Role conflict or failure (RFC 8445 sections 7.2.5.1 and 7.2.5.2).
             if (
                 exc.response
                 and exc.response.attributes.get("ERROR-CODE", (None, None))[0] == 487
@@ -1121,7 +1123,7 @@ class Connection:
             self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
 
-        # 7.2.1.1. Detecting and Repairing Role Conflicts
+        # Detecting and repairing role conflicts (RFC 8445 section 7.3.1.1).
         if self.ice_controlling and "ICE-CONTROLLING" in message.attributes:
             self.__log_info("Role conflict, expected to be controlling")
             if self._tie_breaker >= message.attributes["ICE-CONTROLLING"]:
