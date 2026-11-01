@@ -14,6 +14,12 @@ from aioice import ice
 
 P = ParamSpec("P")
 
+# Multicast is blocked on macOS 15+ CI runners by Local Network Privacy.
+# See https://github.com/actions/runner-images/issues/10924
+RUNNING_ON_MAC_CI = (
+    os.environ.get("GITHUB_ACTIONS") == "true" and sys.platform == "darwin"
+)
+
 
 def asynctest(
     coro: Callable[P, Coroutine[None, None, None]],

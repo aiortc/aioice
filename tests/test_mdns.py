@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from aioice import mdns
 
-from .utils import asynctest
+from .utils import RUNNING_ON_MAC_CI, asynctest
 
 
 @contextlib.asynccontextmanager
@@ -22,6 +22,7 @@ async def querier_and_responder() -> AsyncGenerator[
         await responder.close()
 
 
+@unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
 class MdnsTest(unittest.TestCase):
     @asynctest
     async def test_receive_junk(self) -> None:
