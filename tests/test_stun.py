@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from binascii import unhexlify
 from collections import OrderedDict
@@ -237,6 +238,44 @@ class TransactionTest(unittest.TestCase):
     def tearDown(self) -> None:
         stun.RETRY_MAX = 6
         stun.RETRY_RTO = 0.5
+
+    async def run_with_immediate_response(self, retransmissions: int) -> int:
+        """
+        Run a transaction whose response arrives in the same loop iteration
+        as the retransmission timer, and return the number of requests sent.
+        """
+        addr = ("127.0.0.1", 1234)
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        response = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.RESPONSE
+        )
+        sent: list[stun.Message] = []
+
+        class RespondingProtocol:
+            def send_stun(
+                self, message: stun.Message, address: tuple[str, int]
+            ) -> None:
+                sent.append(message)
+                asyncio.get_running_loop().call_soon(
+                    transaction.response_received, response, address
+                )
+
+        transaction = stun.Transaction(
+            request, addr, RespondingProtocol(), retransmissions=retransmissions
+        )
+        self.assertEqual(await transaction.run(), (response, addr))
+        return len(sent)
+
+    @asynctest
+    async def test_response_with_pending_retransmission(self) -> None:
+        self.assertEqual(await self.run_with_immediate_response(1), 1)
+
+    @asynctest
+    async def test_response_with_pending_timeout(self) -> None:
+        with self.assertNoLogs("asyncio", level="ERROR"):
+            self.assertEqual(await self.run_with_immediate_response(0), 1)
 
     @asynctest
     async def test_timeout(self) -> None:
