@@ -478,7 +478,9 @@ class Connection:
         """
         Add a remote candidate or signal end-of-candidates.
 
-        To signal end-of-candidates, pass `None`.
+        To signal end-of-candidates, pass `None`. Until then, more candidates
+        may be added while :meth:`connect` is running, and :meth:`connect`
+        does not report an ICE negotiation failure.
 
         :param remote_candidate: A :class:`Candidate` instance or `None`.
         """
@@ -489,6 +491,11 @@ class Connection:
         if remote_candidate is None:
             self._prune_components()
             self._remote_candidates_end = True
+
+            # The pairs may all have failed while waiting for end-of-candidates
+            # (RFC 8838 section 14).
+            if self._early_checks_done:
+                self._check_list_maybe_fail()
             return
 
         # resolve mDNS candidate
@@ -563,7 +570,9 @@ class Connection:
         Perform ICE handshake.
 
         This coroutine returns if a candidate pair was successfuly nominated
-        and raises an exception otherwise.
+        and raises an exception otherwise. Failure is only reported once
+        end-of-candidates has been signalled with :meth:`add_remote_candidate`,
+        so until then this coroutine keeps waiting for more remote candidates.
         """
         if not self._local_candidates_end:
             raise ConnectionError("Local candidates gathering was not performed")
@@ -799,22 +808,7 @@ class Connection:
                 ):
                     self.check_state(p, CandidatePair.State.WAITING)
 
-        for p in self._check_list:
-            if p.state not in [
-                CandidatePair.State.SUCCEEDED,
-                CandidatePair.State.FAILED,
-            ]:
-                return
-
-        if not self.ice_controlling:
-            for p in self._check_list:
-                if p.state == CandidatePair.State.SUCCEEDED:
-                    return
-
-        if not self._check_list_done:
-            self.__log_info("ICE failed")
-            self._check_list_state.put_nowait(ICE_FAILED)
-            self._check_list_done = True
+        self._check_list_maybe_fail()
 
     def check_incoming(
         self, message: stun.Message, addr: tuple[str, int], protocol: StunProtocol
@@ -866,6 +860,31 @@ class Connection:
             if pair.state == CandidatePair.State.SUCCEEDED:
                 pair.nominated = True
                 self.check_complete(pair)
+
+    def _check_list_maybe_fail(self) -> None:
+        """
+        Mark the check list as failed if no further progress can be made.
+        """
+        # More remote candidates may still be trickled (RFC 8838 section 8).
+        if not self._remote_candidates_end:
+            return
+
+        for p in self._check_list:
+            if p.state not in [
+                CandidatePair.State.SUCCEEDED,
+                CandidatePair.State.FAILED,
+            ]:
+                return
+
+        if not self.ice_controlling:
+            for p in self._check_list:
+                if p.state == CandidatePair.State.SUCCEEDED:
+                    return
+
+        if not self._check_list_done:
+            self.__log_info("ICE failed")
+            self._check_list_state.put_nowait(ICE_FAILED)
+            self._check_list_done = True
 
     def check_periodic(self) -> bool:
         # find the highest-priority pair that is in the waiting state
