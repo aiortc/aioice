@@ -3,6 +3,30 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.11.0
+------
+
+ * Drop support for Python 3.9 and 3.10, add support for Python 3.14 and 3.15.
+ * Wait for the remote end-of-candidates indication before declaring ICE
+   failed, so that trickled candidates are still checked. Signal it with
+   `Connection.add_remote_candidate(None)`, otherwise `Connection.connect()`
+   keeps waiting.
+ * Complete ICE when end-of-candidates removes a component which received no
+   remote candidates.
+ * Trigger checks for frozen pairs when a Binding request is received for
+   them.
+ * Remove unchecked pairs instead of marking them as failed when a pair is
+   nominated.
+ * Only fail `Connection.recv()` when the socket of a nominated pair is lost.
+ * Stop retransmitting once a STUN transaction has completed, which could
+   raise an `InvalidStateError`.
+ * Handle Data indications from the TURN server, which are used when a peer
+   sends from a port with no channel bound.
+ * Ignore sends on a closed TURN transport, report send errors to the
+   protocol and recover from failed channel bindings.
+ * Close the TURN socket when an allocation is cancelled.
+ * Include the attributes in the representation of STUN messages.
+
 0.10.2
 ------
 
