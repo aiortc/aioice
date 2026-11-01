@@ -170,6 +170,7 @@ ATTRIBUTES: list[AttributeEntry] = [
     (0x000C, "CHANNEL-NUMBER", pack_unsigned_short, unpack_unsigned_short),
     (0x000D, "LIFETIME", pack_unsigned, unpack_unsigned),
     (0x0012, "XOR-PEER-ADDRESS", pack_xor_address, unpack_xor_address),
+    (0x0013, "DATA", pack_bytes, unpack_bytes),
     (0x0014, "REALM", pack_string, unpack_string),
     (0x0015, "NONCE", pack_bytes, unpack_bytes),
     (0x0016, "XOR-RELAYED-ADDRESS", pack_xor_address, unpack_xor_address),

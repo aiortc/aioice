@@ -83,6 +83,15 @@ class Allocation(asyncio.DatagramProtocol):
             self.client_protocol._send(
                 struct.pack("!HH", channel, len(data)) + data, self.client_address
             )
+        elif any(peer[0] == addr[0] for peer in self.peer_to_channel):
+            # Permissions only cover the IP address (RFC 8656 section 9).
+            message = stun.Message(
+                message_method=stun.Method.DATA,
+                message_class=stun.Class.INDICATION,
+            )
+            message.attributes["XOR-PEER-ADDRESS"] = addr
+            message.attributes["DATA"] = data
+            self.client_protocol.send_stun(message, self.client_address)
 
 
 AllocationKey = tuple["TurnServerMixin", Address]
