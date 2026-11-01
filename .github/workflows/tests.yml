@@ -33,6 +33,7 @@ jobs:
 
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +44,13 @@ jobs:
           - '3.13'
           - '3.12'
           - '3.11'
+        exclude:
+          # Closing a datagram transport may hang on Windows, see
+          # https://github.com/python/cpython/issues/156920
+          - os: windows-latest
+            python: '3.11'
+          - os: windows-latest
+            python: '3.12'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
