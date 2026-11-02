@@ -1375,7 +1375,7 @@ class IceConnectionTest(unittest.TestCase):
     @asynctest
     async def test_connect_with_turn_server_tcp(self) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
-            # create connections
+            # Create the connections.
             conn_a = ice.Connection(
                 ice_controlling=True,
                 turn_server=turn_server.tcp_address,
@@ -1385,18 +1385,20 @@ class IceConnectionTest(unittest.TestCase):
             )
             conn_b = ice.Connection(ice_controlling=False)
 
-            # invite / accept
+            # Exchange candidates and credentials.
             await invite_accept(conn_a, conn_b)
 
-            # we should have both host and relayed candidates
+            # Check both host and relayed candidates were gathered.
             self.assertCandidateTypes(conn_a, {"host", "relay"})
             self.assertCandidateTypes(conn_b, {"host"})
 
-            # the default candidate should be relayed
+            # Check the default candidate is relayed, and does not hide its related
+            # address.
             candidate = conn_a.get_default_candidate(1)
             assert candidate is not None
             self.assertEqual(candidate.type, "relay")
             self.assertIsNotNone(candidate.related_address)
+            self.assertNotEqual(candidate.related_address, "0.0.0.0")
             self.assertIsNotNone(candidate.related_port)
 
             await self.connect_and_exchange_data(conn_a, conn_b)
@@ -1404,7 +1406,7 @@ class IceConnectionTest(unittest.TestCase):
     @asynctest
     async def test_connect_with_turn_server_udp(self) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
-            # create connections
+            # Create the connections.
             conn_a = ice.Connection(
                 ice_controlling=True,
                 turn_server=turn_server.udp_address,
@@ -1413,18 +1415,20 @@ class IceConnectionTest(unittest.TestCase):
             )
             conn_b = ice.Connection(ice_controlling=False)
 
-            # invite / accept
+            # Exchange candidates and credentials.
             await invite_accept(conn_a, conn_b)
 
-            # we should have both host and relayed candidates
+            # Check both host and relayed candidates were gathered.
             self.assertCandidateTypes(conn_a, {"host", "relay"})
             self.assertCandidateTypes(conn_b, {"host"})
 
-            # the default candidate should be relayed
+            # Check the default candidate is relayed, and does not hide its related
+            # address.
             candidate = conn_a.get_default_candidate(1)
             assert candidate is not None
             self.assertEqual(candidate.type, "relay")
             self.assertIsNotNone(candidate.related_address)
+            self.assertNotEqual(candidate.related_address, "0.0.0.0")
             self.assertIsNotNone(candidate.related_port)
 
             await self.connect_and_exchange_data(conn_a, conn_b)
@@ -2302,9 +2306,56 @@ class IceConnectionTest(unittest.TestCase):
                 [p.local_candidate.type for p in conn_a._protocols], ["relay"]
             )
 
+            # Check the relayed candidate hides the address used to reach the
+            # TURN server.
+            candidate = conn_a.local_candidates[0]
+            self.assertEqual(candidate.related_address, "0.0.0.0")
+            self.assertEqual(candidate.related_port, 9)
+
             # Close the connections.
             await conn_a.close()
             await conn_b.close()
+
+    @asynctest
+    async def test_gather_candidates_relay_only_with_turn_server_ipv6(self) -> None:
+        """
+        An IPv6 relayed candidate hides its related address with "::".
+        """
+
+        async def create_turn_endpoint(
+            protocol_factory: Callable[[], ice.StunProtocol], **kwargs: object
+        ) -> tuple[mock.Mock, ice.StunProtocol]:
+            protocol = protocol_factory()
+            extra_info = {
+                "related_address": ("2001:db8::1", 1234),
+                "sockname": ("2001:db8::2", 5678),
+            }
+            transport = mock.Mock()
+            transport.get_extra_info.side_effect = extra_info.get
+            transport.close.side_effect = lambda: protocol.connection_lost(None)
+            protocol.connection_made(transport)
+            return transport, protocol
+
+        conn = ice.Connection(
+            ice_controlling=True,
+            turn_server=("2001:db8::3", 3478),
+            turn_username="foo",
+            turn_password="bar",
+            transport_policy=TransportPolicy.RELAY,
+        )
+
+        # Check the relayed candidate hides the address used to reach the TURN
+        # server.
+        with mock.patch("aioice.turn.create_turn_endpoint", create_turn_endpoint):
+            await conn.gather_candidates()
+        self.assertEqual(len(conn.local_candidates), 1)
+        candidate = conn.local_candidates[0]
+        self.assertEqual(candidate.host, "2001:db8::2")
+        self.assertEqual(candidate.related_address, "::")
+        self.assertEqual(candidate.related_port, 9)
+
+        # Close the connection.
+        await conn.close()
 
     @asynctest
     async def test_repr(self) -> None:
