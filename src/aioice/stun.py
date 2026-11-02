@@ -5,7 +5,7 @@ import hmac
 import ipaddress
 from collections.abc import Callable
 from struct import pack, unpack
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 from .utils import random_transaction_id
 
@@ -146,18 +146,21 @@ def unpack_string(data: bytes) -> str:
 
 
 def unpack_unsigned(data: bytes) -> int:
-    return unpack("!I", data)[0]
+    value: int = unpack("!I", data)[0]
+    return value
 
 
 def unpack_unsigned_short(data: bytes) -> int:
-    return unpack("!H", data[0:2])[0]
+    value: int = unpack("!H", data[0:2])[0]
+    return value
 
 
 def unpack_unsigned_64(data: bytes) -> int:
-    return unpack("!Q", data)[0]
+    value: int = unpack("!Q", data)[0]
+    return value
 
 
-AttributeEntry = tuple[int, str, Callable, Callable]
+AttributeEntry = tuple[int, str, Callable[..., bytes], Callable[..., Any]]
 
 ATTRIBUTES: list[AttributeEntry] = [
     (0x0001, "MAPPED-ADDRESS", pack_address, unpack_address),
@@ -217,7 +220,7 @@ class Message:
         message_method: Method,
         message_class: Class,
         transaction_id: Optional[bytes] = None,
-        attributes: Optional[dict] = None,
+        attributes: Optional[dict[str, Any]] = None,
     ) -> None:
         self.message_method = message_method
         self.message_class = message_class
@@ -272,6 +275,8 @@ class TransactionError(Exception):
 
 
 class TransactionFailed(TransactionError):
+    response: Message
+
     def __init__(self, response: Message) -> None:
         self.response = response
 

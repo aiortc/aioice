@@ -22,8 +22,10 @@ async def delay(coro: Callable[[], Coroutine[None, None, None]]) -> None:
 
 
 class ProtocolMock(ice.StunProtocol):
-    def __init__(self, response_addr: tuple[str, int]) -> None:
-        super().__init__(None)
+    def __init__(
+        self, receiver: ice.Connection, response_addr: tuple[str, int]
+    ) -> None:
+        super().__init__(receiver)
         self.local_candidate = Candidate(
             foundation="some-foundation",
             component=1,
@@ -62,7 +64,7 @@ class IceComponentTest(unittest.TestCase):
         connection.remote_password = "remote-password"
         connection.remote_username = "remote-username"
 
-        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
 
         request = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
@@ -90,7 +92,7 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(pair.remote_candidate, candidate)
 
         # check a triggered check was scheduled
-        self.assertIsNotNone(pair.task)
+        assert pair.task is not None
         await pair.task
 
     @asynctest
@@ -101,7 +103,7 @@ class IceComponentTest(unittest.TestCase):
             *, component: int, port: int, state: ice.CandidatePair.State
         ) -> ice.CandidatePair:
             # The pair's component is that of its local candidate.
-            protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+            protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
             protocol.local_candidate.component = component
             pair = ice.CandidatePair(
                 protocol,
@@ -153,7 +155,8 @@ class IceComponentTest(unittest.TestCase):
 
         # A check scheduled but not yet started must be cancelled.
         connection.check_start_task(waiting)
-        self.assertIsNotNone(waiting.task)
+        task = waiting.task
+        assert task is not None
 
         connection.check_complete(nominated)
         self.assertEqual(
@@ -161,7 +164,7 @@ class IceComponentTest(unittest.TestCase):
             [nominated, succeeded, in_progress, failed, *other_component],
         )
         with self.assertRaises(asyncio.CancelledError):
-            await waiting.task
+            await task
         self.assertEqual(waiting.state, ice.CandidatePair.State.WAITING)
 
         # No check is left running.
@@ -173,7 +176,7 @@ class IceComponentTest(unittest.TestCase):
 
         # A trickled candidate formed a pair before the remote credentials
         # are known.
-        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
         remote_candidate = Candidate(
             foundation="some-foundation",
             component=1,
@@ -197,7 +200,7 @@ class IceComponentTest(unittest.TestCase):
         )
 
         # The request is answered, but the triggered check is deferred.
-        self.assertIsNotNone(protocol.sent_message)
+        assert protocol.sent_message is not None
         self.assertEqual(protocol.sent_message.message_method, stun.Method.BINDING)
         self.assertEqual(protocol.sent_message.message_class, stun.Class.RESPONSE)
         self.assertEqual(
@@ -209,7 +212,7 @@ class IceComponentTest(unittest.TestCase):
     @asynctest
     async def test_request_before_remote_credentials_limit(self) -> None:
         connection = ice.Connection(ice_controlling=True)
-        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
 
         requests = []
         for _ in range(ice.MAX_EARLY_CHECKS + 1):
@@ -235,7 +238,7 @@ class IceComponentTest(unittest.TestCase):
     async def test_request_with_invalid_method(self) -> None:
         connection = ice.Connection(ice_controlling=True)
 
-        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
 
         request = stun.Message(
             message_method=stun.Method.ALLOCATE, message_class=stun.Class.REQUEST
@@ -244,7 +247,7 @@ class IceComponentTest(unittest.TestCase):
         connection.request_received(
             request, ("2.3.4.5", 2345), protocol, bytes(request)
         )
-        self.assertIsNotNone(protocol.sent_message)
+        assert protocol.sent_message is not None
         self.assertEqual(protocol.sent_message.message_method, stun.Method.ALLOCATE)
         self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
         self.assertEqual(
@@ -257,7 +260,7 @@ class IceComponentTest(unittest.TestCase):
         connection.remote_password = "remote-password"
         connection.remote_username = "remote-username"
 
-        protocol = ProtocolMock(response_addr=("3.4.5.6", 3456))
+        protocol = ProtocolMock(connection, response_addr=("3.4.5.6", 3456))
 
         pair = ice.CandidatePair(
             protocol,
@@ -293,7 +296,7 @@ class IceComponentTest(unittest.TestCase):
                 connection.remote_password = "remote-password"
                 connection.remote_username = "remote-username"
 
-                protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+                protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
                 remote_candidate = Candidate(
                     foundation="some-foundation",
                     component=1,
@@ -320,7 +323,7 @@ class IceComponentTest(unittest.TestCase):
 
                 if triggered:
                     self.assertEqual(pair.state, ice.CandidatePair.State.WAITING)
-                    self.assertIsNotNone(pair.task)
+                    assert pair.task is not None
                     await pair.task
                     self.assertEqual(pair.state, ice.CandidatePair.State.SUCCEEDED)
                 else:
@@ -462,7 +465,7 @@ class IceConnectionTest(unittest.TestCase):
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
-        self.assertIsNotNone(candidate)
+        assert candidate is not None
         self.assertEqual(candidate.type, "host")
 
         # there should not be a default candidate for component 2
@@ -602,12 +605,12 @@ class IceConnectionTest(unittest.TestCase):
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
-        self.assertIsNotNone(candidate)
+        assert candidate is not None
         self.assertEqual(candidate.type, "host")
 
         # there should be a default candidate for component 2
         candidate = conn_a.get_default_candidate(2)
-        self.assertIsNotNone(candidate)
+        assert candidate is not None
         self.assertEqual(candidate.type, "host")
 
         # connect
@@ -700,7 +703,7 @@ class IceConnectionTest(unittest.TestCase):
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
-        self.assertIsNotNone(candidate)
+        assert candidate is not None
         self.assertEqual(candidate.type, "host")
 
         # there should not be a default candidate for component 2
@@ -1135,7 +1138,7 @@ class IceConnectionTest(unittest.TestCase):
 
             # the default candidate should be server-reflexive
             candidate = conn_a.get_default_candidate(1)
-            self.assertIsNotNone(candidate)
+            assert candidate is not None
             self.assertEqual(candidate.type, "srflx")
             self.assertIsNotNone(candidate.related_address)
             self.assertIsNotNone(candidate.related_port)
@@ -1222,7 +1225,7 @@ class IceConnectionTest(unittest.TestCase):
 
             # the default candidate should be relayed
             candidate = conn_a.get_default_candidate(1)
-            self.assertIsNotNone(candidate)
+            assert candidate is not None
             self.assertEqual(candidate.type, "relay")
             self.assertIsNotNone(candidate.related_address)
             self.assertIsNotNone(candidate.related_port)
@@ -1250,7 +1253,7 @@ class IceConnectionTest(unittest.TestCase):
 
             # the default candidate should be relayed
             candidate = conn_a.get_default_candidate(1)
-            self.assertIsNotNone(candidate)
+            assert candidate is not None
             self.assertEqual(candidate.type, "relay")
             self.assertIsNotNone(candidate.related_address)
             self.assertIsNotNone(candidate.related_port)
@@ -1278,7 +1281,7 @@ class IceConnectionTest(unittest.TestCase):
 
             # the default candidate should be host
             candidate = conn_a.get_default_candidate(1)
-            self.assertIsNotNone(candidate)
+            assert candidate is not None
             self.assertEqual(candidate.type, "host")
             self.assertIsNone(candidate.related_address)
             self.assertIsNone(candidate.related_port)
@@ -1309,7 +1312,7 @@ class IceConnectionTest(unittest.TestCase):
 
             # the default candidate should be host
             candidate = conn_a.get_default_candidate(1)
-            self.assertIsNotNone(candidate)
+            assert candidate is not None
             self.assertEqual(candidate.type, "host")
             self.assertIsNone(candidate.related_address)
             self.assertIsNone(candidate.related_port)
@@ -1378,7 +1381,8 @@ class IceConnectionTest(unittest.TestCase):
 
         # force selected pair
         default_a = conn_a.get_default_candidate(1)
-        default_b = conn_a.get_default_candidate(1)
+        default_b = conn_b.get_default_candidate(1)
+        assert default_a is not None and default_b is not None
         conn_a.set_selected_pair(1, default_a.foundation, default_b.foundation)
         conn_b.set_selected_pair(1, default_b.foundation, default_a.foundation)
 
@@ -1660,11 +1664,11 @@ class IceConnectionTest(unittest.TestCase):
 class StunProtocolTest(unittest.TestCase):
     @asynctest
     async def test_error_received(self) -> None:
-        protocol = ice.StunProtocol(None)
+        protocol = ice.StunProtocol(ice.Connection(ice_controlling=True))
         protocol.error_received(OSError("foo"))
 
     @asynctest
     async def test_repr(self) -> None:
-        protocol = ice.StunProtocol(None)
+        protocol = ice.StunProtocol(ice.Connection(ice_controlling=True))
         protocol.id = 1
         self.assertEqual(repr(protocol), "protocol(1)")

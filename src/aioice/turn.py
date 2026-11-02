@@ -89,7 +89,7 @@ class TurnClientMixin:
         self.password = password
         self.receiver: Optional[asyncio.DatagramProtocol] = None
         self.realm: Optional[str] = None
-        self.refresh_task: Optional[asyncio.Task] = None
+        self.refresh_task: Optional[asyncio.Task[None]] = None
         self.relayed_address: Optional[tuple[str, int]] = None
         self.server = server
         self.transactions: dict[bytes, stun.Transaction] = {}
@@ -128,7 +128,7 @@ class TurnClientMixin:
 
         return self.relayed_address
 
-    def connection_lost(self, exc: Exception) -> None:
+    def connection_lost(self, exc: Optional[Exception]) -> None:
         logger.debug("%s connection_lost(%s)", self, exc)
         if self.receiver is not None:
             self.receiver.connection_lost(exc)
@@ -262,6 +262,8 @@ class TurnClientMixin:
                 self.nonce = e.response.attributes["NONCE"]
                 if error_code == 401:
                     self.realm = e.response.attributes["REALM"]
+                # The realm was either just received or is already known.
+                assert self.realm is not None
                 self.integrity_key = make_integrity_key(
                     self.username, self.realm, self.password
                 )
@@ -334,6 +336,8 @@ class TurnClientMixin:
         self._send(bytes(message))
 
     def __add_authentication(self, request: stun.Message) -> None:
+        # Authentication is only added once credentials are known.
+        assert self.integrity_key is not None
         request.attributes["USERNAME"] = self.username
         request.attributes["NONCE"] = self.nonce
         request.attributes["REALM"] = self.realm

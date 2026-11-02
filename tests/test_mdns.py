@@ -27,7 +27,7 @@ class MdnsTest(unittest.TestCase):
     @asynctest
     async def test_receive_junk(self) -> None:
         async with querier_and_responder() as (querier, _):
-            querier.datagram_received(b"junk", None)
+            querier.datagram_received(b"junk", ("1.2.3.4", 5353))
 
     @asynctest
     async def test_resolve_bad(self) -> None:

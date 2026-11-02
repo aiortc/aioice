@@ -11,7 +11,7 @@ import socket
 import threading
 from collections import deque
 from collections.abc import Callable
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 import ifaddr
 
@@ -60,7 +60,7 @@ async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol:
         if _mdns.protocol is None:
             _mdns.protocol = await mdns.create_mdns_protocol()
         _mdns.subscribers.add(subscriber)
-    return _mdns.protocol
+    return cast(mdns.MDnsProtocol, _mdns.protocol)
 
 
 async def unref_mdns_protocol(subscriber: object) -> None:
@@ -214,7 +214,7 @@ def validate_username(value: str) -> None:
 
 class CandidatePair:
     def __init__(self, protocol: "StunProtocol", remote_candidate: Candidate) -> None:
-        self.task: Optional[asyncio.Task] = None
+        self.task: Optional[asyncio.Task[None]] = None
         self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
@@ -249,15 +249,16 @@ class CandidatePair:
 
 
 class StunProtocol(asyncio.DatagramProtocol):
+    local_candidate: Candidate
+    transport: asyncio.DatagramTransport
+
     def __init__(self, receiver: "Connection") -> None:
         self.__closed: asyncio.Future[bool] = asyncio.Future()
         self.id = next(protocol_id)
-        self.local_candidate: Optional[Candidate] = None
         self.receiver = receiver
-        self.transport: Optional[asyncio.DatagramTransport] = None
         self.transactions: dict[bytes, stun.Transaction] = {}
 
-    def connection_lost(self, exc: Exception) -> None:
+    def connection_lost(self, exc: Optional[Exception]) -> None:
         self.__log_debug("connection_lost(%s)", exc)
         if not self.__closed.done():
             self.receiver.protocol_lost(self)
@@ -267,7 +268,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.__log_debug("connection_made(%s)", transport)
         self.transport = cast(asyncio.DatagramTransport, transport)
 
-    def datagram_received(self, data: Union[bytes, str], addr: tuple) -> None:
+    def datagram_received(self, data: Union[bytes, str], addr: tuple[Any, ...]) -> None:
         # force IPv6 four-tuple to a two-tuple
         addr = (addr[0], addr[1])
         data = cast(bytes, data)
@@ -414,7 +415,7 @@ class Connection:
         self._components = set(range(1, components + 1))
         self._check_list: list[CandidatePair] = []
         self._check_list_done = False
-        self._check_list_state: asyncio.Queue = asyncio.Queue()
+        self._check_list_state: asyncio.Queue[int] = asyncio.Queue()
         # Bound the memory used until connect(), dropping the oldest check.
         self._early_checks: deque[
             tuple[stun.Message, tuple[str, int], StunProtocol]
@@ -432,10 +433,8 @@ class Connection:
         self._protocols: list[StunProtocol] = []
         self._remote_candidates: list[Candidate] = []
         self._remote_candidates_end = False
-        self._query_consent_task: Optional[asyncio.Task] = None
-        self._queue: asyncio.Queue[tuple[Optional[bytes], Optional[int]]] = (
-            asyncio.Queue()
-        )
+        self._query_consent_task: Optional[asyncio.Task[None]] = None
+        self._queue: asyncio.Queue[Optional[tuple[bytes, int]]] = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
@@ -653,7 +652,7 @@ class Connection:
         self._local_candidates.clear()
 
         # Wake up any pending recv().
-        self.data_received(None, None)
+        self._queue.put_nowait(None)
 
         # Emit an event.
         if not self._closed:
@@ -699,7 +698,7 @@ class Connection:
             raise ConnectionError("Cannot receive data, not connected")
 
         result = await self._queue.get()
-        if result[0] is None:
+        if result is None:
             raise ConnectionError("Connection lost while receiving data")
         return result
 
@@ -923,6 +922,8 @@ class Connection:
         """
         Starts a check.
         """
+        # Checks only start once connect() has the remote password.
+        assert self.remote_password is not None
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
         nominate = self.ice_controlling and not self.remote_is_lite
@@ -1083,10 +1084,10 @@ class Connection:
             done, pending = await asyncio.wait(tasks, timeout=timeout)
             for task in done:
                 if task.exception() is None:
-                    candidate, protocol = task.result()
+                    candidate, relay_protocol = task.result()
                     candidates.append(candidate)
-                    if protocol is not None:
-                        self._protocols.append(protocol)
+                    if relay_protocol is not None:
+                        self._protocols.append(relay_protocol)
             for task in pending:
                 task.cancel()
 
@@ -1110,6 +1111,8 @@ class Connection:
         """
         Periodically check consent (RFC 7675).
         """
+        # Consent checks only start once connect() has the remote password.
+        assert self.remote_password is not None
         failures = 0
         while True:
             # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
@@ -1132,7 +1135,7 @@ class Connection:
                     self._query_consent_task = None
                     return await self.close()
 
-    def data_received(self, data: Optional[bytes], component: Optional[int]) -> None:
+    def data_received(self, data: bytes, component: int) -> None:
         self._queue.put_nowait((data, component))
 
     def protocol_lost(self, protocol: StunProtocol) -> None:
@@ -1140,7 +1143,7 @@ class Connection:
         # protocol must not abort a pending recv().
         for pair in self._nominated.values():
             if pair.protocol is protocol:
-                self.data_received(None, None)
+                self._queue.put_nowait(None)
                 return
 
     def request_received(

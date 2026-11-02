@@ -32,7 +32,7 @@ class IceTrickleTest(unittest.TestCase):
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
-        self.assertIsNotNone(candidate)
+        assert candidate is not None
         self.assertEqual(candidate.type, "host")
 
         # there should not be a default candidate for component 2
