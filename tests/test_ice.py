@@ -1895,6 +1895,122 @@ class IceConnectionTest(unittest.TestCase):
         await conn_a.close()
         await conn_b.close()
 
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_add_remote_candidate_mdns_with_turn_server(self) -> None:
+        """
+        An mDNS candidate is not paired with a relayed candidate.
+        """
+        hostname = mdns.create_mdns_hostname()
+        publisher = await mdns.create_mdns_protocol()
+        await publisher.publish(hostname, "1.2.3.4")
+
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            await conn_a.gather_candidates()
+            self.assertIn("relay", {c.type for c in conn_a.local_candidates})
+
+            # Check an mDNS candidate is only paired with host candidates.
+            await conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=hostname,
+                    port=1234,
+                    type="host",
+                )
+            )
+            self.assertEqual(
+                {p.local_candidate.type for p in conn_a._check_list}, {"host"}
+            )
+
+            # Check an IP candidate is also paired with the relayed candidate.
+            await conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="other-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host="1.2.3.5",
+                    port=1234,
+                    type="host",
+                )
+            )
+            self.assertEqual(
+                {
+                    p.local_candidate.type
+                    for p in conn_a._check_list
+                    if p.remote_candidate.host == "1.2.3.5"
+                },
+                {"host", "relay"},
+            )
+
+            # Close the connection.
+            await conn_a.close()
+
+        # Close the mDNS publisher.
+        await publisher.close()
+
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_connect_mdns_with_turn_server(self) -> None:
+        """
+        Connect using the peer's mDNS candidates, signalled before gathering,
+        while using a TURN server.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            conn_b = ice.Connection(ice_controlling=False)
+            publisher = await mdns.create_mdns_protocol()
+
+            # Connection B's candidates are signalled as mDNS candidates, before
+            # connection A gathers its candidates.
+            await conn_b.gather_candidates()
+            await add_mdns_candidates(publisher, conn_a, conn_b.local_candidates)
+
+            # Exchange credentials and connection A's candidates.
+            await conn_a.gather_candidates()
+            self.assertIn("relay", {c.type for c in conn_a.local_candidates})
+            conn_a.remote_username = conn_b.local_username
+            conn_a.remote_password = conn_b.local_password
+            conn_b.remote_username = conn_a.local_username
+            conn_b.remote_password = conn_a.local_password
+            for candidate in conn_a.local_candidates:
+                await conn_b.add_remote_candidate(candidate)
+            await conn_b.add_remote_candidate(None)
+
+            # Check connect() formed no pair with the relayed candidate, before
+            # unchecked pairs are removed on nomination.
+            connect_task = asyncio.create_task(conn_a.connect())
+            await asyncio.sleep(0)
+            self.assertEqual(
+                {p.local_candidate.type for p in conn_a._check_list}, {"host"}
+            )
+
+            await asyncio.gather(connect_task, conn_b.connect())
+
+            # Send data a -> b.
+            await conn_a.send(b"howdee")
+            data = await conn_b.recv()
+            self.assertEqual(data, b"howdee")
+
+            # Close the connections and the mDNS publisher.
+            await conn_a.close()
+            await conn_b.close()
+            await publisher.close()
+
     @asynctest
     async def test_add_remote_candidate_same_address(self) -> None:
         """

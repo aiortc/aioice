@@ -587,12 +587,7 @@ class Connection:
 
         # Forming candidate pairs (RFC 8445 section 6.1.2.2).
         for remote_candidate in self._remote_candidates:
-            for protocol in self._protocols:
-                if protocol.local_candidate.can_pair_with(
-                    remote_candidate
-                ) and not self._find_pair(protocol, remote_candidate):
-                    pair = CandidatePair(protocol, remote_candidate)
-                    self._check_list.append(pair)
+            self._pair_remote_candidate(remote_candidate)
         self.sort_check_list()
 
         self._unfreeze_initial()
@@ -805,12 +800,7 @@ class Connection:
             return
 
         # Pair the remote candidate.
-        for protocol in self._protocols:
-            if protocol.local_candidate.can_pair_with(
-                remote_candidate
-            ) and not self._find_pair(protocol, remote_candidate):
-                pair = CandidatePair(protocol, remote_candidate)
-                self._check_list.append(pair)
+        self._pair_remote_candidate(remote_candidate)
         self.sort_check_list()
 
     def build_request(self, pair: CandidatePair, nominate: bool) -> stun.Message:
@@ -1173,6 +1163,23 @@ class Connection:
                 task.cancel()
 
         return candidates
+
+    def _pair_remote_candidate(self, remote_candidate: Candidate) -> None:
+        """
+        Pair a remote candidate with the local candidates it can pair with.
+        """
+        is_mdns = mdns.is_mdns_hostname(remote_candidate.host)
+        for protocol in self._protocols:
+            # Relaying to an mDNS candidate would reveal its address to the TURN
+            # server (draft-ietf-mmusic-mdns-ice-candidates section 3.3.2).
+            if is_mdns and protocol.local_candidate.type == "relay":
+                continue
+
+            if protocol.local_candidate.can_pair_with(
+                remote_candidate
+            ) and not self._find_pair(protocol, remote_candidate):
+                pair = CandidatePair(protocol, remote_candidate)
+                self._check_list.append(pair)
 
     def _prune_components(self) -> None:
         """
