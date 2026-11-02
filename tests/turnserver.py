@@ -206,7 +206,7 @@ class TurnServerMixin:
             lifetime = min(lifetime, self.server.maximum_lifetime)
 
             # create allocation
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             _, allocation = await loop.create_datagram_endpoint(
                 lambda: Allocation(
                     client_address=addr,
@@ -386,7 +386,7 @@ class TurnServer:
         )
 
     async def listen(self, port: int = 0, tls_port: int = 0) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         hostaddr = get_host_addresses(use_ipv4=True, use_ipv6=False)[0]
 
         # listen for TCP
@@ -453,7 +453,9 @@ if __name__ == "__main__":
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
-    srv = TurnServer(users={"foo": "bar"})
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(srv.listen(port=3478, tls_port=5349))
-    loop.run_forever()
+    async def main() -> None:
+        srv = TurnServer(users={"foo": "bar"})
+        await srv.listen(port=3478, tls_port=5349)
+        await asyncio.Event().wait()
+
+    asyncio.run(main())
