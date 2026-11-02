@@ -411,6 +411,7 @@ class Connection:
 
         # private
         self._closed = False
+        self._closing = False
         self._components = set(range(1, components + 1))
         self._check_list: list[CandidatePair] = []
         self._check_list_done = False
@@ -492,12 +493,16 @@ class Connection:
 
         The candidate is copied, so later changes to it have no effect. A
         candidate with the same transport address as one already added is
-        ignored.
+        ignored. Once :meth:`close` has been called, remote candidates are
+        ignored, including mDNS candidates still being resolved.
 
         :param remote_candidate: A :class:`Candidate` instance or `None`.
         """
         if self._remote_candidates_end:
             raise ValueError("Cannot add remote candidate after end-of-candidates.")
+
+        if self._closing:
+            return
 
         # end-of-candidates
         if remote_candidate is None:
@@ -522,7 +527,7 @@ class Connection:
                         'Remote candidate "%s" could not be resolved',
                         remote_candidate.host,
                     )
-                else:
+                elif not self._closing:
                     self.__log_info(
                         'Remote candidate "%s" resolved to %s',
                         remote_candidate.host,
@@ -534,6 +539,7 @@ class Connection:
                 if (
                     self._remote_candidates_end
                     and not self._remote_candidates_resolving
+                    and not self._closing
                 ):
                     self._end_remote_candidates()
             return
@@ -625,6 +631,9 @@ class Connection:
         """
         Close the connection.
         """
+        # Ignore remote candidates from now on, including those resolved meanwhile.
+        self._closing = True
+
         # Stop consent freshness tests.
         if self._query_consent_task and not self._query_consent_task.done():
             self._query_consent_task.cancel()
