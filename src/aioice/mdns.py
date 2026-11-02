@@ -19,7 +19,7 @@ MDNS_ADDRESS = "224.0.0.251"
 MDNS_PORT = 5353
 MDNS_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9-]{1,63}\.local$")
 
-MDNS_RDCLASS = dns.rdataclass.IN | 0x8000
+MDNS_RDCLASS = dns.rdataclass.RdataClass.make(dns.rdataclass.IN | 0x8000)
 
 
 def create_mdns_hostname() -> str:
@@ -59,7 +59,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         if isinstance(message, dns.message.QueryMessage):
             # answer question
             for question in message.question:
-                rdtypes: list[int] = []
+                rdtypes: list[dns.rdatatype.RdataType] = []
                 if question.rdtype in (
                     dns.rdatatype.ANY,
                     dns.rdatatype.A,
