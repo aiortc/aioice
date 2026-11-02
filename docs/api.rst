@@ -21,3 +21,6 @@ API Reference
 
       .. automethod:: from_sdp
       .. automethod:: to_sdp
+
+   .. autoclass:: TransportPolicy()
+      :members:

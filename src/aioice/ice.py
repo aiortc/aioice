@@ -48,6 +48,11 @@ class TransportPolicy(enum.Enum):
     Only ICE candidates whose IP addresses are being relayed,
     such as those being passed through a TURN server,
     will be considered.
+
+    Candidates are only gathered from a TURN server, so none are gathered
+    without one, even with a STUN server. Remote mDNS candidates are
+    ignored, as they cannot be paired with relayed candidates, and the
+    related address of relayed candidates is hidden.
     """
 
 
@@ -369,7 +374,7 @@ class Connection:
     :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
-    :param transport_policy: Transport policy.
+    :param transport_policy: The transport policy.
     :param local_username: An optional local username, otherwise a random one
                            will be generated.
     :param local_password: An optional local password, otherwise a random one
