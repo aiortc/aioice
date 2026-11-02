@@ -1852,6 +1852,74 @@ class IceConnectionTest(unittest.TestCase):
         await conn_a.close()
         await publisher.close()
 
+    @asynctest
+    async def test_add_remote_candidate_mdns_after_close(self) -> None:
+        """
+        Add an mDNS candidate once the connection is closed.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+        await conn_a.close()
+
+        with mock.patch("aioice.ice.get_or_create_mdns_protocol") as mock_get:
+            await conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=mdns.create_mdns_hostname(),
+                    port=1234,
+                    type="host",
+                )
+            )
+
+        # Check the candidate was ignored, without subscribing to mDNS again.
+        self.assertEqual(conn_a.remote_candidates, [])
+        mock_get.assert_not_called()
+
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_add_remote_candidate_mdns_then_close(self) -> None:
+        """
+        Close the connection while an mDNS candidate is being resolved.
+        """
+        hostname = mdns.create_mdns_hostname()
+        publisher = await mdns.create_mdns_protocol()
+        await publisher.publish(hostname, "1.2.3.4")
+
+        conn_a = ice.Connection(ice_controlling=True)
+
+        # Another connection keeps the mDNS protocol open, so the name resolves.
+        conn_b = ice.Connection(ice_controlling=False)
+        await ice.get_or_create_mdns_protocol(conn_b)
+
+        task = asyncio.create_task(
+            conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=hostname,
+                    port=1234,
+                    type="host",
+                )
+            )
+        )
+        await asyncio.sleep(0)
+        await conn_a.add_remote_candidate(None)
+        await conn_a.close()
+        await task
+
+        # Check the resolved candidate and end-of-candidates were ignored.
+        self.assertEqual(conn_a.remote_candidates, [])
+        self.assertEqual(conn_a._components, {1})
+        self.assertNotIn(conn_a, ice._mdns.subscribers)
+
+        # Close the other connection and the mDNS publisher.
+        await conn_b.close()
+        await publisher.close()
+
     @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
     @asynctest
     async def test_connect_mdns_bad_then_end_of_candidates(self) -> None:
