@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import functools
 import os
 import unittest
@@ -13,6 +14,30 @@ from .turnserver import run_turn_server
 from .utils import RUNNING_ON_MAC_CI, asynctest, invite_accept
 
 RUNNING_ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+async def add_mdns_candidates(
+    publisher: mdns.MDnsProtocol, conn: ice.Connection, candidates: list[Candidate]
+) -> None:
+    """
+    Signal candidates to a connection under new mDNS hostnames, followed by
+    end-of-candidates.
+    """
+    for candidate in candidates:
+        hostname = mdns.create_mdns_hostname()
+        await publisher.publish(hostname, candidate.host)
+        await conn.add_remote_candidate(
+            Candidate(
+                foundation=candidate.foundation,
+                component=candidate.component,
+                transport=candidate.transport,
+                priority=candidate.priority,
+                host=hostname,
+                port=candidate.port,
+                type=candidate.type,
+            )
+        )
+    await conn.add_remote_candidate(None)
 
 
 async def delay(coro: Callable[[], Coroutine[None, None, None]]) -> None:
@@ -153,6 +178,55 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(connection._check_list, [pair])
         assert pair.task is not None
         await pair.task
+
+    @asynctest
+    async def test_peer_reflexive_then_signalled(self) -> None:
+        """
+        A candidate signalled after it was learned as peer-reflexive updates
+        the peer-reflexive candidate instead of forming a duplicate pair.
+        """
+        connection = ice.Connection(ice_controlling=True)
+        connection.remote_password = "remote-password"
+        connection.remote_username = "remote-username"
+
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
+        connection._protocols.append(protocol)
+
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.attributes["PRIORITY"] = 456789
+
+        connection.check_incoming(request, ("2.3.4.5", 2345), protocol)
+        self.assertEqual(len(connection._check_list), 1)
+        pair = connection._check_list[0]
+        candidate = pair.remote_candidate
+        self.assertEqual(candidate.type, "prflx")
+        assert pair.task is not None
+        await pair.task
+
+        # The peer signals the candidate.
+        await connection.add_remote_candidate(
+            Candidate(
+                foundation="signalled-foundation",
+                component=1,
+                transport="udp",
+                priority=2130706431,
+                host="2.3.4.5",
+                port=2345,
+                type="host",
+            )
+        )
+
+        # Check the peer-reflexive candidate was updated.
+        self.assertEqual(connection.remote_candidates, [candidate])
+        self.assertEqual(candidate.foundation, "signalled-foundation")
+        self.assertEqual(candidate.priority, 2130706431)
+        self.assertEqual(candidate.type, "host")
+
+        # Check the existing pair was kept.
+        self.assertEqual(connection._check_list, [pair])
+        self.assertEqual(pair.remote_candidate, candidate)
 
     @asynctest
     async def test_nomination_removes_waiting_and_frozen_pairs(self) -> None:
@@ -1635,6 +1709,61 @@ class IceConnectionTest(unittest.TestCase):
 
     @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
     @asynctest
+    async def test_add_remote_candidate_mdns_after_checks(self) -> None:
+        """
+        Add mDNS candidates after the peer's checks have arrived.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+        publisher = await mdns.create_mdns_protocol()
+
+        # Exchange credentials.
+        await conn_a.gather_candidates()
+        await conn_b.gather_candidates()
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+
+        # Connection B knows connection A's candidates.
+        for candidate in conn_a.local_candidates:
+            await conn_b.add_remote_candidate(candidate)
+        await conn_b.add_remote_candidate(None)
+
+        # Connection B's candidates are only signalled once its checks arrived.
+        async def add_mdns_candidates_later() -> None:
+            await asyncio.sleep(0.5)
+
+            # Check connection B's checks were learned as peer-reflexive.
+            self.assertEqual({c.type for c in conn_a.remote_candidates}, {"prflx"})
+
+            await add_mdns_candidates(publisher, conn_a, conn_b.local_candidates)
+
+        await asyncio.gather(
+            conn_a.connect(), conn_b.connect(), add_mdns_candidates_later()
+        )
+
+        # Check the signalled candidates replaced the peer-reflexive ones.
+        self.assertEqual(
+            {c.type for c in conn_a.remote_candidates},
+            {c.type for c in conn_b.local_candidates},
+        )
+
+        # Check the updated candidates show their mDNS name.
+        for candidate in conn_a.remote_candidates:
+            self.assertTrue(mdns.is_mdns_hostname(candidate.host))
+
+        # Check no duplicate pair was formed.
+        pairs = [(p.protocol, p.remote_addr) for p in conn_a._check_list]
+        self.assertEqual(len(pairs), len(set(pairs)))
+
+        # Close the connections and the mDNS publisher.
+        await conn_a.close()
+        await conn_b.close()
+        await publisher.close()
+
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
     async def test_connect_mdns(self) -> None:
         """
         Connect using the peer's mDNS candidates.
@@ -1657,21 +1786,7 @@ class IceConnectionTest(unittest.TestCase):
         await conn_b.add_remote_candidate(None)
 
         # Connection B's candidates are signalled as mDNS candidates.
-        for candidate in conn_b.local_candidates:
-            hostname = mdns.create_mdns_hostname()
-            await publisher.publish(hostname, candidate.host)
-            await conn_a.add_remote_candidate(
-                Candidate(
-                    foundation=candidate.foundation,
-                    component=candidate.component,
-                    transport=candidate.transport,
-                    priority=candidate.priority,
-                    host=hostname,
-                    port=candidate.port,
-                    type=candidate.type,
-                )
-            )
-        await conn_a.add_remote_candidate(None)
+        await add_mdns_candidates(publisher, conn_a, conn_b.local_candidates)
 
         await asyncio.gather(conn_a.connect(), conn_b.connect())
 
@@ -1696,6 +1811,77 @@ class IceConnectionTest(unittest.TestCase):
         await conn_a.close()
         await conn_b.close()
         await publisher.close()
+
+    @asynctest
+    async def test_add_remote_candidate_same_address(self) -> None:
+        """
+        Add candidates with the same transport address as an existing one.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+        await conn_a.gather_candidates()
+
+        remote_candidate = Candidate(
+            foundation="some-foundation",
+            component=1,
+            transport="udp",
+            priority=2130706431,
+            host="1.2.3.4",
+            port=1234,
+            type="host",
+        )
+        await conn_a.add_remote_candidate(remote_candidate)
+        await conn_a.add_remote_candidate(
+            Candidate(
+                foundation="ipv6-foundation",
+                component=1,
+                transport="udp",
+                priority=2130706431,
+                host="2001:db8::1",
+                port=1234,
+                type="host",
+            )
+        )
+        check_list = list(conn_a._check_list)
+        self.assertGreater(len(check_list), 0)
+
+        # The same candidate, an equal candidate, a server-reflexive candidate
+        # with the same address and an address written differently are ignored.
+        await conn_a.add_remote_candidate(remote_candidate)
+        await conn_a.add_remote_candidate(copy.copy(remote_candidate))
+        await conn_a.add_remote_candidate(
+            Candidate(
+                foundation="other-foundation",
+                component=1,
+                transport="UDP",
+                priority=1694498815,
+                host="1.2.3.4",
+                port=1234,
+                type="srflx",
+                related_address="192.168.1.2",
+                related_port=1234,
+            )
+        )
+        await conn_a.add_remote_candidate(
+            Candidate(
+                foundation="other-ipv6-foundation",
+                component=1,
+                transport="udp",
+                priority=2130706431,
+                host="2001:DB8:0::1",
+                port=1234,
+                type="host",
+            )
+        )
+
+        # Check the first candidates and their pairs were kept.
+        self.assertEqual(
+            [(c.foundation, c.host) for c in conn_a.remote_candidates],
+            [("some-foundation", "1.2.3.4"), ("ipv6-foundation", "2001:db8::1")],
+        )
+        self.assertEqual(conn_a._check_list, check_list)
+
+        # Close the connection.
+        await conn_a.close()
 
     @asynctest
     async def test_add_remote_candidate_unknown_type(self) -> None:
