@@ -1,5 +1,5 @@
 check-manifest
+cryptography
 mypy
-pyopenssl
 ruff
 websockets
