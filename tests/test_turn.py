@@ -517,3 +517,61 @@ class TurnTest(unittest.TestCase):
 
         self.assertIn("transport", captured)
         self.assertTrue(captured["transport"].is_closing())
+
+    @asynctest
+    async def test_udp_transport_related_address(self) -> None:
+        """
+        The related address is the mapped address in the Allocate response.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            turn_transport = await self._create_turn_endpoint_with_mapped_address(
+                turn_server.udp_address, ("1.2.3.4", 1234)
+            )
+            self.assertEqual(
+                turn_transport.get_extra_info("related_address"), ("1.2.3.4", 1234)
+            )
+
+            # Close the transport.
+            turn_transport.close()
+            await asyncio.sleep(0)
+
+    @asynctest
+    async def test_udp_transport_related_address_missing(self) -> None:
+        """
+        Without a mapped address in the Allocate response, the allocation fails.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            with self.assertRaises(KeyError):
+                await self._create_turn_endpoint_with_mapped_address(
+                    turn_server.udp_address, None
+                )
+
+    async def _create_turn_endpoint_with_mapped_address(
+        self, server_addr: tuple[str, int], mapped_address: tuple[str, int] | None
+    ) -> turn.TurnTransport:
+        """
+        Create a TURN endpoint, replacing the mapped address in the Allocate
+        response, or removing it if `mapped_address` is `None`.
+        """
+        real_request_with_retry = turn.TurnClientMixin.request_with_retry
+
+        async def request_with_retry(
+            self: turn.TurnClientMixin, request: stun.Message
+        ) -> tuple[stun.Message, tuple[str, int]]:
+            response, addr = await real_request_with_retry(self, request)
+            if request.message_method == stun.Method.ALLOCATE:
+                del response.attributes["XOR-MAPPED-ADDRESS"]
+                if mapped_address is not None:
+                    response.attributes["XOR-MAPPED-ADDRESS"] = mapped_address
+            return response, addr
+
+        with mock.patch.object(
+            turn.TurnClientMixin, "request_with_retry", request_with_retry
+        ):
+            turn_transport, _ = await turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=server_addr,
+                username="foo",
+                password="bar",
+            )
+        return turn_transport
