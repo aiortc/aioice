@@ -7,7 +7,7 @@ from unittest import mock
 from aioice import stun, turn
 
 from .echoserver import run_echo_server
-from .turnserver import run_turn_server
+from .turnserver import get_tls_credentials, run_turn_server
 from .utils import asynctest, read_message
 
 
@@ -129,9 +129,9 @@ class TurnTest(unittest.TestCase):
 
     @asynctest
     async def test_tls_transport(self) -> None:
+        certificate_pem, _ = get_tls_credentials()
         ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        ssl_context.load_verify_locations(cadata=certificate_pem)
 
         await self._test_transport("tcp", "tls_address", ssl=ssl_context)
 
