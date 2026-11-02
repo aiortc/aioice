@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import dataclasses
 import enum
 import ipaddress
 import itertools
@@ -9,6 +10,7 @@ import re
 import secrets
 import socket
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from typing import Any, cast
@@ -225,6 +227,32 @@ def validate_username(value: str) -> None:
         raise ValueError("Username must satisfy 4*256ice-char")
 
 
+@dataclasses.dataclass
+class CandidatePairStats:
+    """
+    Statistics for a candidate pair.
+    """
+
+    local_candidate: Candidate
+    remote_candidate: Candidate
+    state: str = "frozen"
+    "The state of the pair: frozen, waiting, in-progress, succeeded or failed."
+    nominated: bool = False
+    selected: bool = False
+    "Whether the pair is used to send data."
+    bytes_received: int = 0
+    bytes_sent: int = 0
+    consent_requests_sent: int = 0
+    current_round_trip_time: float | None = None
+    packets_received: int = 0
+    packets_sent: int = 0
+    requests_received: int = 0
+    requests_sent: int = 0
+    responses_received: int = 0
+    responses_sent: int = 0
+    total_round_trip_time: float = 0.0
+
+
 class CandidatePair:
     def __init__(self, protocol: "StunProtocol", remote_candidate: Candidate) -> None:
         self.task: asyncio.Task[None] | None = None
@@ -233,6 +261,10 @@ class CandidatePair:
         self.remote_candidate = remote_candidate
         self.remote_nominated = False
         self.state = CandidatePair.State.FROZEN
+        self.stats = CandidatePairStats(
+            local_candidate=protocol.local_candidate,
+            remote_candidate=remote_candidate,
+        )
 
     def __repr__(self) -> str:
         return f"CandidatePair({self.local_addr} -> {self.remote_addr})"
@@ -290,6 +322,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             message = stun.parse_message(data)
             self.__log_debug("< %s %s", addr, message)
         except ValueError:
+            self.receiver.pair_data_received(self, addr, len(data))
             self.receiver.data_received(data, self.local_candidate.component)
             return
 
@@ -605,6 +638,22 @@ class Connection:
                 return candidate
         return None
 
+    def get_statistics(self) -> list[CandidatePairStats]:
+        """
+        Get the statistics of the candidate pairs.
+        """
+        selected = list(self._nominated.values())
+        pairs = self._check_list + [p for p in selected if p not in self._check_list]
+        return [
+            dataclasses.replace(
+                pair.stats,
+                state=pair.state.name.lower().replace("_", "-"),
+                nominated=pair.nominated,
+                selected=pair in selected,
+            )
+            for pair in pairs
+        ]
+
     async def connect(self) -> None:
         """
         Perform ICE handshake.
@@ -766,6 +815,8 @@ class Connection:
         active_pair = self._nominated.get(component)
         if active_pair:
             await active_pair.protocol.send_data(data, active_pair.remote_addr)
+            active_pair.stats.bytes_sent += len(data)
+            active_pair.stats.packets_sent += 1
         else:
             raise ConnectionError("Cannot send data, not connected")
 
@@ -937,6 +988,8 @@ class Connection:
             pair.state = CandidatePair.State.WAITING
             self._check_list.append(pair)
             self.sort_check_list()
+        pair.stats.requests_received += 1
+        pair.stats.responses_sent += 1
 
         # Triggered check (RFC 8445 section 7.3.1.4).
         if pair.state in [CandidatePair.State.FROZEN, CandidatePair.State.FAILED]:
@@ -1023,17 +1076,12 @@ class Connection:
         Starts a check.
         """
         # Checks only start once connect() has the remote password.
-        assert self.remote_password is not None
         self.check_state(pair, CandidatePair.State.IN_PROGRESS)
 
         nominate = self.ice_controlling and not self.remote_is_lite
         request = self.build_request(pair, nominate=nominate)
         try:
-            response, addr = await pair.protocol.request(
-                request,
-                pair.remote_addr,
-                integrity_key=self.remote_password.encode("utf8"),
-            )
+            response, addr = await self._pair_request(pair, request)
         except stun.TransactionError as exc:
             # Role conflict or failure (RFC 8445 sections 7.2.5.1 and 7.2.5.2).
             if exc.response and exc.response.error_code == 487:
@@ -1064,11 +1112,7 @@ class Connection:
             self._nominating.add(pair.component)
             request = self.build_request(pair, nominate=True)
             try:
-                await pair.protocol.request(
-                    request,
-                    pair.remote_addr,
-                    integrity_key=self.remote_password.encode("utf8"),
-                )
+                await self._pair_request(pair, request)
             except stun.TransactionError:
                 self.__log_info("Check %s failed : could not nominate pair", pair)
                 self.check_state(pair, CandidatePair.State.FAILED)
@@ -1251,7 +1295,6 @@ class Connection:
         Periodically check consent (RFC 7675).
         """
         # Consent checks only start once connect() has the remote password.
-        assert self.remote_password is not None
         failures = 0
         while True:
             # randomize between 0.8 and 1.2 times CONSENT_INTERVAL
@@ -1260,12 +1303,7 @@ class Connection:
             for pair in self._nominated.values():
                 request = self.build_request(pair, nominate=False)
                 try:
-                    await pair.protocol.request(
-                        request,
-                        pair.remote_addr,
-                        integrity_key=self.remote_password.encode("utf8"),
-                        retransmissions=0,
-                    )
+                    await self._pair_request(pair, request, consent=True)
                     failures = 0
                 except stun.TransactionError:
                     failures += 1
@@ -1290,6 +1328,43 @@ class Connection:
         Whether more remote candidates may still be added.
         """
         return not self._remote_candidates_end or self._remote_candidates_resolving > 0
+
+    def pair_data_received(
+        self, protocol: StunProtocol, addr: tuple[str, int], size: int
+    ) -> None:
+        pair = self._nominated.get(protocol.local_candidate.component)
+        if pair and pair.protocol == protocol and pair.remote_addr == addr:
+            pair.stats.bytes_received += size
+            pair.stats.packets_received += 1
+
+    async def _pair_request(
+        self,
+        pair: CandidatePair,
+        request: stun.Message,
+        consent: bool = False,
+    ) -> tuple[stun.Message, tuple[str, int]]:
+        """
+        Execute a STUN transaction on a candidate pair and update its statistics.
+
+        Consent checks are not retransmitted.
+        """
+        assert self.remote_password is not None
+        if consent:
+            pair.stats.consent_requests_sent += 1
+        else:
+            pair.stats.requests_sent += 1
+        start = time.monotonic()
+        response, addr = await pair.protocol.request(
+            request,
+            pair.remote_addr,
+            integrity_key=self.remote_password.encode("utf8"),
+            retransmissions=0 if consent else None,
+        )
+        rtt = time.monotonic() - start
+        pair.stats.responses_received += 1
+        pair.stats.current_round_trip_time = rtt
+        pair.stats.total_round_trip_time += rtt
+        return response, addr
 
     def request_received(
         self,
