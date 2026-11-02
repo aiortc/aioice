@@ -46,7 +46,7 @@ class TransportPolicy(enum.Enum):
     RELAY = 1
     """
     Only ICE candidates whose IP addresses are being relayed,
-    such as those being passed through a STUN or TURN server,
+    such as those being passed through a TURN server,
     will be considered.
     """
 
@@ -409,7 +409,7 @@ class Connection:
         self.turn_ssl = turn_ssl
         self.turn_transport = turn_transport
 
-        # private
+        # Private attributes.
         self._closed = False
         self._closing = False
         self._components = set(range(1, components + 1))
@@ -439,15 +439,6 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
-
-        if (
-            stun_server is None
-            and turn_server is None
-            and transport_policy == TransportPolicy.RELAY
-        ):
-            raise ValueError(
-                "Relay transport policy requires a STUN and/or TURN server."
-            )
 
         self._transport_policy = transport_policy
 
@@ -494,7 +485,8 @@ class Connection:
         The candidate is copied, so later changes to it have no effect. A
         candidate with the same transport address as one already added is
         ignored. Once :meth:`close` has been called, remote candidates are
-        ignored, including mDNS candidates still being resolved.
+        ignored, including mDNS candidates still being resolved. With the relay
+        transport policy, mDNS candidates are ignored without being resolved.
 
         :param remote_candidate: A :class:`Candidate` instance or `None`.
         """
@@ -504,7 +496,7 @@ class Connection:
         if self._closing:
             return
 
-        # end-of-candidates
+        # Handle end-of-candidates.
         if remote_candidate is None:
             self._remote_candidates_end = True
             if not self._remote_candidates_resolving:
@@ -516,6 +508,15 @@ class Connection:
 
         # Resolve an mDNS candidate.
         if mdns.is_mdns_hostname(remote_candidate.host):
+            # Ignore mDNS candidates with the relay transport policy
+            # (draft-ietf-mmusic-mdns-ice-candidates section 3.2).
+            if self._transport_policy == TransportPolicy.RELAY:
+                self.__log_info(
+                    'Remote candidate "%s" ignored with the relay transport policy',
+                    remote_candidate.host,
+                )
+                return
+
             # Keep the candidate if end-of-candidates arrives meanwhile, as only
             # newly received candidates are ignored (RFC 8838 section 14).
             self._remote_candidates_resolving += 1
@@ -554,9 +555,19 @@ class Connection:
         """
         if not self._local_candidates_start:
             self._local_candidates_start = True
-            addresses = get_host_addresses(
-                use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
-            )
+
+            # Host and server-reflexive candidates are not used with the relay
+            # transport policy (RFC 9429 section 3.5.3).
+            addresses = []
+            if self._transport_policy == TransportPolicy.ALL:
+                addresses = get_host_addresses(
+                    use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
+                )
+            elif self.turn_server is None:
+                self.__log_info(
+                    "No candidates gathered with the relay transport policy, "
+                    "as there is no TURN server"
+                )
             coros = [
                 self.get_component_candidates(component=component, addresses=addresses)
                 for component in self._components
@@ -1098,10 +1109,10 @@ class Connection:
         candidates = []
         loop = asyncio.get_running_loop()
 
-        # gather host candidates
+        # Gather host candidates.
         host_protocols = []
         for address in addresses:
-            # create transport
+            # Create the transport.
             try:
                 transport, protocol = await loop.create_datagram_endpoint(
                     lambda: StunProtocol(self), local_addr=(address, 0)
@@ -1116,7 +1127,7 @@ class Connection:
                 continue
             host_protocols.append(protocol)
 
-            # add host candidate
+            # Add the host candidate.
             candidate_address = protocol.transport.get_extra_info("sockname")
             protocol.local_candidate = Candidate(
                 foundation=candidate_foundation("host", "udp", candidate_address[0]),
@@ -1127,8 +1138,7 @@ class Connection:
                 port=candidate_address[1],
                 type="host",
             )
-            if self._transport_policy == TransportPolicy.ALL:
-                candidates.append(protocol.local_candidate)
+            candidates.append(protocol.local_candidate)
         self._protocols += host_protocols
 
         tasks: list[asyncio.Task[tuple[Candidate, StunProtocol | None]]] = []
