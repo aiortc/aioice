@@ -121,7 +121,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
 
     async def resolve(self, hostname: str, timeout: float | None = 1.0) -> str | None:
         name = dns.name.from_text(hostname)
-        future: asyncio.Future[str] = asyncio.Future()
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
 
         if name in self.queries:
             # a query for this name is already pending
@@ -150,7 +150,7 @@ async def create_mdns_protocol() -> MDnsProtocol:
     Using a single socket works fine on Linux, but on OS X we need to use
     separate sockets for sending and receiving.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # sender
 

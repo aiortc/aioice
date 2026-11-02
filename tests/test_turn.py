@@ -479,7 +479,7 @@ class TurnTest(unittest.TestCase):
         when ICE candidate gathering times out and cancels the relay task),
         the underlying transport must be closed rather than leaked.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         real_create_datagram_endpoint = loop.create_datagram_endpoint
         captured: dict[str, asyncio.BaseTransport] = {}
 

@@ -21,7 +21,7 @@ class EchoServer:
         self.udp_server.transport.close()
 
     async def listen(self, host: str = "127.0.0.1", port: int = 0) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # listen for UDP
         transport, self.udp_server = await loop.create_datagram_endpoint(
