@@ -3,7 +3,7 @@ import re
 import socket
 import sys
 import uuid
-from typing import Any, Optional, Union, cast
+from typing import Any, cast
 
 import dns.exception
 import dns.flags
@@ -40,17 +40,17 @@ class MDnsProtocol(asyncio.DatagramProtocol):
 
         self.tx_transport = tx_transport
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         # abort any outstanding queries
         for name, futures in list(self.queries.items()):
             for future in futures:
-                future.set_exception(asyncio.TimeoutError)
+                future.set_exception(TimeoutError)
         self.__closed.set_result(True)
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.rx_transport = cast(asyncio.DatagramTransport, transport)
 
-    def datagram_received(self, data: Union[bytes, str], addr: tuple[Any, ...]) -> None:
+    def datagram_received(self, data: bytes | str, addr: tuple[Any, ...]) -> None:
         # parse message
         try:
             message = dns.message.from_wire(cast(bytes, data))
@@ -119,9 +119,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         rdata = dns.rdata.GenericRdata(rdclass=MDNS_RDCLASS, rdtype=rdtype, data=data)
         self.zone.replace_rdataset(name, dns.rdataset.from_rdata(120, rdata))
 
-    async def resolve(
-        self, hostname: str, timeout: Optional[float] = 1.0
-    ) -> Optional[str]:
+    async def resolve(self, hostname: str, timeout: float | None = 1.0) -> str | None:
         name = dns.name.from_text(hostname)
         future: asyncio.Future[str] = asyncio.Future()
 
@@ -138,7 +136,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         finally:
             if name in self.queries:

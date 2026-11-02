@@ -1,6 +1,5 @@
 import hashlib
 import ipaddress
-from typing import Optional
 
 
 def candidate_foundation(
@@ -45,10 +44,10 @@ class Candidate:
         host: str,
         port: int,
         type: str,
-        related_address: Optional[str] = None,
-        related_port: Optional[int] = None,
-        tcptype: Optional[str] = None,
-        generation: Optional[int] = None,
+        related_address: str | None = None,
+        related_port: int | None = None,
+        tcptype: str | None = None,
+        generation: int | None = None,
     ) -> None:
         self.foundation = foundation
         self.component = component
@@ -76,10 +75,10 @@ class Candidate:
         if len(bits) < 8:
             raise ValueError("SDP does not have enough properties")
 
-        related_address: Optional[str] = None
-        related_port: Optional[int] = None
-        tcptype: Optional[str] = None
-        generation: Optional[int] = None
+        related_address: str | None = None
+        related_port: int | None = None
+        tcptype: str | None = None
+        generation: int | None = None
         for i in range(8, len(bits) - 1, 2):
             if bits[i] == "raddr":
                 related_address = bits[i + 1]

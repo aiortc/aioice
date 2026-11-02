@@ -3,7 +3,6 @@ import functools
 import os
 import unittest
 from collections.abc import Callable, Coroutine
-from typing import Optional
 from unittest import mock
 
 import ifaddr
@@ -37,14 +36,14 @@ class ProtocolMock(ice.StunProtocol):
         )
 
         self.response_addr = response_addr
-        self.sent_message: Optional[stun.Message] = None
+        self.sent_message: stun.Message | None = None
 
     async def request(
         self,
         message: stun.Message,
         addr: tuple[str, int],
-        integrity_key: Optional[bytes] = None,
-        retransmissions: Optional[int] = None,
+        integrity_key: bytes | None = None,
+        retransmissions: int | None = None,
     ) -> tuple[stun.Message, tuple[str, int]]:
         response_message = stun.Message(
             message_method=message.message_method,

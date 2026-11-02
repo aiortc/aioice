@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import unittest
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from aioice import mdns
 

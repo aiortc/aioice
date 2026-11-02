@@ -6,8 +6,8 @@ import os
 import ssl
 import struct
 import time
-from collections.abc import Callable
-from typing import AsyncGenerator, Optional, cast
+from collections.abc import AsyncGenerator, Callable
+from typing import cast
 
 from aioice import stun
 from aioice.ice import get_host_addresses
@@ -127,7 +127,7 @@ class TurnServerMixin:
         logger.debug("< %s %s", addr, message)
 
         assert message.message_class == stun.Class.REQUEST
-        response: Optional[stun.Message] = None
+        response: stun.Message | None = None
 
         if message.message_method == stun.Method.BINDING:
             response = self.handle_binding(message, addr)
@@ -363,10 +363,10 @@ class TurnServer:
         self.allocations: dict[AllocationKey, Allocation] = {}
         self.maximum_lifetime = 3600
         self.realm = realm
-        self.simulated_failure: Optional[tuple[int, str]] = None
+        self.simulated_failure: tuple[int, str] | None = None
         self.users = users
 
-        self._expire_task: Optional[asyncio.Task[None]] = None
+        self._expire_task: asyncio.Task[None] | None = None
 
     async def close(self) -> None:
         # stop expiry loop

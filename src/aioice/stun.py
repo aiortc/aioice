@@ -5,7 +5,7 @@ import hmac
 import ipaddress
 from collections.abc import Callable
 from struct import pack, unpack
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 from .utils import random_transaction_id
 
@@ -219,8 +219,8 @@ class Message:
         self,
         message_method: Method,
         message_class: Class,
-        transaction_id: Optional[bytes] = None,
-        attributes: Optional[dict[str, Any]] = None,
+        transaction_id: bytes | None = None,
+        attributes: dict[str, Any] | None = None,
     ) -> None:
         self.message_method = message_method
         self.message_class = message_class
@@ -271,7 +271,7 @@ class Message:
 
 
 class TransactionError(Exception):
-    response: Optional[Message] = None
+    response: Message | None = None
 
 
 class TransactionFailed(TransactionError):
@@ -302,7 +302,7 @@ class Transaction:
         request: Message,
         addr: tuple[str, int],
         protocol: TransactionSender,
-        retransmissions: Optional[int] = None,
+        retransmissions: int | None = None,
     ) -> None:
         self.__addr = addr
         self.__future: asyncio.Future[tuple[Message, tuple[str, int]]] = (
@@ -310,7 +310,7 @@ class Transaction:
         )
         self.__request = request
         self.__timeout_delay = RETRY_RTO
-        self.__timeout_handle: Optional[asyncio.TimerHandle] = None
+        self.__timeout_handle: asyncio.TimerHandle | None = None
         self.__protocol = protocol
         self.__tries = 0
         self.__tries_max = 1 + (
@@ -361,7 +361,7 @@ def padding_length(length: int) -> int:
         return 4 - rest
 
 
-def parse_message(data: bytes, integrity_key: Optional[bytes] = None) -> Message:
+def parse_message(data: bytes, integrity_key: bytes | None = None) -> Message:
     """
     Parses a STUN message.
 

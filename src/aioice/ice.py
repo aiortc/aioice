@@ -11,7 +11,7 @@ import socket
 import threading
 from collections import deque
 from collections.abc import Callable
-from typing import Any, Optional, Union, cast
+from typing import Any, cast
 
 import ifaddr
 
@@ -101,8 +101,8 @@ async def relayed_candidate(
     component: int,
     protocol_factory: Callable[[], "StunProtocol"],
     turn_server: tuple[str, int],
-    turn_username: Optional[str],
-    turn_password: Optional[str],
+    turn_username: str | None,
+    turn_password: str | None,
     turn_ssl: bool,
     turn_transport: str,
 ) -> tuple[Candidate, "StunProtocol"]:
@@ -214,7 +214,7 @@ def validate_username(value: str) -> None:
 
 class CandidatePair:
     def __init__(self, protocol: "StunProtocol", remote_candidate: Candidate) -> None:
-        self.task: Optional[asyncio.Task[None]] = None
+        self.task: asyncio.Task[None] | None = None
         self.nominated = False
         self.protocol = protocol
         self.remote_candidate = remote_candidate
@@ -258,7 +258,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.receiver = receiver
         self.transactions: dict[bytes, stun.Transaction] = {}
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         self.__log_debug("connection_lost(%s)", exc)
         if not self.__closed.done():
             self.receiver.protocol_lost(self)
@@ -268,7 +268,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.__log_debug("connection_made(%s)", transport)
         self.transport = cast(asyncio.DatagramTransport, transport)
 
-    def datagram_received(self, data: Union[bytes, str], addr: tuple[Any, ...]) -> None:
+    def datagram_received(self, data: bytes | str, addr: tuple[Any, ...]) -> None:
         # force IPv6 four-tuple to a two-tuple
         addr = (addr[0], addr[1])
         data = cast(bytes, data)
@@ -302,8 +302,8 @@ class StunProtocol(asyncio.DatagramProtocol):
         self,
         request: stun.Message,
         addr: tuple[str, int],
-        integrity_key: Optional[bytes] = None,
-        retransmissions: Optional[int] = None,
+        integrity_key: bytes | None = None,
+        retransmissions: int | None = None,
     ) -> tuple[stun.Message, tuple[str, int]]:
         """
         Execute a STUN transaction and return the response.
@@ -372,17 +372,17 @@ class Connection:
         self,
         ice_controlling: bool,
         components: int = 1,
-        stun_server: Optional[tuple[str, int]] = None,
-        turn_server: Optional[tuple[str, int]] = None,
-        turn_username: Optional[str] = None,
-        turn_password: Optional[str] = None,
+        stun_server: tuple[str, int] | None = None,
+        turn_server: tuple[str, int] | None = None,
+        turn_username: str | None = None,
+        turn_password: str | None = None,
         turn_ssl: bool = False,
         turn_transport: str = "udp",
         use_ipv4: bool = True,
         use_ipv6: bool = True,
         transport_policy: TransportPolicy = TransportPolicy.ALL,
-        local_username: Optional[str] = None,
-        local_password: Optional[str] = None,
+        local_username: str | None = None,
+        local_password: str | None = None,
     ) -> None:
         self.ice_controlling = ice_controlling
 
@@ -399,9 +399,9 @@ class Connection:
         #: Whether the remote party is an ICE Lite implementation.
         self.remote_is_lite = False
         #: Remote username, which you need to set.
-        self.remote_username: Optional[str] = None
+        self.remote_username: str | None = None
         #: Remote password, which you need to set.
-        self.remote_password: Optional[str] = None
+        self.remote_password: str | None = None
 
         self.stun_server = stun_server
         self.turn_server = turn_server
@@ -421,7 +421,7 @@ class Connection:
             tuple[stun.Message, tuple[str, int], StunProtocol]
         ] = deque(maxlen=MAX_EARLY_CHECKS)
         self._early_checks_done = False
-        self._event_waiter: Optional[asyncio.Future[ConnectionEvent]] = None
+        self._event_waiter: asyncio.Future[ConnectionEvent] | None = None
         self._id = next(connection_id)
         self._local_candidates: list[Candidate] = []
         self._local_candidates_end = False
@@ -433,8 +433,8 @@ class Connection:
         self._protocols: list[StunProtocol] = []
         self._remote_candidates: list[Candidate] = []
         self._remote_candidates_end = False
-        self._query_consent_task: Optional[asyncio.Task[None]] = None
-        self._queue: asyncio.Queue[Optional[tuple[bytes, int]]] = asyncio.Queue()
+        self._query_consent_task: asyncio.Task[None] | None = None
+        self._queue: asyncio.Queue[tuple[bytes, int] | None] = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
@@ -479,7 +479,7 @@ class Connection:
         """
         return self._remote_candidates[:]
 
-    async def add_remote_candidate(self, remote_candidate: Optional[Candidate]) -> None:
+    async def add_remote_candidate(self, remote_candidate: Candidate | None) -> None:
         """
         Add a remote candidate or signal end-of-candidates.
 
@@ -559,7 +559,7 @@ class Connection:
                 self._local_candidates += candidates
             self._local_candidates_end = True
 
-    def get_default_candidate(self, component: int) -> Optional[Candidate]:
+    def get_default_candidate(self, component: int) -> Candidate | None:
         """
         Get the default local candidate for the specified component.
 
@@ -659,7 +659,7 @@ class Connection:
             self._emit_event(ConnectionClosed())
             self._closed = True
 
-    async def get_event(self) -> Optional[ConnectionEvent]:
+    async def get_event(self) -> ConnectionEvent | None:
         """
         Return the next `ConnectionEvent` or `None` if the connection is
         already closed.
@@ -1003,7 +1003,7 @@ class Connection:
 
     def _find_pair(
         self, protocol: StunProtocol, remote_candidate: Candidate
-    ) -> Optional[CandidatePair]:
+    ) -> CandidatePair | None:
         """
         Find a candidate pair in the check list.
         """
@@ -1051,7 +1051,7 @@ class Connection:
                 candidates.append(protocol.local_candidate)
         self._protocols += host_protocols
 
-        tasks: list[asyncio.Task[tuple[Candidate, Optional[StunProtocol]]]] = []
+        tasks: list[asyncio.Task[tuple[Candidate, StunProtocol | None]]] = []
 
         # Query STUN server for server-reflexive candidates (IPv4 only).
         if self.stun_server:
