@@ -168,6 +168,45 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(asyncio.all_tasks(), {asyncio.current_task()})
 
     @asynctest
+    async def test_request_before_remote_credentials(self) -> None:
+        connection = ice.Connection(ice_controlling=True)
+
+        # A trickled candidate formed a pair before the remote credentials
+        # are known.
+        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+        remote_candidate = Candidate(
+            foundation="some-foundation",
+            component=1,
+            transport="udp",
+            priority=2345,
+            host="2.3.4.5",
+            port=2345,
+            type="host",
+        )
+        connection._remote_candidates.append(remote_candidate)
+        pair = ice.CandidatePair(protocol, remote_candidate)
+        connection._check_list.append(pair)
+
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.attributes["USERNAME"] = f"{connection.local_username}:remote-username"
+        request.add_message_integrity(connection.local_password.encode("utf8"))
+        connection.request_received(
+            request, ("2.3.4.5", 2345), protocol, bytes(request)
+        )
+
+        # The request is answered, but the triggered check is deferred.
+        self.assertIsNotNone(protocol.sent_message)
+        self.assertEqual(protocol.sent_message.message_method, stun.Method.BINDING)
+        self.assertEqual(protocol.sent_message.message_class, stun.Class.RESPONSE)
+        self.assertEqual(
+            connection._early_checks, [(request, ("2.3.4.5", 2345), protocol)]
+        )
+        self.assertIsNone(pair.task)
+        self.assertEqual(pair.state, ice.CandidatePair.State.FROZEN)
+
+    @asynctest
     async def test_request_with_invalid_method(self) -> None:
         connection = ice.Connection(ice_controlling=True)
 
