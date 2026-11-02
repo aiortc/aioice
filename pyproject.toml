@@ -49,6 +49,7 @@ select = [
     "W",  # pycodestyle
     "I",  # isort
     "T20",  # flake8-print
+    "UP",  # pyupgrade
 ]
 
 [tool.ruff.lint.per-file-ignores]

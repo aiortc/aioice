@@ -77,9 +77,9 @@ Avoid duplicating code. Before adding a helper, look for an existing one
 that can be reused or extended, and factor out logic that would otherwise
 be copied.
 
-Use f-strings in new code. Logger calls are the exception: they keep lazy
-`%` arguments, using the class's `__log_debug` or `__log_info` helper where
-one exists.
+Use f-strings for string formatting. Logger calls are the exception: they
+keep lazy `%` arguments, using the class's `__log_debug` or `__log_info`
+helper where one exists.
 
 In the library code, insert new functions and methods in alphabetical
 order rather than appending them. Do not reorder existing code unless
