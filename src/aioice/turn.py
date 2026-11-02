@@ -85,6 +85,7 @@ class TurnClientMixin:
         self.channel_refresh_time = channel_refresh_time
         self.integrity_key: bytes | None = None
         self.lifetime = lifetime
+        self.mapped_address: tuple[str, int] | None = None
         self.nonce: bytes | None = None
         self.password = password
         self.receiver: asyncio.DatagramProtocol | None = None
@@ -117,13 +118,16 @@ class TurnClientMixin:
 
         time_to_expiry = response.attributes["LIFETIME"]
         self.relayed_address = response.attributes["XOR-RELAYED-ADDRESS"]
+
+        # The related address of the relayed candidate (RFC 8839 section 5.1).
+        self.mapped_address = response.attributes["XOR-MAPPED-ADDRESS"]
         logger.info(
             "TURN allocation created %s (expires in %d seconds)",
             self.relayed_address,
             time_to_expiry,
         )
 
-        # periodically refresh allocation
+        # Periodically refresh the allocation.
         self.refresh_task = asyncio.create_task(self.refresh(time_to_expiry))
 
         return self.relayed_address
@@ -403,11 +407,11 @@ class TurnTransport:
         """
         Return optional transport information.
 
-        - `'related_address'`: the related address
+        - `'related_address'`: the mapped address in the Allocate response
         - `'sockname'`: the relayed address
         """
         if name == "related_address":
-            return self.__inner_protocol.transport.get_extra_info("sockname")
+            return self.__inner_protocol.mapped_address
         elif name == "sockname":
             return self.__relayed_address
         return default
