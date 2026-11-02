@@ -1185,7 +1185,9 @@ class Connection:
         response.add_message_integrity(self.local_password.encode("utf8"))
         protocol.send_stun(response, addr)
 
-        if not self._check_list and not self._early_checks_done:
+        # Defer incoming checks until connect() has the remote password, even
+        # if trickled candidates already formed pairs (RFC 8445 section 7.3).
+        if not self._early_checks_done:
             self._early_checks.append((message, addr, protocol))
         else:
             self.check_incoming(message, addr, protocol)
