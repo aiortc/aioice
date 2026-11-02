@@ -95,6 +95,66 @@ class IceComponentTest(unittest.TestCase):
         await pair.task
 
     @asynctest
+    async def test_peer_reflexive_non_canonical_address(self) -> None:
+        """
+        A check from a candidate signalled with a non-canonical IPv6 address
+        does not create a peer-reflexive candidate.
+        """
+        connection = ice.Connection(ice_controlling=True)
+        connection.remote_password = "remote-password"
+        connection.remote_username = "remote-username"
+
+        protocol = ProtocolMock(connection, response_addr=("2001:db8::1", 2345))
+        protocol.local_candidate = Candidate(
+            foundation="some-foundation",
+            component=1,
+            transport="udp",
+            priority=1234,
+            host="2001:db8::2",
+            port=1234,
+            type="host",
+        )
+        connection._protocols.append(protocol)
+
+        candidate = Candidate(
+            foundation="some-foundation",
+            component=1,
+            transport="udp",
+            priority=1234,
+            host="2001:DB8:0::1",
+            port=2345,
+            type="host",
+        )
+        await connection.add_remote_candidate(candidate)
+
+        # Check the candidate was copied, leaving the caller's object untouched.
+        self.assertEqual(len(connection.remote_candidates), 1)
+        remote_candidate = connection.remote_candidates[0]
+        self.assertIsNot(remote_candidate, candidate)
+        self.assertEqual(candidate._network_host, "2001:DB8:0::1")
+
+        # Check a pair was formed using the canonical address.
+        self.assertEqual(len(connection._check_list), 1)
+        pair = connection._check_list[0]
+        self.assertEqual(pair.remote_candidate, remote_candidate)
+        self.assertEqual(pair.remote_addr, ("2001:db8::1", 2345))
+
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.attributes["PRIORITY"] = 456789
+        connection.check_incoming(request, ("2001:db8::1", 2345), protocol)
+
+        # Check the signalled candidate was matched and kept as signalled.
+        self.assertEqual(connection.remote_candidates, [remote_candidate])
+        self.assertEqual(remote_candidate.host, "2001:DB8:0::1")
+
+        # Check the existing pair was used for the triggered check.
+        self.assertEqual(connection._check_list, [pair])
+        assert pair.task is not None
+        await pair.task
+
+    @asynctest
     async def test_nomination_removes_waiting_and_frozen_pairs(self) -> None:
         connection = ice.Connection(ice_controlling=True, components=2)
 
@@ -1565,11 +1625,76 @@ class IceConnectionTest(unittest.TestCase):
             )
         )
         self.assertEqual(len(conn_a.remote_candidates), 1)
-        self.assertEqual(conn_a.remote_candidates[0].host, "1.2.3.4")
+        self.assertEqual(conn_a.remote_candidates[0].host, hostname)
+        self.assertEqual(conn_a.remote_candidates[0]._network_host, "1.2.3.4")
         self.assertEqual(conn_a._remote_candidates_end, False)
 
         # close
         await conn_a.close()
+        await publisher.close()
+
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_connect_mdns(self) -> None:
+        """
+        Connect using the peer's mDNS candidates.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+        publisher = await mdns.create_mdns_protocol()
+
+        # Exchange credentials.
+        await conn_a.gather_candidates()
+        await conn_b.gather_candidates()
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+        conn_b.remote_username = conn_a.local_username
+        conn_b.remote_password = conn_a.local_password
+
+        # Connection A's candidates are signalled as is.
+        for candidate in conn_a.local_candidates:
+            await conn_b.add_remote_candidate(candidate)
+        await conn_b.add_remote_candidate(None)
+
+        # Connection B's candidates are signalled as mDNS candidates.
+        for candidate in conn_b.local_candidates:
+            hostname = mdns.create_mdns_hostname()
+            await publisher.publish(hostname, candidate.host)
+            await conn_a.add_remote_candidate(
+                Candidate(
+                    foundation=candidate.foundation,
+                    component=candidate.component,
+                    transport=candidate.transport,
+                    priority=candidate.priority,
+                    host=hostname,
+                    port=candidate.port,
+                    type=candidate.type,
+                )
+            )
+        await conn_a.add_remote_candidate(None)
+
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+
+        # Check the remote candidates keep their name and no peer-reflexive
+        # candidate was learned.
+        self.assertEqual(len(conn_a.remote_candidates), len(conn_b.local_candidates))
+        for candidate in conn_a.remote_candidates:
+            self.assertTrue(mdns.is_mdns_hostname(candidate.host))
+            self.assertEqual(candidate.type, "host")
+
+        # Check the pairs use the resolved addresses.
+        local_hosts = {c.host for c in conn_b.local_candidates}
+        for pair in conn_a._check_list:
+            self.assertIn(pair.remote_addr[0], local_hosts)
+
+        # Send data a -> b.
+        await conn_a.send(b"howdee")
+        data = await conn_b.recv()
+        self.assertEqual(data, b"howdee")
+
+        # Close the connections and the mDNS publisher.
+        await conn_a.close()
+        await conn_b.close()
         await publisher.close()
 
     @asynctest

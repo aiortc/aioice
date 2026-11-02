@@ -33,6 +33,19 @@ class CandidateTest(unittest.TestCase):
         )
         self.assertTrue(candidate_a.can_pair_with(candidate_b))
 
+    def test_can_pair_mdns(self) -> None:
+        candidate_a = Candidate.from_sdp(
+            "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
+        )
+        candidate_b = Candidate.from_sdp(
+            "6815297761 1 udp 659136 some-name.local 12345 typ host generation 0"
+        )
+
+        # The resolved address of an mDNS candidate is used, on either side.
+        candidate_b._network_host = "1.2.3.5"
+        self.assertTrue(candidate_a.can_pair_with(candidate_b))
+        self.assertTrue(candidate_b.can_pair_with(candidate_a))
+
     def test_cannot_pair_ipv4_ipv6(self) -> None:
         candidate_a = Candidate.from_sdp(
             "6815297761 1 udp 659136 1.2.3.4 31102 typ host generation 0"
