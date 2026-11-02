@@ -255,7 +255,7 @@ class TurnServerMixin:
 
         for attr in ["CHANNEL-NUMBER", "XOR-PEER-ADDRESS"]:
             if attr not in message.attributes:
-                return self.error_response(message, 400, "Missing %s attribute" % attr)
+                return self.error_response(message, 400, f"Missing {attr} attribute")
 
         channel: int = message.attributes["CHANNEL-NUMBER"]
         peer_address: Address = message.attributes["XOR-PEER-ADDRESS"]

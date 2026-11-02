@@ -197,7 +197,7 @@ def validate_remote_candidate(candidate: Candidate) -> Candidate:
     Check the remote candidate is supported.
     """
     if candidate.type not in ["host", "relay", "srflx"]:
-        raise ValueError('Unexpected candidate type "%s"' % candidate.type)
+        raise ValueError(f'Unexpected candidate type "{candidate.type}"')
     ipaddress.ip_address(candidate.host)
     return candidate
 
@@ -222,7 +222,7 @@ class CandidatePair:
         self.state = CandidatePair.State.FROZEN
 
     def __repr__(self) -> str:
-        return "CandidatePair(%s -> %s)" % (self.local_addr, self.remote_addr)
+        return f"CandidatePair({self.local_addr} -> {self.remote_addr})"
 
     @property
     def component(self) -> int:
@@ -336,7 +336,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         logger.debug("%s %s " + msg, self.receiver, self, *args)
 
     def __repr__(self) -> str:
-        return "protocol(%s)" % self.id
+        return f"protocol({self.id})"
 
 
 class ConnectionEvent:
@@ -758,7 +758,7 @@ class Connection:
     # private
 
     def build_request(self, pair: CandidatePair, nominate: bool) -> stun.Message:
-        tx_username = "%s:%s" % (self.remote_username, self.local_username)
+        tx_username = f"{self.remote_username}:{self.local_username}"
         request = stun.Message(
             message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
         )
@@ -1102,9 +1102,7 @@ class Connection:
         seen_components = set(map(lambda x: x.component, self._remote_candidates))
         missing_components = self._components - seen_components
         if missing_components:
-            self.__log_info(
-                "Components %s have no candidate pairs" % missing_components
-            )
+            self.__log_info("Components %s have no candidate pairs", missing_components)
             self._components = seen_components
 
     async def query_consent(self) -> None:
@@ -1163,7 +1161,7 @@ class Connection:
                 raw_data, integrity_key=self.local_password.encode("utf8")
             )
             if self.remote_username is not None:
-                rx_username = "%s:%s" % (self.local_username, self.remote_username)
+                rx_username = f"{self.local_username}:{self.remote_username}"
                 if message.attributes.get("USERNAME") != rx_username:
                     raise ValueError("Wrong username")
         except ValueError:
@@ -1254,4 +1252,4 @@ class Connection:
         logger.info("%s " + msg, self, *args)
 
     def __repr__(self) -> str:
-        return "Connection(%s)" % self._id
+        return f"Connection({self._id})"

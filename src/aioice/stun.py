@@ -283,7 +283,8 @@ class TransactionFailed(TransactionError):
     def __str__(self) -> str:
         out = "STUN transaction failed"
         if "ERROR-CODE" in self.response.attributes:
-            out += " (%s - %s)" % self.response.attributes["ERROR-CODE"]
+            code, reason = self.response.attributes["ERROR-CODE"]
+            out += f" ({code} - {reason})"
         return out
 
 

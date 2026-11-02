@@ -49,10 +49,10 @@ async def offer(components: int) -> None:
     # send data
     data = b"hello"
     component = 1
-    print("sending %s on component %d" % (repr(data), component))
+    print(f"sending {data!r} on component {component}")
     await connection.sendto(data, component)
     data, component = await connection.recvfrom()
-    print("received %s on component %d" % (repr(data), component))
+    print(f"received {data!r} on component {component}")
 
     await asyncio.sleep(5)
     await connection.close()
@@ -93,7 +93,7 @@ async def answer(components: int) -> None:
 
     # echo data back
     data, component = await connection.recvfrom()
-    print("echoing %s on component %d" % (repr(data), component))
+    print(f"echoing {data!r} on component {component}")
     await connection.sendto(data, component)
 
     await asyncio.sleep(5)
