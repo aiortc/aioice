@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
-from typing import AsyncGenerator, cast
+from collections.abc import AsyncGenerator
+from typing import cast
 
 
 class EchoServerProtocol(asyncio.DatagramProtocol):

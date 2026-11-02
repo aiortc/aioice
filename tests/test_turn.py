@@ -1,7 +1,7 @@
 import asyncio
 import ssl
 import unittest
-from typing import Any, Optional
+from typing import Any
 from unittest import mock
 
 from aioice import stun, turn
@@ -61,7 +61,7 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
         )
 
     def _data_indication(
-        self, peer_address: Optional[tuple[str, int]], data: Optional[bytes]
+        self, peer_address: tuple[str, int] | None, data: bytes | None
     ) -> bytes:
         message = stun.Message(
             message_method=stun.Method.DATA, message_class=stun.Class.INDICATION
@@ -143,7 +143,7 @@ class TurnTest(unittest.TestCase):
         self,
         transport: str,
         server_addr_attr: str,
-        ssl: Optional[ssl.SSLContext] = None,
+        ssl: ssl.SSLContext | None = None,
     ) -> None:
         await self._test_transport_ok(
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
@@ -168,7 +168,7 @@ class TurnTest(unittest.TestCase):
         )
 
     async def _test_transport_ok(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             turn_transport, protocol = await turn.create_turn_endpoint(
@@ -208,7 +208,7 @@ class TurnTest(unittest.TestCase):
             await asyncio.sleep(0)
 
     async def _test_transport_ok_multi(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             turn_transport, protocol = await turn.create_turn_endpoint(
@@ -252,7 +252,7 @@ class TurnTest(unittest.TestCase):
             await asyncio.sleep(0)
 
     async def _test_transport_data_indication(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             turn_transport, protocol = await turn.create_turn_endpoint(
@@ -288,7 +288,7 @@ class TurnTest(unittest.TestCase):
             await asyncio.sleep(0)
 
     async def _test_transport_allocate_failure(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             # Invalid username.
@@ -336,7 +336,7 @@ class TurnTest(unittest.TestCase):
             )
 
     async def _test_transport_delete_failure(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             turn_transport, protocol = await turn.create_turn_endpoint(
@@ -358,7 +358,7 @@ class TurnTest(unittest.TestCase):
             await asyncio.sleep(0)
 
     async def _test_transport_channel_bind_failure(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             turn_transport, protocol = await turn.create_turn_endpoint(
@@ -404,7 +404,7 @@ class TurnTest(unittest.TestCase):
             await asyncio.sleep(0)
 
     async def _test_transport_close_pending_send(
-        self, *, transport: str, server_addr_attr: str, ssl: Optional[ssl.SSLContext]
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
     ) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             turn_transport, protocol = await turn.create_turn_endpoint(

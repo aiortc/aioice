@@ -6,7 +6,7 @@ import ssl
 import struct
 import time
 from collections.abc import Callable
-from typing import Any, Optional, TypeVar, Union, cast
+from typing import Any, TypeVar, cast
 
 from . import stun
 from .utils import random_transaction_id
@@ -68,8 +68,8 @@ class TurnClientMixin:
     def __init__(
         self,
         server: tuple[str, int],
-        username: Optional[str],
-        password: Optional[str],
+        username: str | None,
+        password: str | None,
         lifetime: int,
         channel_refresh_time: int,
     ) -> None:
@@ -83,14 +83,14 @@ class TurnClientMixin:
 
         self.channel_number = 0x4000
         self.channel_refresh_time = channel_refresh_time
-        self.integrity_key: Optional[bytes] = None
+        self.integrity_key: bytes | None = None
         self.lifetime = lifetime
-        self.nonce: Optional[bytes] = None
+        self.nonce: bytes | None = None
         self.password = password
-        self.receiver: Optional[asyncio.DatagramProtocol] = None
-        self.realm: Optional[str] = None
-        self.refresh_task: Optional[asyncio.Task[None]] = None
-        self.relayed_address: Optional[tuple[str, int]] = None
+        self.receiver: asyncio.DatagramProtocol | None = None
+        self.realm: str | None = None
+        self.refresh_task: asyncio.Task[None] | None = None
+        self.relayed_address: tuple[str, int] | None = None
         self.server = server
         self.transactions: dict[bytes, stun.Transaction] = {}
         self.username = username
@@ -128,7 +128,7 @@ class TurnClientMixin:
 
         return self.relayed_address
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         logger.debug("%s connection_lost(%s)", self, exc)
         if self.receiver is not None:
             self.receiver.connection_lost(exc)
@@ -137,7 +137,7 @@ class TurnClientMixin:
         logger.debug("%s connection_made(%s)", self, transport)
         self.transport = transport
 
-    def datagram_received(self, data: Union[bytes, str], addr: tuple[str, int]) -> None:
+    def datagram_received(self, data: bytes | str, addr: tuple[str, int]) -> None:
         data = cast(bytes, data)
 
         # demultiplex channel data
@@ -372,7 +372,7 @@ class TurnClientUdpProtocol(TurnClientMixin, asyncio.DatagramProtocol):
         return "turn/udp"
 
 
-TurnClientProtocol = Union[TurnClientTcpProtocol, TurnClientUdpProtocol]
+TurnClientProtocol = TurnClientTcpProtocol | TurnClientUdpProtocol
 
 
 class TurnTransport:
@@ -381,9 +381,9 @@ class TurnTransport:
     """
 
     def __init__(self, inner_protocol: TurnClientProtocol) -> None:
-        self.__close_task: Optional[asyncio.Task[None]] = None
+        self.__close_task: asyncio.Task[None] | None = None
         self.__inner_protocol = inner_protocol
-        self.__relayed_address: Optional[tuple[str, int]] = None
+        self.__relayed_address: tuple[str, int] | None = None
         self.__send_tasks: set[asyncio.Task[None]] = set()
 
     def close(self) -> None:
@@ -453,11 +453,11 @@ class TurnTransport:
 async def create_turn_endpoint(
     protocol_factory: Callable[[], _ProtocolT],
     server_addr: tuple[str, int],
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     lifetime: int = DEFAULT_ALLOCATION_LIFETIME,
     channel_refresh_time: int = DEFAULT_CHANNEL_REFRESH_TIME,
-    ssl: Optional[Union[bool, ssl.SSLContext]] = None,
+    ssl: bool | ssl.SSLContext | None = None,
     transport: str = "udp",
 ) -> tuple[TurnTransport, _ProtocolT]:
     """

@@ -4,11 +4,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable, Coroutine
-
-if sys.version_info >= (3, 10):
-    from typing import ParamSpec
-else:
-    from typing_extensions import ParamSpec
+from typing import ParamSpec
 
 from aioice import ice
 
