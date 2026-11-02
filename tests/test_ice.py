@@ -332,7 +332,7 @@ class IceComponentTest(unittest.TestCase):
 
 class IceConnectionTest(unittest.TestCase):
     def assertCandidateTypes(self, conn: ice.Connection, expected: set[str]) -> None:
-        types = set([c.type for c in conn.local_candidates])
+        types = {c.type for c in conn.local_candidates}
         self.assertEqual(types, expected)
 
     def tearDown(self) -> None:
@@ -459,8 +459,8 @@ class IceConnectionTest(unittest.TestCase):
         await invite_accept(conn_a, conn_b)
 
         # we should only have host candidates
-        self.assertCandidateTypes(conn_a, set(["host"]))
-        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertCandidateTypes(conn_a, {"host"})
+        self.assertCandidateTypes(conn_b, {"host"})
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
@@ -599,8 +599,8 @@ class IceConnectionTest(unittest.TestCase):
         await invite_accept(conn_a, conn_b)
 
         # we should only have host candidates
-        self.assertCandidateTypes(conn_a, set(["host"]))
-        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertCandidateTypes(conn_a, {"host"})
+        self.assertCandidateTypes(conn_b, {"host"})
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
@@ -614,8 +614,8 @@ class IceConnectionTest(unittest.TestCase):
 
         # connect
         await asyncio.gather(conn_a.connect(), conn_b.connect())
-        self.assertEqual(conn_a._components, set([1, 2]))
-        self.assertEqual(conn_b._components, set([1, 2]))
+        self.assertEqual(conn_a._components, {1, 2})
+        self.assertEqual(conn_b._components, {1, 2})
 
         # send data a -> b (component 1)
         await conn_a.sendto(b"howdee", 1)
@@ -668,8 +668,8 @@ class IceConnectionTest(unittest.TestCase):
 
         # connect
         await asyncio.gather(conn_a.connect(), conn_b.connect())
-        self.assertEqual(conn_a._components, set([1]))
-        self.assertEqual(conn_b._components, set([1]))
+        self.assertEqual(conn_a._components, {1})
+        self.assertEqual(conn_b._components, {1})
 
         # send data a -> b (component 1)
         await conn_a.sendto(b"howdee", 1)
@@ -697,8 +697,8 @@ class IceConnectionTest(unittest.TestCase):
         await invite_accept(conn_a, conn_b)
 
         # we should only have host candidates
-        self.assertCandidateTypes(conn_a, set(["host"]))
-        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertCandidateTypes(conn_a, {"host"})
+        self.assertCandidateTypes(conn_b, {"host"})
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)
@@ -1132,8 +1132,8 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we whould have both host and server-reflexive candidates
-            self.assertCandidateTypes(conn_a, set(["host", "srflx"]))
-            self.assertCandidateTypes(conn_b, set(["host"]))
+            self.assertCandidateTypes(conn_a, {"host", "srflx"})
+            self.assertCandidateTypes(conn_b, {"host"})
 
             # the default candidate should be server-reflexive
             candidate = conn_a.get_default_candidate(1)
@@ -1153,8 +1153,8 @@ class IceConnectionTest(unittest.TestCase):
         await invite_accept(conn_a, conn_b)
 
         # we whould have only host candidates
-        self.assertCandidateTypes(conn_a, set(["host"]))
-        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertCandidateTypes(conn_a, {"host"})
+        self.assertCandidateTypes(conn_b, {"host"})
 
         await self.connect_and_exchange_data(conn_a, conn_b)
 
@@ -1173,8 +1173,8 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we whould have only host candidates
-            self.assertCandidateTypes(conn_a, set(["host"]))
-            self.assertCandidateTypes(conn_b, set(["host"]))
+            self.assertCandidateTypes(conn_a, {"host"})
+            self.assertCandidateTypes(conn_b, {"host"})
 
             await self.connect_and_exchange_data(conn_a, conn_b)
 
@@ -1219,8 +1219,8 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we should have both host and relayed candidates
-            self.assertCandidateTypes(conn_a, set(["host", "relay"]))
-            self.assertCandidateTypes(conn_b, set(["host"]))
+            self.assertCandidateTypes(conn_a, {"host", "relay"})
+            self.assertCandidateTypes(conn_b, {"host"})
 
             # the default candidate should be relayed
             candidate = conn_a.get_default_candidate(1)
@@ -1247,8 +1247,8 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we should have both host and relayed candidates
-            self.assertCandidateTypes(conn_a, set(["host", "relay"]))
-            self.assertCandidateTypes(conn_b, set(["host"]))
+            self.assertCandidateTypes(conn_a, {"host", "relay"})
+            self.assertCandidateTypes(conn_b, {"host"})
 
             # the default candidate should be relayed
             candidate = conn_a.get_default_candidate(1)
@@ -1275,8 +1275,8 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we should only have host candidates
-            self.assertCandidateTypes(conn_a, set(["host"]))
-            self.assertCandidateTypes(conn_b, set(["host"]))
+            self.assertCandidateTypes(conn_a, {"host"})
+            self.assertCandidateTypes(conn_b, {"host"})
 
             # the default candidate should be host
             candidate = conn_a.get_default_candidate(1)
@@ -1306,8 +1306,8 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we should only have host candidates
-            self.assertCandidateTypes(conn_a, set(["host"]))
-            self.assertCandidateTypes(conn_b, set(["host"]))
+            self.assertCandidateTypes(conn_a, {"host"})
+            self.assertCandidateTypes(conn_b, {"host"})
 
             # the default candidate should be host
             candidate = conn_a.get_default_candidate(1)
@@ -1375,8 +1375,8 @@ class IceConnectionTest(unittest.TestCase):
         await invite_accept(conn_a, conn_b)
 
         # we should only have host candidates
-        self.assertCandidateTypes(conn_a, set(["host"]))
-        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertCandidateTypes(conn_a, {"host"})
+        self.assertCandidateTypes(conn_b, {"host"})
 
         # force selected pair
         default_a = conn_a.get_default_candidate(1)
@@ -1625,7 +1625,7 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we whould only have a server-reflexive candidate in connection a
-            self.assertCandidateTypes(conn_a, set(["srflx"]))
+            self.assertCandidateTypes(conn_a, {"srflx"})
 
             # close
             await conn_a.close()
@@ -1647,7 +1647,7 @@ class IceConnectionTest(unittest.TestCase):
             await invite_accept(conn_a, conn_b)
 
             # we whould only have a server-reflexive candidate in connection a
-            self.assertCandidateTypes(conn_a, set(["relay"]))
+            self.assertCandidateTypes(conn_a, {"relay"})
 
             # close
             await conn_a.close()

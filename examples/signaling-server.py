@@ -4,16 +4,15 @@
 #
 
 import asyncio
-import binascii
 import os
 
 from websockets.asyncio.server import ServerConnection, serve
 
-clients: dict[bytes, ServerConnection] = {}
+clients: dict[str, ServerConnection] = {}
 
 
 async def echo(websocket: ServerConnection) -> None:
-    client_id = binascii.hexlify(os.urandom(8))
+    client_id = os.urandom(8).hex()
     clients[client_id] = websocket
 
     try:
