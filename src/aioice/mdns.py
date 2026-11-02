@@ -3,7 +3,7 @@ import re
 import socket
 import sys
 import uuid
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 import dns.exception
 import dns.flags
@@ -31,15 +31,16 @@ def is_mdns_hostname(name: str) -> bool:
 
 
 class MDnsProtocol(asyncio.DatagramProtocol):
+    rx_transport: asyncio.DatagramTransport
+
     def __init__(self, tx_transport: asyncio.DatagramTransport) -> None:
         self.__closed: asyncio.Future[bool] = asyncio.Future()
         self.zone = dns.zone.Zone("", relativize=False, rdclass=MDNS_RDCLASS)
         self.queries: dict[dns.name.Name, set[asyncio.Future[str]]] = {}
 
-        self.rx_transport: Optional[asyncio.DatagramTransport] = None
         self.tx_transport = tx_transport
 
-    def connection_lost(self, exc: Exception) -> None:
+    def connection_lost(self, exc: Optional[Exception]) -> None:
         # abort any outstanding queries
         for name, futures in list(self.queries.items()):
             for future in futures:
@@ -49,7 +50,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.rx_transport = cast(asyncio.DatagramTransport, transport)
 
-    def datagram_received(self, data: Union[bytes, str], addr: tuple) -> None:
+    def datagram_received(self, data: Union[bytes, str], addr: tuple[Any, ...]) -> None:
         # parse message
         try:
             message = dns.message.from_wire(cast(bytes, data))
