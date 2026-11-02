@@ -98,7 +98,9 @@ def get_host_addresses(use_ipv4: bool, use_ipv6: bool) -> list[str]:
 
 
 async def relayed_candidate(
+    *,
     component: int,
+    hide_related_address: bool,
     protocol_factory: Callable[[], "StunProtocol"],
     turn_server: tuple[str, int],
     turn_username: str | None,
@@ -122,6 +124,13 @@ async def relayed_candidate(
     # Build relayed candidate.
     candidate_address = protocol.transport.get_extra_info("sockname")
     related_address = protocol.transport.get_extra_info("related_address")
+    if hide_related_address:
+        # Do not expose a disallowed candidate through the related address
+        # (RFC 9429 section 3.5.3), using the format of RFC 8839 section 5.1.
+        if ipaddress.ip_address(candidate_address[0]).version == 4:
+            related_address = ("0.0.0.0", 9)
+        else:
+            related_address = ("::", 9)
     protocol.local_candidate = Candidate(
         foundation=candidate_foundation("relay", "udp", candidate_address[0]),
         component=component,
@@ -1159,6 +1168,9 @@ class Connection:
                 asyncio.create_task(
                     relayed_candidate(
                         component=component,
+                        hide_related_address=(
+                            self._transport_policy == TransportPolicy.RELAY
+                        ),
                         protocol_factory=lambda: StunProtocol(self),
                         turn_server=self.turn_server,
                         turn_username=self.turn_username,
