@@ -489,7 +489,9 @@ class Connection:
         may be added while :meth:`connect` is running, and :meth:`connect`
         does not report an ICE negotiation failure.
 
-        The candidate is copied, so later changes to it have no effect.
+        The candidate is copied, so later changes to it have no effect. A
+        candidate with the same transport address as one already added is
+        ignored.
 
         :param remote_candidate: A :class:`Candidate` instance or `None`.
         """
@@ -535,7 +537,36 @@ class Connection:
                 f'Remote candidate "{remote_candidate.host}" is not valid: {e}'
             )
             return
-        self._remote_candidates.append(remote_candidate)
+
+        known_candidate = self._find_remote_candidate(remote_candidate)
+        if known_candidate is None:
+            self._remote_candidates.append(remote_candidate)
+        elif known_candidate.type == "prflx":
+            # Update a candidate learned as peer-reflexive, keeping its pair
+            # (RFC 8445 section 7.3.1.3, RFC 8838 section 11).
+            self.__log_info(
+                "Peer reflexive candidate %s signalled as %s",
+                known_candidate,
+                remote_candidate,
+            )
+            known_candidate.host = remote_candidate.host
+            known_candidate.foundation = remote_candidate.foundation
+            known_candidate.priority = remote_candidate.priority
+            known_candidate.type = remote_candidate.type
+            known_candidate.related_address = remote_candidate.related_address
+            known_candidate.related_port = remote_candidate.related_port
+            known_candidate.tcptype = remote_candidate.tcptype
+            known_candidate.generation = remote_candidate.generation
+            remote_candidate = known_candidate
+        else:
+            # A peer eliminates redundant candidates (RFC 8445 section 5.1.3), so
+            # this is the same candidate signalled again (RFC 8838 section 9).
+            self.__log_info(
+                "Remote candidate %s is ignored, as it has the same address as %s",
+                remote_candidate,
+                known_candidate,
+            )
+            return
 
         # pair the remote candidate
         for protocol in self._protocols:
@@ -1016,6 +1047,20 @@ class Connection:
         for pair in self._check_list:
             if pair.protocol == protocol and pair.remote_candidate == remote_candidate:
                 return pair
+        return None
+
+    def _find_remote_candidate(self, remote_candidate: Candidate) -> Candidate | None:
+        """
+        Find a remote candidate with the same transport address.
+        """
+        for c in self._remote_candidates:
+            if (
+                c.component == remote_candidate.component
+                and c.transport.lower() == remote_candidate.transport.lower()
+                and c._network_host == remote_candidate._network_host
+                and c.port == remote_candidate.port
+            ):
+                return c
         return None
 
     async def get_component_candidates(
