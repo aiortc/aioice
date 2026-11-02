@@ -1337,6 +1337,42 @@ class IceConnectionTest(unittest.TestCase):
             await self.connect_and_exchange_data(conn_a, conn_b)
 
     @asynctest
+    async def test_connect_relay_only(self) -> None:
+        """
+        Connect using only the relayed candidate, with the relay transport policy.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn_a = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+                transport_policy=TransportPolicy.RELAY,
+            )
+            conn_b = ice.Connection(ice_controlling=False)
+
+            # Exchange candidates and credentials. Connection B only uses the loopback
+            # address, which Windows requires to reach the test TURN server's relay.
+            with mock.patch(
+                "aioice.ice.get_host_addresses", return_value=["127.0.0.1"]
+            ):
+                await invite_accept(conn_a, conn_b)
+
+            # Connect, and check the nominated pair uses the relayed candidate.
+            await asyncio.gather(conn_a.connect(), conn_b.connect())
+            self.assertEqual(conn_a._nominated[1].local_candidate.type, "relay")
+
+            # Send data both ways.
+            await conn_a.send(b"howdee")
+            self.assertEqual(await conn_b.recv(), b"howdee")
+            await conn_b.send(b"gotcha")
+            self.assertEqual(await conn_a.recv(), b"gotcha")
+
+            # Close the connections.
+            await conn_a.close()
+            await conn_b.close()
+
+    @asynctest
     async def test_connect_with_turn_server_tcp(self) -> None:
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
             # create connections
@@ -1877,6 +1913,35 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(conn_a.remote_candidates, [])
         mock_get.assert_not_called()
 
+    @asynctest
+    async def test_add_remote_candidate_mdns_relay_only(self) -> None:
+        """
+        Add an mDNS candidate with the relay transport policy.
+        """
+        conn_a = ice.Connection(
+            ice_controlling=True, transport_policy=TransportPolicy.RELAY
+        )
+
+        with mock.patch("aioice.ice.get_or_create_mdns_protocol") as mock_get:
+            await conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=mdns.create_mdns_hostname(),
+                    port=1234,
+                    type="host",
+                )
+            )
+
+        # Check the candidate was ignored, without resolving it.
+        self.assertEqual(conn_a.remote_candidates, [])
+        mock_get.assert_not_called()
+
+        # Close the connection.
+        await conn_a.close()
+
     @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
     @asynctest
     async def test_add_remote_candidate_mdns_then_close(self) -> None:
@@ -2182,32 +2247,38 @@ class IceConnectionTest(unittest.TestCase):
 
     @asynctest
     async def test_gather_candidates_relay_only_no_servers(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            ice.Connection(ice_controlling=True, transport_policy=TransportPolicy.RELAY)
-        self.assertEqual(
-            str(cm.exception),
-            "Relay transport policy requires a STUN and/or TURN server.",
+        conn = ice.Connection(
+            ice_controlling=True, transport_policy=TransportPolicy.RELAY
         )
+
+        # Check no candidates were gathered, and the reason was logged.
+        with self.assertLogs("aioice.ice", level="INFO") as logs:
+            await conn.gather_candidates()
+        self.assertEqual(conn.local_candidates, [])
+        self.assertTrue(any("no TURN server" in line for line in logs.output))
+
+        # Close the connection.
+        await conn.close()
 
     @asynctest
     async def test_gather_candidates_relay_only_with_stun_server(self) -> None:
         async with run_turn_server() as stun_server:
-            conn_a = ice.Connection(
+            conn = ice.Connection(
                 ice_controlling=True,
                 stun_server=stun_server.udp_address,
                 transport_policy=TransportPolicy.RELAY,
             )
-            conn_b = ice.Connection(ice_controlling=False)
 
-            # invite / accept
-            await invite_accept(conn_a, conn_b)
+            # Check no candidates were gathered, and no host socket was created
+            # to query the STUN server.
+            with self.assertLogs("aioice.ice", level="INFO") as logs:
+                await conn.gather_candidates()
+            self.assertEqual(conn.local_candidates, [])
+            self.assertEqual(conn._protocols, [])
+            self.assertTrue(any("no TURN server" in line for line in logs.output))
 
-            # we whould only have a server-reflexive candidate in connection a
-            self.assertCandidateTypes(conn_a, {"srflx"})
-
-            # close
-            await conn_a.close()
-            await conn_b.close()
+            # Close the connection.
+            await conn.close()
 
     @asynctest
     async def test_gather_candidates_relay_only_with_turn_server(self) -> None:
@@ -2221,13 +2292,17 @@ class IceConnectionTest(unittest.TestCase):
             )
             conn_b = ice.Connection(ice_controlling=False)
 
-            # invite / accept
+            # Exchange candidates and credentials.
             await invite_accept(conn_a, conn_b)
 
-            # we whould only have a server-reflexive candidate in connection a
+            # Check connection A only has a relayed candidate, and no host socket
+            # which could send checks.
             self.assertCandidateTypes(conn_a, {"relay"})
+            self.assertEqual(
+                [p.local_candidate.type for p in conn_a._protocols], ["relay"]
+            )
 
-            # close
+            # Close the connections.
             await conn_a.close()
             await conn_b.close()
 
