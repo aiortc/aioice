@@ -192,14 +192,13 @@ def validate_password(value: str) -> None:
         raise ValueError("Password must satisfy 22*256ice-char")
 
 
-def validate_remote_candidate(candidate: Candidate) -> Candidate:
+def validate_remote_candidate(candidate: Candidate, host: str) -> str:
     """
-    Check the remote candidate is supported.
+    Check the remote candidate is supported and return its canonical address.
     """
     if candidate.type not in ["host", "relay", "srflx"]:
         raise ValueError(f'Unexpected candidate type "{candidate.type}"')
-    ipaddress.ip_address(candidate.host)
-    return candidate
+    return str(ipaddress.ip_address(host))
 
 
 def validate_username(value: str) -> None:
@@ -238,7 +237,7 @@ class CandidatePair:
 
     @property
     def remote_addr(self) -> tuple[str, int]:
-        return (self.remote_candidate.host, self.remote_candidate.port)
+        return (self.remote_candidate._network_host, self.remote_candidate.port)
 
     class State(enum.Enum):
         FROZEN = 0
@@ -476,6 +475,9 @@ class Connection:
         """
         Remote candidates, which you need to populate using
         :meth:`add_remote_candidate`.
+
+        Remote mDNS candidates keep their hostname instead of the resolved
+        address (draft-ietf-mmusic-mdns-ice-candidates section 3.3.1).
         """
         return self._remote_candidates[:]
 
@@ -486,6 +488,8 @@ class Connection:
         To signal end-of-candidates, pass `None`. Until then, more candidates
         may be added while :meth:`connect` is running, and :meth:`connect`
         does not report an ICE negotiation failure.
+
+        The candidate is copied, so later changes to it have no effect.
 
         :param remote_candidate: A :class:`Candidate` instance or `None`.
         """
@@ -503,7 +507,11 @@ class Connection:
                 self._check_list_maybe_fail()
             return
 
-        # resolve mDNS candidate
+        # Keep our own copy, so changes made by either side do not affect the other.
+        remote_candidate = copy.copy(remote_candidate)
+
+        # Resolve an mDNS candidate.
+        network_host = remote_candidate.host
         if mdns.is_mdns_hostname(remote_candidate.host):
             mdns_protocol = await get_or_create_mdns_protocol(self)
             remote_addr = await mdns_protocol.resolve(remote_candidate.host)
@@ -515,15 +523,13 @@ class Connection:
             self.__log_info(
                 f'Remote candidate "{remote_candidate.host}" resolved to {remote_addr}'
             )
-
-            copy_candidate = copy.copy(remote_candidate)
-            copy_candidate.host = remote_addr
-            await self.add_remote_candidate(copy_candidate)
-            return
+            network_host = remote_addr
 
         # validate the remote candidate
         try:
-            validate_remote_candidate(remote_candidate)
+            remote_candidate._network_host = validate_remote_candidate(
+                remote_candidate, network_host
+            )
         except ValueError as e:
             self.__log_info(
                 f'Remote candidate "{remote_candidate.host}" is not valid: {e}'
@@ -819,7 +825,7 @@ class Connection:
         # find remote candidate
         remote_candidate = None
         for c in self._remote_candidates:
-            if c.host == addr[0] and c.port == addr[1]:
+            if c._network_host == addr[0] and c.port == addr[1]:
                 remote_candidate = c
                 assert remote_candidate.component == component
                 break

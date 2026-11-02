@@ -61,6 +61,10 @@ class Candidate:
         self.tcptype = tcptype
         self.generation = generation
 
+        # The address used to reach the candidate, hidden behind the name of a remote
+        # mDNS candidate (draft-ietf-mmusic-mdns-ice-candidates section 3.3.1).
+        self._network_host = host
+
     @classmethod
     def from_sdp(cls, sdp: str) -> "Candidate":
         """
@@ -127,8 +131,8 @@ class Candidate:
         the two candidates have the same component ID and have the same IP
         address version.
         """
-        a = ipaddress.ip_address(self.host)
-        b = ipaddress.ip_address(other.host)
+        a = ipaddress.ip_address(self._network_host)
+        b = ipaddress.ip_address(other._network_host)
         return (
             self.component == other.component
             and self.transport.lower() == other.transport.lower()
