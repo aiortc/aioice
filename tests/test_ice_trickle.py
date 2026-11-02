@@ -8,7 +8,7 @@ from .utils import asynctest
 
 class IceTrickleTest(unittest.TestCase):
     def assertCandidateTypes(self, conn: ice.Connection, expected: set[str]) -> None:
-        types = set([c.type for c in conn.local_candidates])
+        types = {c.type for c in conn.local_candidates}
         self.assertEqual(types, expected)
 
     @asynctest
@@ -27,8 +27,8 @@ class IceTrickleTest(unittest.TestCase):
         conn_a.remote_password = conn_b.local_password
 
         # we should only have host candidates
-        self.assertCandidateTypes(conn_a, set(["host"]))
-        self.assertCandidateTypes(conn_b, set(["host"]))
+        self.assertCandidateTypes(conn_a, {"host"})
+        self.assertCandidateTypes(conn_b, {"host"})
 
         # there should be a default candidate for component 1
         candidate = conn_a.get_default_candidate(1)

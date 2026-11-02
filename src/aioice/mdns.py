@@ -128,7 +128,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
             self.queries[name].add(future)
         else:
             # no query for this name is pending, send a request
-            self.queries[name] = set([future])
+            self.queries[name] = {future}
             message = dns.message.make_query(name, rdtype=dns.rdatatype.A)
             message.id = 0
             message.flags = 0
