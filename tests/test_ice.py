@@ -201,10 +201,35 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(protocol.sent_message.message_method, stun.Method.BINDING)
         self.assertEqual(protocol.sent_message.message_class, stun.Class.RESPONSE)
         self.assertEqual(
-            connection._early_checks, [(request, ("2.3.4.5", 2345), protocol)]
+            list(connection._early_checks), [(request, ("2.3.4.5", 2345), protocol)]
         )
         self.assertIsNone(pair.task)
         self.assertEqual(pair.state, ice.CandidatePair.State.FROZEN)
+
+    @asynctest
+    async def test_request_before_remote_credentials_limit(self) -> None:
+        connection = ice.Connection(ice_controlling=True)
+        protocol = ProtocolMock(response_addr=("2.3.4.5", 2345))
+
+        requests = []
+        for _ in range(ice.MAX_EARLY_CHECKS + 1):
+            request = stun.Message(
+                message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+            )
+            request.attributes["USERNAME"] = (
+                f"{connection.local_username}:remote-username"
+            )
+            request.add_message_integrity(connection.local_password.encode("utf8"))
+            connection.request_received(
+                request, ("2.3.4.5", 2345), protocol, bytes(request)
+            )
+            requests.append(request)
+
+        # Only the most recent checks are kept.
+        self.assertEqual(
+            [early_check[0] for early_check in connection._early_checks],
+            requests[1:],
+        )
 
     @asynctest
     async def test_request_with_invalid_method(self) -> None:

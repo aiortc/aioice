@@ -9,6 +9,7 @@ import re
 import secrets
 import socket
 import threading
+from collections import deque
 from collections.abc import Callable
 from typing import Optional, Union, cast
 
@@ -25,6 +26,10 @@ ICE_FAILED = 2
 
 CONSENT_FAILURES = 6
 CONSENT_INTERVAL = 5
+
+# Maximum number of early checks kept until connect(). The RFCs set no such
+# limit, so use the one on connectivity checks (RFC 8445 section 19.5.1).
+MAX_EARLY_CHECKS = 100
 
 connection_id = itertools.count()
 protocol_id = itertools.count()
@@ -410,9 +415,10 @@ class Connection:
         self._check_list: list[CandidatePair] = []
         self._check_list_done = False
         self._check_list_state: asyncio.Queue = asyncio.Queue()
-        self._early_checks: list[
+        # Bound the memory used until connect(), dropping the oldest check.
+        self._early_checks: deque[
             tuple[stun.Message, tuple[str, int], StunProtocol]
-        ] = []
+        ] = deque(maxlen=MAX_EARLY_CHECKS)
         self._early_checks_done = False
         self._event_waiter: Optional[asyncio.Future[ConnectionEvent]] = None
         self._id = next(connection_id)
@@ -595,7 +601,7 @@ class Connection:
         # handle early checks
         for early_check in self._early_checks:
             self.check_incoming(*early_check)
-        self._early_checks = []
+        self._early_checks.clear()
         self._early_checks_done = True
 
         # perform checks
