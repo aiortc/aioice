@@ -1812,6 +1812,89 @@ class IceConnectionTest(unittest.TestCase):
         await conn_b.close()
         await publisher.close()
 
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_add_remote_candidate_mdns_then_end_of_candidates(self) -> None:
+        """
+        Signal end-of-candidates while an mDNS candidate is being resolved.
+        """
+        hostname = mdns.create_mdns_hostname()
+        publisher = await mdns.create_mdns_protocol()
+        await publisher.publish(hostname, "1.2.3.4")
+
+        conn_a = ice.Connection(ice_controlling=True)
+
+        task = asyncio.create_task(
+            conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=hostname,
+                    port=1234,
+                    type="host",
+                )
+            )
+        )
+        await asyncio.sleep(0)
+        await conn_a.add_remote_candidate(None)
+        await task
+
+        # Check the candidate was added and its component was kept.
+        self.assertEqual(len(conn_a.remote_candidates), 1)
+        self.assertEqual(conn_a.remote_candidates[0].host, hostname)
+        self.assertEqual(conn_a.remote_candidates[0]._network_host, "1.2.3.4")
+        self.assertEqual(conn_a._components, {1})
+        self.assertEqual(conn_a._remote_candidates_end, True)
+
+        # Close the connection and the mDNS publisher.
+        await conn_a.close()
+        await publisher.close()
+
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_connect_mdns_bad_then_end_of_candidates(self) -> None:
+        """
+        ICE only fails once the last mDNS candidate could not be resolved.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+        await conn_a.gather_candidates()
+        conn_a.remote_username = conn_b.local_username
+        conn_a.remote_password = conn_b.local_password
+
+        connect_task = asyncio.create_task(conn_a.connect())
+        add_task = asyncio.create_task(
+            conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=mdns.create_mdns_hostname(),
+                    port=1234,
+                    type="host",
+                )
+            )
+        )
+        await asyncio.sleep(0)
+        await conn_a.add_remote_candidate(None)
+
+        # Check ICE does not fail while the candidate is being resolved.
+        await asyncio.sleep(0.5)
+        self.assertFalse(connect_task.done())
+
+        # Check ICE fails once the resolution failed.
+        await add_task
+        with self.assertRaises(ConnectionError) as cm:
+            await connect_task
+        self.assertEqual(str(cm.exception), "ICE negotiation failed")
+
+        # Close the connections.
+        await conn_a.close()
+        await conn_b.close()
+
     @asynctest
     async def test_add_remote_candidate_same_address(self) -> None:
         """

@@ -432,6 +432,7 @@ class Connection:
         self._protocols: list[StunProtocol] = []
         self._remote_candidates: list[Candidate] = []
         self._remote_candidates_end = False
+        self._remote_candidates_resolving = 0
         self._query_consent_task: asyncio.Task[None] | None = None
         self._queue: asyncio.Queue[tuple[bytes, int] | None] = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
@@ -500,82 +501,44 @@ class Connection:
 
         # end-of-candidates
         if remote_candidate is None:
-            self._prune_components()
             self._remote_candidates_end = True
-
-            # Removing components may leave all the remaining ones nominated, or
-            # the pairs may all have failed meanwhile (RFC 8838 section 14).
-            if self._early_checks_done and not self._check_list_maybe_complete():
-                self._check_list_maybe_fail()
+            if not self._remote_candidates_resolving:
+                self._end_remote_candidates()
             return
 
         # Keep our own copy, so changes made by either side do not affect the other.
         remote_candidate = copy.copy(remote_candidate)
 
         # Resolve an mDNS candidate.
-        network_host = remote_candidate.host
         if mdns.is_mdns_hostname(remote_candidate.host):
-            mdns_protocol = await get_or_create_mdns_protocol(self)
-            remote_addr = await mdns_protocol.resolve(remote_candidate.host)
-            if remote_addr is None:
-                self.__log_info(
-                    f'Remote candidate "{remote_candidate.host}" could not be resolved'
-                )
-                return
-            self.__log_info(
-                f'Remote candidate "{remote_candidate.host}" resolved to {remote_addr}'
-            )
-            network_host = remote_addr
-
-        # validate the remote candidate
-        try:
-            remote_candidate._network_host = validate_remote_candidate(
-                remote_candidate, network_host
-            )
-        except ValueError as e:
-            self.__log_info(
-                f'Remote candidate "{remote_candidate.host}" is not valid: {e}'
-            )
+            # Keep the candidate if end-of-candidates arrives meanwhile, as only
+            # newly received candidates are ignored (RFC 8838 section 14).
+            self._remote_candidates_resolving += 1
+            try:
+                mdns_protocol = await get_or_create_mdns_protocol(self)
+                remote_addr = await mdns_protocol.resolve(remote_candidate.host)
+                if remote_addr is None:
+                    self.__log_info(
+                        'Remote candidate "%s" could not be resolved',
+                        remote_candidate.host,
+                    )
+                else:
+                    self.__log_info(
+                        'Remote candidate "%s" resolved to %s',
+                        remote_candidate.host,
+                        remote_addr,
+                    )
+                    self._add_remote_candidate(remote_candidate, remote_addr)
+            finally:
+                self._remote_candidates_resolving -= 1
+                if (
+                    self._remote_candidates_end
+                    and not self._remote_candidates_resolving
+                ):
+                    self._end_remote_candidates()
             return
 
-        known_candidate = self._find_remote_candidate(remote_candidate)
-        if known_candidate is None:
-            self._remote_candidates.append(remote_candidate)
-        elif known_candidate.type == "prflx":
-            # Update a candidate learned as peer-reflexive, keeping its pair
-            # (RFC 8445 section 7.3.1.3, RFC 8838 section 11).
-            self.__log_info(
-                "Peer reflexive candidate %s signalled as %s",
-                known_candidate,
-                remote_candidate,
-            )
-            known_candidate.host = remote_candidate.host
-            known_candidate.foundation = remote_candidate.foundation
-            known_candidate.priority = remote_candidate.priority
-            known_candidate.type = remote_candidate.type
-            known_candidate.related_address = remote_candidate.related_address
-            known_candidate.related_port = remote_candidate.related_port
-            known_candidate.tcptype = remote_candidate.tcptype
-            known_candidate.generation = remote_candidate.generation
-            remote_candidate = known_candidate
-        else:
-            # A peer eliminates redundant candidates (RFC 8445 section 5.1.3), so
-            # this is the same candidate signalled again (RFC 8838 section 9).
-            self.__log_info(
-                "Remote candidate %s is ignored, as it has the same address as %s",
-                remote_candidate,
-                known_candidate,
-            )
-            return
-
-        # pair the remote candidate
-        for protocol in self._protocols:
-            if protocol.local_candidate.can_pair_with(
-                remote_candidate
-            ) and not self._find_pair(protocol, remote_candidate):
-                pair = CandidatePair(protocol, remote_candidate)
-                self._check_list.append(pair)
-        self.sort_check_list()
+        self._add_remote_candidate(remote_candidate, remote_candidate.host)
 
     async def gather_candidates(self) -> None:
         """
@@ -794,6 +757,62 @@ class Connection:
 
     # private
 
+    def _add_remote_candidate(
+        self, remote_candidate: Candidate, network_host: str
+    ) -> None:
+        """
+        Add a remote candidate, reached at the given address.
+        """
+        # Validate the remote candidate.
+        try:
+            remote_candidate._network_host = validate_remote_candidate(
+                remote_candidate, network_host
+            )
+        except ValueError as e:
+            self.__log_info(
+                f'Remote candidate "{remote_candidate.host}" is not valid: {e}'
+            )
+            return
+
+        known_candidate = self._find_remote_candidate(remote_candidate)
+        if known_candidate is None:
+            self._remote_candidates.append(remote_candidate)
+        elif known_candidate.type == "prflx":
+            # Update a candidate learned as peer-reflexive, keeping its pair
+            # (RFC 8445 section 7.3.1.3, RFC 8838 section 11).
+            self.__log_info(
+                "Peer reflexive candidate %s signalled as %s",
+                known_candidate,
+                remote_candidate,
+            )
+            known_candidate.host = remote_candidate.host
+            known_candidate.foundation = remote_candidate.foundation
+            known_candidate.priority = remote_candidate.priority
+            known_candidate.type = remote_candidate.type
+            known_candidate.related_address = remote_candidate.related_address
+            known_candidate.related_port = remote_candidate.related_port
+            known_candidate.tcptype = remote_candidate.tcptype
+            known_candidate.generation = remote_candidate.generation
+            remote_candidate = known_candidate
+        else:
+            # A peer eliminates redundant candidates (RFC 8445 section 5.1.3), so
+            # this is the same candidate signalled again (RFC 8838 section 9).
+            self.__log_info(
+                "Remote candidate %s is ignored, as it has the same address as %s",
+                remote_candidate,
+                known_candidate,
+            )
+            return
+
+        # Pair the remote candidate.
+        for protocol in self._protocols:
+            if protocol.local_candidate.can_pair_with(
+                remote_candidate
+            ) and not self._find_pair(protocol, remote_candidate):
+                pair = CandidatePair(protocol, remote_candidate)
+                self._check_list.append(pair)
+        self.sort_check_list()
+
     def build_request(self, pair: CandidatePair, nominate: bool) -> stun.Message:
         tx_username = f"{self.remote_username}:{self.local_username}"
         request = stun.Message(
@@ -916,7 +935,7 @@ class Connection:
         Mark the check list as failed if no further progress can be made.
         """
         # More remote candidates may still be trickled (RFC 8838 section 8).
-        if not self._remote_candidates_end:
+        if self._remote_candidates_expected():
             return
 
         for p in self._check_list:
@@ -950,7 +969,7 @@ class Connection:
                 return True
 
         # if we expect more candidates, keep going
-        if not self._remote_candidates_end:
+        if self._remote_candidates_expected():
             return not self._check_list_done
 
         return False
@@ -1037,6 +1056,17 @@ class Connection:
             waiter = self._event_waiter
             self._event_waiter = None
             waiter.set_result(event)
+
+    def _end_remote_candidates(self) -> None:
+        """
+        Handle end-of-candidates once all remote candidates have been processed.
+        """
+        self._prune_components()
+
+        # Removing components may leave all the remaining ones nominated, or
+        # the pairs may all have failed meanwhile (RFC 8838 section 14).
+        if self._early_checks_done and not self._check_list_maybe_complete():
+            self._check_list_maybe_fail()
 
     def _find_pair(
         self, protocol: StunProtocol, remote_candidate: Candidate
@@ -1194,6 +1224,12 @@ class Connection:
             if pair.protocol is protocol:
                 self._queue.put_nowait(None)
                 return
+
+    def _remote_candidates_expected(self) -> bool:
+        """
+        Whether more remote candidates may still be added.
+        """
+        return not self._remote_candidates_end or self._remote_candidates_resolving > 0
 
     def request_received(
         self,
