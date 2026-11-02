@@ -3,6 +3,34 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.12.0
+------
+
+ * Only use relayed candidates with the relay transport policy: no host
+   socket is created and no server-reflexive candidate is gathered. Without a
+   TURN server, no candidates are gathered instead of raising an error.
+ * Use the mapped address of the TURN allocation as the related address of
+   relayed candidates, and hide it with the relay transport policy. A TURN
+   allocation now fails if the server does not return its mapped address.
+ * Keep the hostname of remote mDNS candidates in
+   `Connection.remote_candidates` instead of replacing it with the resolved
+   address.
+ * Do not pair relayed candidates with remote mDNS candidates, and ignore
+   remote mDNS candidates with the relay transport policy.
+ * Handle end-of-candidates only once pending mDNS candidates are resolved.
+ * Update a peer-reflexive candidate when it is later signalled, and ignore a
+   remote candidate whose address is already known, instead of forming
+   duplicate pairs.
+ * Match incoming checks against IPv6 remote candidates which were not
+   signalled in canonical form.
+ * Copy remote candidates when they are added, so later changes to the
+   caller's object do not affect the connection.
+ * Ignore remote candidates added once the connection is closing.
+ * Defer incoming checks until `Connection.connect()` is called, as handling
+   them earlier could leave a pair stuck in progress.
+ * Keep at most 100 incoming checks until `Connection.connect()` is called.
+ * Document `TransportPolicy` in the API reference.
+
 0.11.0
 ------
 
