@@ -1,9 +1,10 @@
 import asyncio
+import contextlib
 import copy
 import functools
 import os
 import unittest
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
 from unittest import mock
 
 import ifaddr
@@ -43,6 +44,20 @@ async def add_mdns_candidates(
 async def delay(coro: Callable[[], Coroutine[None, None, None]]) -> None:
     await asyncio.sleep(1)
     await coro()
+
+
+@contextlib.contextmanager
+def spy_send_stun() -> Iterator[mock.Mock]:
+    """
+    Record the STUN messages sent by all protocols, while still sending them.
+    """
+    with mock.patch.object(
+        ice.StunProtocol,
+        "send_stun",
+        autospec=True,
+        side_effect=ice.StunProtocol.send_stun,
+    ) as send_stun:
+        yield send_stun
 
 
 class ProtocolMock(ice.StunProtocol):
@@ -473,6 +488,7 @@ class IceConnectionTest(unittest.TestCase):
         ice.CONSENT_FAILURES = 6
         ice.CONSENT_INTERVAL = 5
         stun.RETRY_MAX = 6
+        stun.RETRY_RTO = 0.5
 
     async def connect_and_exchange_data(
         self, conn_a: ice.Connection, conn_b: ice.Connection
@@ -651,6 +667,126 @@ class IceConnectionTest(unittest.TestCase):
         exceptions = [x.exception() for x in done if x.exception()]
         self.assertEqual(len(exceptions), 1)
         self.assertTrue(isinstance(exceptions[0], ConnectionError))
+
+    async def start_connect_with_check_in_progress(
+        self, conn: ice.Connection
+    ) -> asyncio.Task[None]:
+        """
+        Start connecting to several unreachable remote candidates, without
+        end-of-candidates, and wait for the first check to be in progress.
+        """
+        await conn.gather_candidates()
+        conn.remote_username = "foo"
+        conn.remote_password = "bar"
+        for port in range(31102, 31112):
+            await conn.add_remote_candidate(
+                Candidate.from_sdp(
+                    f"6815297761 1 udp 659136 1.2.3.4 {port} typ host generation 0"
+                )
+            )
+        connect_task = asyncio.create_task(conn.connect())
+        async with asyncio.timeout(1):
+            while not any(
+                p.state == ice.CandidatePair.State.IN_PROGRESS for p in conn._check_list
+            ):
+                await asyncio.sleep(0.01)
+        return connect_task
+
+    @asynctest
+    async def test_connect_close_without_end_of_candidates(self) -> None:
+        stun.RETRY_RTO = 0.1
+
+        conn = ice.Connection(ice_controlling=True)
+        with spy_send_stun() as send_stun:
+            connect_task = await self.start_connect_with_check_in_progress(conn)
+            await conn.close()
+            call_count = send_stun.call_count
+
+            # Closing ends connect() although more candidates may be trickled.
+            with self.assertRaises(ConnectionError) as cm:
+                await asyncio.wait_for(connect_task, timeout=1)
+            self.assertEqual(str(cm.exception), "ICE negotiation failed")
+
+            # No check is started or retransmitted after closing.
+            await asyncio.sleep(stun.RETRY_RTO * 3)
+            self.assertEqual(send_stun.call_count, call_count)
+
+    @asynctest
+    async def test_connect_cancel_then_close(self) -> None:
+        stun.RETRY_RTO = 0.1
+
+        conn = ice.Connection(ice_controlling=True)
+        with spy_send_stun() as send_stun:
+            connect_task = await self.start_connect_with_check_in_progress(conn)
+            connect_task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await connect_task
+
+            # Closing stops the checks connect() left running.
+            await conn.close()
+            call_count = send_stun.call_count
+            await asyncio.sleep(stun.RETRY_RTO * 3)
+            self.assertEqual(send_stun.call_count, call_count)
+
+    @asynctest
+    async def test_connect_cancel_then_close_with_incoming_check(self) -> None:
+        stun.RETRY_RTO = 0.1
+
+        conn = ice.Connection(ice_controlling=True)
+        connect_task = await self.start_connect_with_check_in_progress(conn)
+        connect_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await connect_task
+
+        # Checks arrive on the socket of the pair being checked.
+        pair = next(
+            p
+            for p in conn._check_list
+            if p.state == ice.CandidatePair.State.IN_PROGRESS
+        )
+        protocols = list(conn._protocols)
+
+        def receive_check(addr: tuple[str, int]) -> None:
+            request = stun.Message(
+                message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+            )
+            request.attributes["USERNAME"] = f"{conn.local_username}:foo"
+            request.attributes["PRIORITY"] = 456789
+            request.attributes["ICE-CONTROLLED"] = 1
+            request.add_message_integrity(conn.local_password.encode("utf8"))
+            pair.protocol.datagram_received(bytes(request), addr)
+
+        with spy_send_stun() as send_stun:
+
+            def sent_to(addr: tuple[str, int]) -> list[stun.Class]:
+                return [
+                    call.args[1].message_class
+                    for call in send_stun.call_args_list
+                    if call.args[2] == addr
+                ]
+
+            def requests_sent() -> int:
+                return sum(
+                    1
+                    for call in send_stun.call_args_list
+                    if call.args[1].message_class == stun.Class.REQUEST
+                )
+
+            # A check from an unknown address is answered before closing.
+            receive_check(("2.3.4.6", 2345))
+            self.assertEqual(sent_to(("2.3.4.6", 2345)), [stun.Class.RESPONSE])
+
+            # A check arriving while the connection closes its sockets does not
+            # start a check.
+            close_task = asyncio.create_task(conn.close())
+            async with asyncio.timeout(1):
+                while not protocols[0].transport.is_closing():
+                    await asyncio.sleep(0)
+            request_count = requests_sent()
+            receive_check(("2.3.4.5", 2345))
+            await close_task
+            await asyncio.sleep(stun.RETRY_RTO * 3)
+            self.assertEqual(requests_sent(), request_count)
 
     @asynctest
     async def test_connect_early_checks(self) -> None:
