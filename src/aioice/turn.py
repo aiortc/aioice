@@ -196,12 +196,18 @@ class TurnClientMixin:
         request.attributes["LIFETIME"] = 0
         try:
             await self.request_with_retry(request)
-        except stun.TransactionError:
-            # we do not care, we need to shutdown
-            pass
-
-        logger.info("TURN allocation deleted %s", self.relayed_address)
-        self.transport.close()
+        except stun.TransactionError as exc:
+            # Shut down anyway, the server frees the allocation once it expires
+            # (RFC 8656 section 6).
+            logger.info(
+                "TURN allocation deletion failed %s: %s", self.relayed_address, exc
+            )
+        else:
+            logger.info("TURN allocation deleted %s", self.relayed_address)
+        finally:
+            # Close the transport even if the deletion is cancelled, for instance
+            # when the event loop shuts down, otherwise its socket leaks.
+            self.transport.close()
 
     async def refresh(self, time_to_expiry: int) -> None:
         """
