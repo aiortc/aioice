@@ -623,25 +623,25 @@ class Connection:
 
         self._unfreeze_initial()
 
-        # handle early checks
+        # Handle the checks received before connect().
         for early_check in self._early_checks:
             self.check_incoming(*early_check)
         self._early_checks.clear()
         self._early_checks_done = True
 
-        # perform checks
+        # Perform the checks.
         while True:
-            if not self.check_periodic():
+            if not self._check_periodic():
                 break
             await asyncio.sleep(0.02)
 
-        # wait for completion
+        # Wait for the check list to complete or fail.
         if self._check_list:
             res = await self._check_list_state.get()
         else:
             res = ICE_FAILED
 
-        # cancel remaining checks
+        # Cancel the remaining checks.
         for check in self._check_list:
             if check.task:
                 check.task.cancel()
@@ -649,7 +649,7 @@ class Connection:
         if res != ICE_COMPLETED:
             raise ConnectionError("ICE negotiation failed")
 
-        # start consent freshness tests
+        # Start consent freshness tests (RFC 7675).
         self._query_consent_task = asyncio.create_task(self.query_consent())
 
     async def close(self) -> None:
@@ -667,9 +667,18 @@ class Connection:
             except asyncio.CancelledError:
                 pass
 
-        # Stop the check list.
-        if self._check_list and not self._check_list_done:
+        # Stop the check list, which also ends the checks loop in connect().
+        if not self._check_list_done:
             self._check_list_state.put_nowait(ICE_FAILED)
+            self._check_list_done = True
+
+        # Stop the checks before their sockets are closed, as connect() may
+        # not be running to cancel them.
+        tasks = [p.task for p in self._check_list if p.task is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks)
 
         # Unreference mDNS.
         await unref_mdns_protocol(self)
@@ -979,24 +988,31 @@ class Connection:
             self._check_list_state.put_nowait(ICE_FAILED)
             self._check_list_done = True
 
-    def check_periodic(self) -> bool:
-        # find the highest-priority pair that is in the waiting state
+    def _check_periodic(self) -> bool:
+        """
+        Start a check for the highest-priority Waiting pair, or else Frozen pair.
+
+        connect() calls this every 20 ms to pace the checks, like the Ta timer
+        of RFC 8445 section 6.1.4.2, for as long as this returns True.
+        """
+        # Start no more checks once the check list is completed, failed or closed.
+        if self._check_list_done:
+            return False
+
+        # Start the highest-priority pair in the Waiting state.
         for pair in self._check_list:
             if pair.state == CandidatePair.State.WAITING:
                 self.check_start_task(pair)
                 return True
 
-        # find the highest-priority pair that is in the frozen state
+        # Otherwise start the highest-priority pair in the Frozen state.
         for pair in self._check_list:
             if pair.state == CandidatePair.State.FROZEN:
                 self.check_start_task(pair)
                 return True
 
-        # if we expect more candidates, keep going
-        if self._remote_candidates_expected():
-            return not self._check_list_done
-
-        return False
+        # Keep going if more remote candidates are expected.
+        return self._remote_candidates_expected()
 
     async def check_start(self, pair: CandidatePair) -> None:
         """
@@ -1281,11 +1297,15 @@ class Connection:
         protocol: StunProtocol,
         raw_data: bytes,
     ) -> None:
+        # Ignore incoming checks once closing, as they would start new checks.
+        if self._closing:
+            return
+
         if message.message_method != stun.Method.BINDING:
             self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
 
-        # authenticate request
+        # Authenticate the request.
         try:
             stun.parse_message(
                 raw_data, integrity_key=self.local_password.encode("utf8")
@@ -1312,7 +1332,7 @@ class Connection:
                 return
             self.switch_role(ice_controlling=True)
 
-        # send binding response
+        # Send a Binding response.
         response = stun.Message(
             message_method=stun.Method.BINDING,
             message_class=stun.Class.RESPONSE,
