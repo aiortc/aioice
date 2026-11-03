@@ -1851,12 +1851,40 @@ class IceConnectionTest(unittest.TestCase):
         # close
         await conn_a.close()
 
+    @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
+    @asynctest
+    async def test_add_remote_candidate_mdns_retry(self) -> None:
+        conn = ice.Connection(ice_controlling=True)
+        hostname = mdns.create_mdns_hostname()
+        candidate = Candidate("1", 1, "udp", 1234, hostname, 1234, "host")
+        with mock.patch(
+            "aioice.mdns.socket.socket", side_effect=OSError("No such device")
+        ):
+            await conn.add_remote_candidate(candidate)
+        self.assertEqual(conn.remote_candidates, [])
+        self.assertIsNone(ice._mdns.protocol)
+        self.assertNotIn(conn, ice._mdns.subscribers)
+
+        publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
+        try:
+            await publisher.publish(hostname, "1.2.3.4")
+            await conn.add_remote_candidate(candidate)
+            self.assertEqual(len(conn.remote_candidates), 1)
+            self.assertEqual(conn.remote_candidates[0]._network_host, "1.2.3.4")
+            self.assertIn(conn, ice._mdns.subscribers)
+        finally:
+            await conn.close()
+            await publisher.close()
+        self.assertIsNone(ice._mdns.protocol)
+        self.assertNotIn(conn, ice._mdns.subscribers)
+
     @asynctest
     async def test_add_remote_candidate_mdns_unavailable(self) -> None:
         conn = ice.Connection(ice_controlling=True)
         candidate = Candidate("1", 1, "udp", 1234, "test.local", 1234, "host")
         with mock.patch(
-            "aioice.ice.get_or_create_mdns_protocol",
+            "aioice.mdns.socket.socket",
             side_effect=OSError("No such device"),
         ):
             await conn.add_remote_candidate(candidate)
@@ -1880,6 +1908,7 @@ class IceConnectionTest(unittest.TestCase):
         """
         hostname = mdns.create_mdns_hostname()
         publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
         await publisher.publish(hostname, "1.2.3.4")
 
         conn_a = ice.Connection(ice_controlling=True)
@@ -1913,6 +1942,7 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
         publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
 
         # Exchange credentials.
         await conn_a.gather_candidates()
@@ -1968,6 +1998,7 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
         publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
 
         # Exchange credentials.
         await conn_a.gather_candidates()
@@ -2017,6 +2048,7 @@ class IceConnectionTest(unittest.TestCase):
         """
         hostname = mdns.create_mdns_hostname()
         publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
         await publisher.publish(hostname, "1.2.3.4")
 
         conn_a = ice.Connection(ice_controlling=True)
@@ -2111,6 +2143,7 @@ class IceConnectionTest(unittest.TestCase):
         """
         hostname = mdns.create_mdns_hostname()
         publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
         await publisher.publish(hostname, "1.2.3.4")
 
         conn_a = ice.Connection(ice_controlling=True)
@@ -2197,6 +2230,7 @@ class IceConnectionTest(unittest.TestCase):
         """
         hostname = mdns.create_mdns_hostname()
         publisher = await mdns.create_mdns_protocol()
+        assert publisher is not None
         await publisher.publish(hostname, "1.2.3.4")
 
         async with run_turn_server(users={"foo": "bar"}) as turn_server:
@@ -2268,6 +2302,7 @@ class IceConnectionTest(unittest.TestCase):
             )
             conn_b = ice.Connection(ice_controlling=False)
             publisher = await mdns.create_mdns_protocol()
+            assert publisher is not None
 
             # Connection B's candidates are signalled as mDNS candidates, before
             # connection A gathers its candidates.

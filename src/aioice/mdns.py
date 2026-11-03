@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import re
 import socket
 import sys
@@ -15,6 +16,8 @@ import dns.rdataclass
 import dns.rdataset
 import dns.rdatatype
 import dns.zone
+
+logger = logging.getLogger(__name__)
 
 MDNS_ADDRESS = "224.0.0.251"
 MDNS_PORT = 5353
@@ -81,9 +84,7 @@ class MDnsProtocol(asyncio.DatagramProtocol):
                     except KeyError:
                         continue
                 if response.answer:
-                    self.tx_transport.sendto(
-                        response.to_wire(), (MDNS_ADDRESS, MDNS_PORT)
-                    )
+                    self.__sendto(response)
 
             # handle answer
             for answer in message.answer:
@@ -102,6 +103,14 @@ class MDnsProtocol(asyncio.DatagramProtocol):
                             future.set_result(result)
 
     # custom
+
+    def __sendto(self, message: dns.message.Message) -> bool:
+        try:
+            self.tx_transport.sendto(message.to_wire(), (MDNS_ADDRESS, MDNS_PORT))
+        except OSError as exc:
+            logger.debug("Could not send mDNS message: %s", exc)
+            return False
+        return True
 
     async def close(self) -> None:
         self.rx_transport.close()
@@ -124,18 +133,18 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         name = dns.name.from_text(hostname)
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
 
-        if name in self.queries:
-            # a query for this name is already pending
-            self.queries[name].add(future)
-        else:
-            # no query for this name is pending, send a request
-            self.queries[name] = {future}
-            message = dns.message.make_query(name, rdtype=dns.rdatatype.A)
-            message.id = 0
-            message.flags = 0
-            self.tx_transport.sendto(message.to_wire(), (MDNS_ADDRESS, MDNS_PORT))
-
         try:
+            if name in self.queries:
+                # a query for this name is already pending
+                self.queries[name].add(future)
+            else:
+                # no query for this name is pending, send a request
+                self.queries[name] = {future}
+                message = dns.message.make_query(name, rdtype=dns.rdatatype.A)
+                message.id = 0
+                message.flags = 0
+                if not self.__sendto(message):
+                    return None
             return await asyncio.wait_for(future, timeout=timeout)
         except TimeoutError:
             return None
@@ -146,51 +155,55 @@ class MDnsProtocol(asyncio.DatagramProtocol):
                     del self.queries[name]
 
 
-async def create_mdns_protocol() -> MDnsProtocol:
+async def create_mdns_protocol() -> MDnsProtocol | None:
     """
     Using a single socket works fine on Linux, but on OS X we need to use
     separate sockets for sending and receiving.
     """
     loop = asyncio.get_running_loop()
 
-    with contextlib.ExitStack() as cleanup:
-        # sender
+    try:
+        with contextlib.ExitStack() as cleanup:
+            # sender
 
-        tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        cleanup.callback(tx_sock.close)
-        tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SO_REUSEPORT"):
-            tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        tx_sock.bind(("", MDNS_PORT))
+            tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            cleanup.callback(tx_sock.close)
+            tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, "SO_REUSEPORT"):
+                tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            tx_sock.bind(("", MDNS_PORT))
 
-        tx_transport, _ = await loop.create_datagram_endpoint(
-            lambda: asyncio.DatagramProtocol(),
-            sock=tx_sock,
-        )
+            tx_transport, _ = await loop.create_datagram_endpoint(
+                lambda: asyncio.DatagramProtocol(),
+                sock=tx_sock,
+            )
 
-        cleanup.callback(tx_transport.close)
+            cleanup.callback(tx_transport.close)
 
-        # receiver
+            # receiver
 
-        rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        cleanup.callback(rx_sock.close)
-        rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SO_REUSEPORT"):
-            rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        rx_sock.setsockopt(
-            socket.IPPROTO_IP,
-            socket.IP_ADD_MEMBERSHIP,
-            socket.inet_aton(MDNS_ADDRESS) + b"\x00\x00\x00\x00",
-        )
-        if sys.platform == "win32":
-            rx_sock.bind(("", MDNS_PORT))
-        else:
-            rx_sock.bind((MDNS_ADDRESS, MDNS_PORT))
+            rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            cleanup.callback(rx_sock.close)
+            rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, "SO_REUSEPORT"):
+                rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            rx_sock.setsockopt(
+                socket.IPPROTO_IP,
+                socket.IP_ADD_MEMBERSHIP,
+                socket.inet_aton(MDNS_ADDRESS) + b"\x00\x00\x00\x00",
+            )
+            if sys.platform == "win32":
+                rx_sock.bind(("", MDNS_PORT))
+            else:
+                rx_sock.bind((MDNS_ADDRESS, MDNS_PORT))
 
-        _, protocol = await loop.create_datagram_endpoint(
-            lambda: MDnsProtocol(tx_transport=tx_transport),
-            sock=rx_sock,
-        )
+            _, protocol = await loop.create_datagram_endpoint(
+                lambda: MDnsProtocol(tx_transport=tx_transport),
+                sock=rx_sock,
+            )
 
-        cleanup.pop_all()
-        return protocol
+            cleanup.pop_all()
+            return protocol
+    except OSError as exc:
+        logger.debug("Could not create mDNS protocol: %s", exc)
+        return None

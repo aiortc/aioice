@@ -56,7 +56,7 @@ class TransportPolicy(enum.Enum):
     """
 
 
-async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol:
+async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol | None:
     if not hasattr(_mdns, "lock"):
         _mdns.lock = asyncio.Lock()
         _mdns.protocol = None
@@ -64,8 +64,9 @@ async def get_or_create_mdns_protocol(subscriber: object) -> mdns.MDnsProtocol:
     async with _mdns.lock:
         if _mdns.protocol is None:
             _mdns.protocol = await mdns.create_mdns_protocol()
-        _mdns.subscribers.add(subscriber)
-    return cast(mdns.MDnsProtocol, _mdns.protocol)
+        if _mdns.protocol is not None:
+            _mdns.subscribers.add(subscriber)
+    return cast(mdns.MDnsProtocol | None, _mdns.protocol)
 
 
 async def unref_mdns_protocol(subscriber: object) -> None:
@@ -536,7 +537,11 @@ class Connection:
             self._remote_candidates_resolving += 1
             try:
                 mdns_protocol = await get_or_create_mdns_protocol(self)
-                remote_addr = await mdns_protocol.resolve(remote_candidate.host)
+                remote_addr = (
+                    await mdns_protocol.resolve(remote_candidate.host)
+                    if mdns_protocol is not None
+                    else None
+                )
                 if remote_addr is None:
                     self.__log_info(
                         'Remote candidate "%s" could not be resolved',
@@ -549,14 +554,6 @@ class Connection:
                         remote_addr,
                     )
                     self._add_remote_candidate(remote_candidate, remote_addr)
-            except OSError as exc:
-                # Ignore candidates which cannot be resolved
-                # (draft-ietf-mmusic-mdns-ice-candidates section 3.2.1).
-                self.__log_info(
-                    'Remote candidate "%s" could not be resolved: %s',
-                    remote_candidate.host,
-                    exc,
-                )
             finally:
                 self._remote_candidates_resolving -= 1
                 if (
