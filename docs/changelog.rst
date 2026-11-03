@@ -3,6 +3,18 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.12.1
+------
+
+ * Stop connectivity checks when the connection is closed, even if
+   `Connection.connect()` was cancelled or is still waiting for
+   end-of-candidates. In the latter case, `Connection.connect()` now raises
+   a `ConnectionError` instead of never returning.
+ * Ignore incoming checks once the connection is closing.
+ * Close the TURN socket when deleting the allocation is cancelled, for
+   instance when the event loop shuts down, and log a failed deletion as such
+   rather than as a deleted allocation.
+
 0.12.0
 ------
 
