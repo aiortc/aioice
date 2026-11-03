@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import unittest
 from collections.abc import AsyncGenerator
+from unittest import mock
 
 from aioice import mdns
 
@@ -24,6 +25,45 @@ async def querier_and_responder() -> AsyncGenerator[
 
 @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
 class MdnsTest(unittest.TestCase):
+    @asynctest
+    async def test_create_failure(self) -> None:
+        for failure in (
+            "sender_bind",
+            "sender_endpoint",
+            "membership",
+            "receiver_endpoint",
+        ):
+            with self.subTest(failure=failure):
+                tx_sock = mock.Mock()
+                rx_sock = mock.Mock()
+                tx_transport = mock.Mock()
+                endpoint = mock.AsyncMock(return_value=(tx_transport, None))
+                error = OSError("No such device")
+                if failure == "sender_bind":
+                    tx_sock.bind.side_effect = error
+                elif failure == "sender_endpoint":
+                    endpoint.side_effect = error
+                elif failure == "membership":
+                    rx_sock.setsockopt.side_effect = error
+                else:
+                    endpoint.side_effect = [(tx_transport, None), error]
+                with (
+                    mock.patch(
+                        "aioice.mdns.socket.socket", side_effect=[tx_sock, rx_sock]
+                    ),
+                    mock.patch.object(
+                        asyncio.get_running_loop(), "create_datagram_endpoint", endpoint
+                    ),
+                    self.assertRaises(OSError),
+                ):
+                    await mdns.create_mdns_protocol()
+                tx_sock.close.assert_called_once()
+                if failure in ("membership", "receiver_endpoint"):
+                    rx_sock.close.assert_called_once()
+                    tx_transport.close.assert_called_once()
+                else:
+                    tx_transport.close.assert_not_called()
+
     @asynctest
     async def test_receive_junk(self) -> None:
         async with querier_and_responder() as (querier, _):

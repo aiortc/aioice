@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import re
 import socket
 import sys
@@ -152,38 +153,44 @@ async def create_mdns_protocol() -> MDnsProtocol:
     """
     loop = asyncio.get_running_loop()
 
-    # sender
+    with contextlib.ExitStack() as cleanup:
+        # sender
 
-    tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if hasattr(socket, "SO_REUSEPORT"):
-        tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    tx_sock.bind(("", MDNS_PORT))
+        tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        cleanup.callback(tx_sock.close)
+        tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        tx_sock.bind(("", MDNS_PORT))
 
-    tx_transport, _ = await loop.create_datagram_endpoint(
-        lambda: asyncio.DatagramProtocol(),
-        sock=tx_sock,
-    )
+        tx_transport, _ = await loop.create_datagram_endpoint(
+            lambda: asyncio.DatagramProtocol(),
+            sock=tx_sock,
+        )
 
-    # receiver
+        cleanup.callback(tx_transport.close)
 
-    rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if hasattr(socket, "SO_REUSEPORT"):
-        rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    rx_sock.setsockopt(
-        socket.IPPROTO_IP,
-        socket.IP_ADD_MEMBERSHIP,
-        socket.inet_aton(MDNS_ADDRESS) + b"\x00\x00\x00\x00",
-    )
-    if sys.platform == "win32":
-        rx_sock.bind(("", MDNS_PORT))
-    else:
-        rx_sock.bind((MDNS_ADDRESS, MDNS_PORT))
+        # receiver
 
-    _, protocol = await loop.create_datagram_endpoint(
-        lambda: MDnsProtocol(tx_transport=tx_transport),
-        sock=rx_sock,
-    )
+        rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        cleanup.callback(rx_sock.close)
+        rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        rx_sock.setsockopt(
+            socket.IPPROTO_IP,
+            socket.IP_ADD_MEMBERSHIP,
+            socket.inet_aton(MDNS_ADDRESS) + b"\x00\x00\x00\x00",
+        )
+        if sys.platform == "win32":
+            rx_sock.bind(("", MDNS_PORT))
+        else:
+            rx_sock.bind((MDNS_ADDRESS, MDNS_PORT))
 
-    return protocol
+        _, protocol = await loop.create_datagram_endpoint(
+            lambda: MDnsProtocol(tx_transport=tx_transport),
+            sock=rx_sock,
+        )
+
+        cleanup.pop_all()
+        return protocol

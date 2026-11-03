@@ -549,6 +549,14 @@ class Connection:
                         remote_addr,
                     )
                     self._add_remote_candidate(remote_candidate, remote_addr)
+            except OSError as exc:
+                # Ignore candidates which cannot be resolved
+                # (draft-ietf-mmusic-mdns-ice-candidates section 3.2.1).
+                self.__log_info(
+                    'Remote candidate "%s" could not be resolved: %s',
+                    remote_candidate.host,
+                    exc,
+                )
             finally:
                 self._remote_candidates_resolving -= 1
                 if (

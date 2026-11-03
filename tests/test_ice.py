@@ -1851,6 +1851,27 @@ class IceConnectionTest(unittest.TestCase):
         # close
         await conn_a.close()
 
+    @asynctest
+    async def test_add_remote_candidate_mdns_unavailable(self) -> None:
+        conn = ice.Connection(ice_controlling=True)
+        candidate = Candidate("1", 1, "udp", 1234, "test.local", 1234, "host")
+        with mock.patch(
+            "aioice.ice.get_or_create_mdns_protocol",
+            side_effect=OSError("No such device"),
+        ):
+            await conn.add_remote_candidate(candidate)
+        self.assertEqual(conn.remote_candidates, [])
+        self.assertEqual(conn._remote_candidates_resolving, 0)
+        self.assertNotIn(conn, getattr(ice._mdns, "subscribers", set()))
+
+        candidate.host = "127.0.0.1"
+        await conn.add_remote_candidate(candidate)
+        self.assertEqual(len(conn.remote_candidates), 1)
+        self.assertEqual(conn.remote_candidates[0].host, "127.0.0.1")
+        await conn.add_remote_candidate(None)
+        self.assertTrue(conn._remote_candidates_end)
+        await conn.close()
+
     @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
     @asynctest
     async def test_add_remote_candidate_mdns_good(self) -> None:
