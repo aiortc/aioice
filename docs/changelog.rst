@@ -3,6 +3,32 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.13.0
+------
+
+ * Authenticate STUN responses to connectivity checks, consent checks and
+   TURN requests, and discard those whose MESSAGE-INTEGRITY is missing or
+   does not match, so that they cannot be forged without the password. A
+   check rejected with an unsigned error now times out instead of failing at
+   once.
+ * Check the USERNAME of incoming requests even before the remote username
+   fragment is known, reject requests which fail authentication with a 401
+   (Unauthenticated) error, and do not sign the error responses to them.
+ * Fail a TURN allocation with a `ConnectionError` when the server's response
+   lacks LIFETIME, XOR-MAPPED-ADDRESS or XOR-RELAYED-ADDRESS, instead of
+   raising a `KeyError`.
+ * Close the TURN socket when refreshing the allocation fails, instead of
+   letting the allocation expire while it is still in use.
+ * Fail a TURN request when the server sends an error response without
+   ERROR-CODE, instead of raising a `KeyError`.
+ * Join the mDNS multicast group when it is first needed, so that a remote
+   mDNS candidate is ignored on a host without multicast, instead of
+   `Connection.add_remote_candidate()` raising an `OSError`.
+ * Do not complete cancelled mDNS queries, which raised an
+   `InvalidStateError` and could prevent the mDNS protocol from closing.
+ * `stun.parse_message()` no longer takes a key, use the new
+   `stun.Message.check_message_integrity()` instead.
+
 0.12.1
 ------
 
