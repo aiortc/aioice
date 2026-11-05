@@ -410,31 +410,64 @@ class IceComponentTest(unittest.TestCase):
         )
 
     @asynctest
-    async def test_request_without_integrity(self) -> None:
+    async def test_request_unauthenticated(self) -> None:
         """
-        A request without MESSAGE-INTEGRITY must be rejected with a 400 error,
-        which is not signed as the request was not authenticated (RFC 8489
-        section 9.1.3).
+        A request which cannot be authenticated is rejected with an error
+        which is not signed (RFC 8489 section 9.1.3). The username must start
+        with the local username fragment (RFC 8445 section 7.3).
         """
-        connection = ice.Connection(ice_controlling=True)
-        connection.remote_username = "remote-username"
+        local_password = "local+password+long+enough"
+        local_key = local_password.encode("utf8")
 
-        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
+        for remote_username, username, integrity_key, error_code in [
+            # Missing MESSAGE-INTEGRITY.
+            (None, "local:remote", None, (400, "Bad Request")),
+            ("remote", "local:remote", None, (400, "Bad Request")),
+            # Missing USERNAME.
+            (None, None, local_key, (400, "Bad Request")),
+            ("remote", None, local_key, (400, "Bad Request")),
+            # Wrong local username fragment.
+            (None, "wrong:remote", local_key, (401, "Unauthenticated")),
+            # Missing remote username fragment.
+            (None, "local", local_key, (401, "Unauthenticated")),
+            # Wrong remote username fragment.
+            ("remote", "local:wrong", local_key, (401, "Unauthenticated")),
+            # Wrong MESSAGE-INTEGRITY.
+            (None, "local:remote", b"wrong-password", (401, "Unauthenticated")),
+            ("remote", "local:remote", b"wrong-password", (401, "Unauthenticated")),
+        ]:
+            with self.subTest(
+                remote_username=remote_username,
+                username=username,
+                integrity_key=integrity_key,
+            ):
+                connection = ice.Connection(
+                    ice_controlling=True,
+                    local_username="local",
+                    local_password=local_password,
+                )
+                connection.remote_username = remote_username
 
-        request = stun.Message(
-            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
-        )
-        request.attributes["USERNAME"] = f"{connection.local_username}:remote-username"
-        connection.request_received(
-            stun.parse_message(bytes(request)), ("2.3.4.5", 2345), protocol
-        )
-        assert protocol.sent_message is not None
-        self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
-        self.assertEqual(
-            protocol.sent_message.attributes["ERROR-CODE"], (400, "Bad Request")
-        )
-        self.assertNotIn("MESSAGE-INTEGRITY", protocol.sent_message.attributes)
-        self.assertIn("FINGERPRINT", protocol.sent_message.attributes)
+                protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
+
+                request = stun.Message(
+                    message_method=stun.Method.BINDING,
+                    message_class=stun.Class.REQUEST,
+                )
+                if username is not None:
+                    request.attributes["USERNAME"] = username
+                if integrity_key is not None:
+                    request.add_message_integrity(integrity_key)
+                connection.request_received(
+                    stun.parse_message(bytes(request)), ("2.3.4.5", 2345), protocol
+                )
+                assert protocol.sent_message is not None
+                self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
+                self.assertEqual(
+                    protocol.sent_message.attributes["ERROR-CODE"], error_code
+                )
+                self.assertNotIn("MESSAGE-INTEGRITY", protocol.sent_message.attributes)
+                self.assertIn("FINGERPRINT", protocol.sent_message.attributes)
 
     @asynctest
     async def test_request_with_invalid_method(self) -> None:
@@ -1151,8 +1184,8 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # Lower STUN retries, as the 400 errors rejecting the checks are not
-        # signed, so they are discarded and the checks time out.
+        # Lower STUN retries, as the errors rejecting the checks are not signed,
+        # so they are discarded and the checks time out.
         stun.RETRY_MAX = 1
 
         # Send the candidates and credentials of A to B.
