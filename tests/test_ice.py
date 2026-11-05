@@ -380,10 +380,41 @@ class IceComponentTest(unittest.TestCase):
         )
 
     @asynctest
+    async def test_request_role_conflict(self) -> None:
+        """
+        A role conflict is reported with a 487 error, signed with the local
+        password as the request was authenticated (RFC 8489 section 9.1.3).
+        """
+        connection = ice.Connection(ice_controlling=True)
+        connection.remote_username = "remote-username"
+        connection._tie_breaker = 2
+
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
+
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.attributes["USERNAME"] = f"{connection.local_username}:remote-username"
+        request.attributes["ICE-CONTROLLING"] = 1
+        request.add_message_integrity(connection.local_password.encode("utf8"))
+        connection.request_received(request, ("2.3.4.5", 2345), protocol)
+        assert protocol.sent_message is not None
+        self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
+        self.assertEqual(
+            protocol.sent_message.attributes["ERROR-CODE"], (487, "Role Conflict")
+        )
+        self.assertTrue(
+            protocol.sent_message.check_message_integrity(
+                connection.local_password.encode("utf8")
+            )
+        )
+
+    @asynctest
     async def test_request_without_integrity(self) -> None:
         """
-        A request without MESSAGE-INTEGRITY must be rejected with a 400 error
-        (RFC 8489 section 9.1.3).
+        A request without MESSAGE-INTEGRITY must be rejected with a 400 error,
+        which is not signed as the request was not authenticated (RFC 8489
+        section 9.1.3).
         """
         connection = ice.Connection(ice_controlling=True)
         connection.remote_username = "remote-username"
@@ -402,6 +433,8 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(
             protocol.sent_message.attributes["ERROR-CODE"], (400, "Bad Request")
         )
+        self.assertNotIn("MESSAGE-INTEGRITY", protocol.sent_message.attributes)
+        self.assertIn("FINGERPRINT", protocol.sent_message.attributes)
 
     @asynctest
     async def test_request_with_invalid_method(self) -> None:
@@ -420,6 +453,7 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(
             protocol.sent_message.attributes["ERROR-CODE"], (400, "Bad Request")
         )
+        self.assertNotIn("MESSAGE-INTEGRITY", protocol.sent_message.attributes)
 
     @asynctest
     async def test_response_with_invalid_address(self) -> None:
@@ -1113,7 +1147,11 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # invite
+        # Lower STUN retries, as the 400 errors rejecting the checks are not
+        # signed, so they are discarded and the checks time out.
+        stun.RETRY_MAX = 1
+
+        # Send the candidates and credentials of A to B.
         await conn_a.gather_candidates()
         for candidate in conn_a.local_candidates:
             await conn_b.add_remote_candidate(candidate)
@@ -1121,7 +1159,7 @@ class IceConnectionTest(unittest.TestCase):
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
 
-        # accept
+        # Send the candidates and credentials of B to A, with a wrong username.
         await conn_b.gather_candidates()
         for candidate in conn_b.local_candidates:
             await conn_a.add_remote_candidate(candidate)
@@ -1129,7 +1167,7 @@ class IceConnectionTest(unittest.TestCase):
         conn_a.remote_username = "wrong-username"
         conn_a.remote_password = conn_b.local_password
 
-        # connect
+        # Connect.
         done, pending = await asyncio.wait(
             [
                 asyncio.create_task(conn_a.connect()),
@@ -1142,7 +1180,7 @@ class IceConnectionTest(unittest.TestCase):
         self.assertTrue(isinstance(done.pop().exception(), ConnectionError))
         self.assertTrue(isinstance(done.pop().exception(), ConnectionError))
 
-        # close
+        # Close.
         await conn_a.close()
         await conn_b.close()
 

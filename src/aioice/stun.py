@@ -230,6 +230,15 @@ class Message:
         # The data covered by MESSAGE-INTEGRITY, if present.
         self._integrity_data: bytes | None = None
 
+    def add_fingerprint(self) -> None:
+        """
+        Add the FINGERPRINT attribute to the message.
+
+        This must be the last step before sending out the message.
+        """
+        self.attributes.pop("FINGERPRINT", None)
+        self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
+
     def add_message_integrity(self, key: bytes) -> None:
         """
         Add MESSAGE-INTEGRITY and FINGERPRINT attributes to the message.
@@ -242,7 +251,7 @@ class Message:
         self.attributes["MESSAGE-INTEGRITY"] = message_integrity(
             self._integrity_data, key
         )
-        self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
+        self.add_fingerprint()
 
     def check_message_integrity(self, key: bytes) -> bool:
         """
