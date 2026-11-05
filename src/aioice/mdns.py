@@ -42,10 +42,11 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         self.queries: dict[dns.name.Name, set[asyncio.Future[str]]] = {}
 
     def connection_lost(self, exc: Exception | None) -> None:
-        # abort any outstanding queries
+        # Abort any outstanding queries, except those which were cancelled.
         for name, futures in list(self.queries.items()):
             for future in futures:
-                future.set_exception(TimeoutError)
+                if not future.done():
+                    future.set_exception(TimeoutError)
         self.__closed.set_result(True)
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -96,8 +97,10 @@ class MDnsProtocol(asyncio.DatagramProtocol):
                             result = socket.inet_ntop(socket.AF_INET, item.data)
                         else:
                             result = socket.inet_ntop(socket.AF_INET6, item.data)
+                        # A cancelled query stays listed until its task resumes.
                         for future in self.queries.pop(answer.name, []):
-                            future.set_result(result)
+                            if not future.done():
+                                future.set_result(result)
 
     # custom
 
