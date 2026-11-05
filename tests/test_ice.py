@@ -1109,7 +1109,11 @@ class IceConnectionTest(unittest.TestCase):
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)
 
-        # invite
+        # Lower STUN retries, as the errors rejecting the checks of A are not
+        # signed, so they are discarded and the checks time out.
+        stun.RETRY_MAX = 1
+
+        # Send the candidates and credentials of A to B.
         await conn_a.gather_candidates()
         for candidate in conn_a.local_candidates:
             await conn_b.add_remote_candidate(candidate)
@@ -1117,7 +1121,7 @@ class IceConnectionTest(unittest.TestCase):
         conn_b.remote_username = conn_a.local_username
         conn_b.remote_password = conn_a.local_password
 
-        # accept
+        # Send the candidates and credentials of B to A, with a wrong password.
         await conn_b.gather_candidates()
         for candidate in conn_b.local_candidates:
             await conn_a.add_remote_candidate(candidate)
@@ -1125,7 +1129,7 @@ class IceConnectionTest(unittest.TestCase):
         conn_a.remote_username = conn_b.local_username
         conn_a.remote_password = "wrong-password"
 
-        # connect
+        # Connect.
         done, pending = await asyncio.wait(
             [
                 asyncio.create_task(conn_a.connect()),
@@ -1138,7 +1142,7 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(len(done), 1)
         self.assertTrue(isinstance(done.pop().exception(), ConnectionError))
 
-        # close
+        # Close.
         await conn_a.close()
         await conn_b.close()
 
