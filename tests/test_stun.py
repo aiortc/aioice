@@ -205,6 +205,15 @@ class MessageTest(unittest.TestCase):
 
         self.assertEqual(bytes(message), data)
 
+    def test_error_code(self) -> None:
+        message = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.ERROR
+        )
+        self.assertIsNone(message.error_code)
+
+        message.attributes["ERROR-CODE"] = (487, "Role Conflict")
+        self.assertEqual(message.error_code, 487)
+
     def test_message_body_length_mismatch(self) -> None:
         data = read_message("binding_response.bin") + b"123"
         with self.assertRaises(ValueError) as cm:

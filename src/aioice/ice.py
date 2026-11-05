@@ -1032,10 +1032,7 @@ class Connection:
             )
         except stun.TransactionError as exc:
             # Role conflict or failure (RFC 8445 sections 7.2.5.1 and 7.2.5.2).
-            if (
-                exc.response
-                and exc.response.attributes.get("ERROR-CODE", (None, None))[0] == 487
-            ):
+            if exc.response and exc.response.error_code == 487:
                 if "ICE-CONTROLLING" in request.attributes:
                     self.switch_role(ice_controlling=False)
                 elif "ICE-CONTROLLED" in request.attributes:
@@ -1046,19 +1043,19 @@ class Connection:
                 self.check_complete(pair)
                 return
 
-        # check remote address matches
+        # Check that the remote address matches (RFC 8445 section 7.2.5.2.1).
         if addr != pair.remote_addr:
             self.__log_info("Check %s failed : source address mismatch", pair)
             self.check_state(pair, CandidatePair.State.FAILED)
             self.check_complete(pair)
             return
 
-        # success
+        # Success (RFC 8445 section 7.2.5.3).
         if nominate or pair.remote_nominated:
-            # nominated by agressive nomination or the remote party
+            # Nominated by aggressive nomination or by the remote party.
             pair.nominated = True
         elif self.ice_controlling and pair.component not in self._nominating:
-            # perform regular nomination
+            # Perform regular nomination (RFC 8445 section 8.1.1).
             self.__log_info("Check %s nominating pair", pair)
             self._nominating.add(pair.component)
             request = self.build_request(pair, nominate=True)

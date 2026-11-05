@@ -258,7 +258,7 @@ class TurnClientMixin:
         try:
             response, addr = await self.request(request)
         except stun.TransactionFailed as e:
-            error_code = e.response.attributes["ERROR-CODE"][0]
+            error_code = e.response.error_code
             if (
                 "NONCE" in e.response.attributes
                 and self.username is not None
@@ -268,7 +268,7 @@ class TurnClientMixin:
                     or (error_code == 438 and self.realm is not None)
                 )
             ):
-                # update long-term credentials
+                # Update the long-term credentials.
                 self.nonce = e.response.attributes["NONCE"]
                 if error_code == 401:
                     self.realm = e.response.attributes["REALM"]
@@ -278,7 +278,7 @@ class TurnClientMixin:
                     self.username, self.realm, self.password
                 )
 
-                # retry request with authentication
+                # Retry the request with authentication.
                 request.transaction_id = random_transaction_id()
                 response, addr = await self.request(request)
             else:

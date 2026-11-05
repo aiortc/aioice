@@ -112,6 +112,31 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
     def test_receive_junk(self) -> None:
         self.protocol.datagram_received(b"\x00" * 20, ("1.2.3.4", 1234))
 
+    @asynctest
+    async def test_request_with_retry_error_without_error_code(self) -> None:
+        """
+        An error response without ERROR-CODE fails the request.
+        """
+
+        def send_stun(message: stun.Message, addr: tuple[str, int]) -> None:
+            # Answer the request as soon as it is sent.
+            response = stun.Message(
+                message_method=message.message_method,
+                message_class=stun.Class.ERROR,
+                transaction_id=message.transaction_id,
+            )
+            asyncio.get_running_loop().call_soon(
+                self.protocol.datagram_received, bytes(response), addr
+            )
+
+        request = stun.Message(
+            message_method=stun.Method.ALLOCATE, message_class=stun.Class.REQUEST
+        )
+        with mock.patch.object(self.protocol, "send_stun", send_stun):
+            with self.assertRaises(stun.TransactionFailed) as cm:
+                await self.protocol.request_with_retry(request)
+        self.assertEqual(str(cm.exception), "STUN transaction failed")
+
     def test_repr(self) -> None:
         self.assertEqual(repr(self.protocol), "turn/udp")
 

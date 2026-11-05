@@ -238,6 +238,14 @@ class Message:
         self.attributes["MESSAGE-INTEGRITY"] = message_integrity(bytes(self), key)
         self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
 
+    @property
+    def error_code(self) -> int | None:
+        """
+        The code of the ERROR-CODE attribute, or `None` if it is absent.
+        """
+        error_code = self.attributes.get("ERROR-CODE")
+        return error_code[0] if error_code is not None else None
+
     def __bytes__(self) -> bytes:
         data = b""
         for attr_name, attr_value in self.attributes.items():
