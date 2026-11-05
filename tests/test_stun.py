@@ -160,9 +160,51 @@ class MessageTest(unittest.TestCase):
     def test_binding_request_ice_controlled_bad_integrity(self) -> None:
         data = read_message("binding_request_ice_controlled.bin")
 
-        with self.assertRaises(ValueError) as cm:
-            stun.parse_message(data, integrity_key=b"bogus-key")
-        self.assertEqual(str(cm.exception), "STUN message integrity does not match")
+        message = stun.parse_message(data)
+        self.assertFalse(message.check_message_integrity(b"bogus-key"))
+
+    def test_check_message_integrity(self) -> None:
+        message = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        message.attributes["USERNAME"] = "foo:bar"
+
+        # A message without MESSAGE-INTEGRITY fails the check.
+        self.assertFalse(message.check_message_integrity(b"some-key"))
+        self.assertFalse(
+            stun.parse_message(bytes(message)).check_message_integrity(b"some-key")
+        )
+
+        # A signed message passes the check with the same key only.
+        message.add_message_integrity(b"some-key")
+        self.assertTrue(message.check_message_integrity(b"some-key"))
+        self.assertFalse(message.check_message_integrity(b"other-key"))
+
+        # So does a parsed message.
+        parsed = stun.parse_message(bytes(message))
+        self.assertTrue(parsed.check_message_integrity(b"some-key"))
+        self.assertFalse(parsed.check_message_integrity(b"other-key"))
+
+    def test_check_message_integrity_attribute_after_integrity(self) -> None:
+        """
+        Attributes which follow MESSAGE-INTEGRITY, except FINGERPRINT, are not
+        authenticated and must be ignored (RFC 8489 section 9).
+        """
+        message = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        message.attributes["USERNAME"] = "foo:bar"
+        message.add_message_integrity(b"some-key")
+
+        # Append an attribute after MESSAGE-INTEGRITY, which needs no key.
+        message.attributes.pop("FINGERPRINT")
+        message.attributes["USE-CANDIDATE"] = None
+        message.attributes["FINGERPRINT"] = stun.message_fingerprint(bytes(message))
+
+        parsed = stun.parse_message(bytes(message))
+        self.assertTrue(parsed.check_message_integrity(b"some-key"))
+        self.assertNotIn("USE-CANDIDATE", parsed.attributes)
+        self.assertIn("FINGERPRINT", parsed.attributes)
 
     def test_binding_request_ice_controlling(self) -> None:
         data = read_message("binding_request_ice_controlling.bin")
@@ -277,6 +319,49 @@ class TransactionTest(unittest.TestCase):
     async def test_response_with_pending_timeout(self) -> None:
         with self.assertNoLogs("asyncio", level="ERROR"):
             self.assertEqual(await self.run_with_immediate_response(0), 1)
+
+    @asynctest
+    async def test_response_without_integrity(self) -> None:
+        """
+        A response which is not authenticated with the key of the request is
+        discarded (RFC 8489 section 9.1.4).
+        """
+        addr = ("127.0.0.1", 1234)
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.add_message_integrity(b"some-key")
+        sent: list[stun.Message] = []
+
+        class RespondingProtocol:
+            def send_stun(
+                self, message: stun.Message, address: tuple[str, int]
+            ) -> None:
+                sent.append(message)
+                for integrity_key in [None, b"other-key"]:
+                    response = stun.Message(
+                        message_method=stun.Method.BINDING,
+                        message_class=stun.Class.RESPONSE,
+                        transaction_id=message.transaction_id,
+                    )
+                    if integrity_key is not None:
+                        response.add_message_integrity(integrity_key)
+                    transaction.response_received(
+                        stun.parse_message(bytes(response)), address
+                    )
+
+        transaction = stun.Transaction(
+            request,
+            addr,
+            RespondingProtocol(),
+            retransmissions=1,
+            integrity_key=b"some-key",
+        )
+        with self.assertRaises(stun.TransactionTimeout):
+            await transaction.run()
+
+        # The request was retransmitted.
+        self.assertEqual(len(sent), 2)
 
     @asynctest
     async def test_timeout(self) -> None:

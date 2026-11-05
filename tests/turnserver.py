@@ -139,7 +139,7 @@ class TurnServerMixin:
         self.transport = transport
 
     def datagram_received(self, data: bytes, addr: Address) -> None:
-        # demultiplex channel data
+        # Demultiplex channel data.
         if len(data) >= 4 and is_channel_data(data):
             channel, length = struct.unpack("!HH", data[0:4])
             allocation = self.server.allocations.get((self, addr))
@@ -166,15 +166,7 @@ class TurnServerMixin:
             self.send_stun(response, addr)
             return
 
-        # Generate failure for test purposes.
-        if self.server.simulated_failure:
-            response = self.error_response(message, *self.server.simulated_failure)
-            self.server.simulated_failure = None
-            self.send_stun(response, addr)
-            return
-
-        # Check authentication.
-        # See RFC 5389 - 10.2.2. Receiving a Request
+        # Check authentication (RFC 8489 section 9.2.4).
         integrity_key = b""
         if "MESSAGE-INTEGRITY" not in message.attributes:
             # Message is missing MESSAGE-INTEGRITY.
@@ -195,12 +187,21 @@ class TurnServerMixin:
             username = message.attributes["USERNAME"]
             password = self.server.users[username]
             integrity_key = make_integrity_key(username, self.server.realm, password)
-            try:
-                stun.parse_message(data, integrity_key=integrity_key)
-            except ValueError:
+            if not message.check_message_integrity(integrity_key):
                 # The password does not match.
                 response = self.error_response(message, 401, "Unauthorized")
         if response is not None:
+            self.send_stun(response, addr)
+            return
+
+        # Generate a failure for test purposes. Like other responses to an
+        # authenticated request, it is signed, unless it is a 401 or 438 error
+        # giving new credentials.
+        if self.server.simulated_failure:
+            response = self.error_response(message, *self.server.simulated_failure)
+            self.server.simulated_failure = None
+            if response.error_code not in (401, 438):
+                response.add_message_integrity(integrity_key)
             self.send_stun(response, addr)
             return
 
@@ -362,7 +363,7 @@ class TurnServerMixin:
             transaction_id=request.transaction_id,
         )
         response.attributes["ERROR-CODE"] = (code, message)
-        if code == 401:
+        if code in (401, 438):
             response.attributes["NONCE"] = random_string(16).encode("ascii")
             response.attributes["REALM"] = self.server.realm
         return response

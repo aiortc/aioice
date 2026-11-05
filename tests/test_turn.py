@@ -137,6 +137,63 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
                 await self.protocol.request_with_retry(request)
         self.assertEqual(str(cm.exception), "STUN transaction failed")
 
+    @asynctest
+    async def test_request_unauthenticated_response(self) -> None:
+        """
+        A response to an authenticated request must be authenticated with the
+        same key, except a 401 or 438 error giving new credentials (RFC 8489
+        section 9.2.5).
+        """
+        self.protocol.integrity_key = turn.make_integrity_key("foo", "realm", "bar")
+        self.protocol.nonce = b"nonce"
+        self.protocol.realm = "realm"
+
+        for message_class, error_code, integrity_key, authenticated in [
+            (stun.Class.RESPONSE, None, None, False),
+            (stun.Class.RESPONSE, None, b"wrong-key", False),
+            (stun.Class.ERROR, 400, None, False),
+            (stun.Class.ERROR, 438, None, True),
+            (stun.Class.RESPONSE, None, self.protocol.integrity_key, True),
+        ]:
+            with self.subTest(
+                message_class=message_class,
+                error_code=error_code,
+                integrity_key=integrity_key,
+            ):
+
+                def send_stun(message: stun.Message, addr: tuple[str, int]) -> None:
+                    # Answer the request as soon as it is sent.
+                    response = stun.Message(
+                        message_method=message.message_method,
+                        message_class=message_class,
+                        transaction_id=message.transaction_id,
+                    )
+                    if error_code is not None:
+                        response.attributes["ERROR-CODE"] = (error_code, "Error")
+                    if integrity_key is not None:
+                        response.add_message_integrity(integrity_key)
+                    asyncio.get_running_loop().call_soon(
+                        self.protocol.datagram_received, bytes(response), addr
+                    )
+
+                request = stun.Message(
+                    message_method=stun.Method.REFRESH,
+                    message_class=stun.Class.REQUEST,
+                )
+                with (
+                    mock.patch.object(stun, "RETRY_MAX", 0),
+                    mock.patch.object(stun, "RETRY_RTO", 0.1),
+                    mock.patch.object(self.protocol, "send_stun", send_stun),
+                ):
+                    if not authenticated:
+                        with self.assertRaises(stun.TransactionTimeout):
+                            await self.protocol.request(request)
+                    elif message_class == stun.Class.ERROR:
+                        with self.assertRaises(stun.TransactionFailed):
+                            await self.protocol.request(request)
+                    else:
+                        await self.protocol.request(request)
+
     def test_repr(self) -> None:
         self.assertEqual(repr(self.protocol), "turn/udp")
 
@@ -187,6 +244,9 @@ class TurnTest(unittest.TestCase):
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
         )
         await self._test_transport_delete_failure(
+            transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
+        )
+        await self._test_transport_delete_stale_nonce(
             transport=transport, server_addr_attr=server_addr_attr, ssl=ssl
         )
         await self._test_transport_channel_bind_failure(
@@ -399,6 +459,33 @@ class TurnTest(unittest.TestCase):
                     "INFO:aioice.turn:TURN allocation deletion failed "
                     f"{relayed_address}: STUN transaction failed (403 - Forbidden)"
                 ],
+            )
+
+    async def _test_transport_delete_stale_nonce(
+        self, *, transport: str, server_addr_attr: str, ssl: ssl.SSLContext | None
+    ) -> None:
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            turn_transport, protocol = await turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=getattr(turn_server, server_addr_attr),
+                username="foo",
+                password="bar",
+                ssl=ssl,
+                transport=transport,
+            )
+            relayed_address = turn_transport.get_extra_info("sockname")
+
+            # Make the server answer the final REFRESH request with a 438 (Stale
+            # Nonce) error, which is not signed.
+            turn_server.simulated_failure = (438, "Stale Nonce")
+
+            # The request is retried with the new nonce (RFC 8489 section 9.2.5).
+            with self.assertLogs("aioice.turn", level="INFO") as logs:
+                turn_transport.close()
+                await asyncio.wait_for(protocol.closed.wait(), timeout=5)
+            self.assertEqual(
+                logs.output,
+                [f"INFO:aioice.turn:TURN allocation deleted {relayed_address}"],
             )
 
     async def _test_transport_channel_bind_failure(

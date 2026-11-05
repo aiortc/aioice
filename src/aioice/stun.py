@@ -227,6 +227,9 @@ class Message:
         self.transaction_id = transaction_id or random_transaction_id()
         self.attributes = attributes or {}
 
+        # The data covered by MESSAGE-INTEGRITY, if present.
+        self._integrity_data: bytes | None = None
+
     def add_message_integrity(self, key: bytes) -> None:
         """
         Add MESSAGE-INTEGRITY and FINGERPRINT attributes to the message.
@@ -235,8 +238,24 @@ class Message:
         """
         self.attributes.pop("MESSAGE-INTEGRITY", None)
         self.attributes.pop("FINGERPRINT", None)
-        self.attributes["MESSAGE-INTEGRITY"] = message_integrity(bytes(self), key)
+        self._integrity_data = bytes(self)
+        self.attributes["MESSAGE-INTEGRITY"] = message_integrity(
+            self._integrity_data, key
+        )
         self.attributes["FINGERPRINT"] = message_fingerprint(bytes(self))
+
+    def check_message_integrity(self, key: bytes) -> bool:
+        """
+        Check the MESSAGE-INTEGRITY attribute of the message against `key`.
+
+        A message without MESSAGE-INTEGRITY fails the check.
+        """
+        if self._integrity_data is None:
+            return False
+        return hmac.compare_digest(
+            self.attributes["MESSAGE-INTEGRITY"],
+            message_integrity(self._integrity_data, key),
+        )
 
     @property
     def error_code(self) -> int | None:
@@ -312,8 +331,12 @@ class Transaction:
         addr: tuple[str, int],
         protocol: TransactionSender,
         retransmissions: int | None = None,
+        integrity_key: bytes | None = None,
+        long_term_credential: bool = False,
     ) -> None:
         self.__addr = addr
+        self.__integrity_key = integrity_key
+        self.__long_term_credential = long_term_credential
         self.__future: asyncio.Future[tuple[Message, tuple[str, int]]] = (
             asyncio.Future()
         )
@@ -327,11 +350,30 @@ class Transaction:
         )
 
     def response_received(self, message: Message, addr: tuple[str, int]) -> None:
+        # Discard a response which is not authenticated with the key of the
+        # request, so retransmissions continue (RFC 8489 sections 9.1.4 and
+        # 9.2.5).
+        if self.__integrity_key is not None:
+            if not self.__authenticated(message, self.__integrity_key):
+                return
+
         if not self.__future.done():
             if message.message_class == Class.RESPONSE:
                 self.__future.set_result((message, addr))
             else:
                 self.__future.set_exception(TransactionFailed(message))
+
+    def __authenticated(self, message: Message, integrity_key: bytes) -> bool:
+        # With long-term credentials, a 401 or 438 error gives the realm and
+        # nonce to retry with, and need not be signed (RFC 8489 sections 9.2.4
+        # and 9.2.5).
+        if (
+            self.__long_term_credential
+            and message.message_class == Class.ERROR
+            and message.error_code in (401, 438)
+        ):
+            return True
+        return message.check_message_integrity(integrity_key)
 
     async def run(self) -> tuple[Message, tuple[str, int]]:
         try:
@@ -370,11 +412,12 @@ def padding_length(length: int) -> int:
         return 4 - rest
 
 
-def parse_message(data: bytes, integrity_key: bytes | None = None) -> Message:
+def parse_message(data: bytes) -> Message:
     """
     Parses a STUN message.
 
-    If the ``integrity_key`` parameter is given, the message's HMAC will be verified.
+    The MESSAGE-INTEGRITY attribute is verified separately, by
+    `Message.check_message_integrity()`.
     """
     if len(data) < HEADER_LENGTH:
         raise ValueError("STUN message length is less than 20 bytes")
@@ -385,6 +428,7 @@ def parse_message(data: bytes, integrity_key: bytes | None = None) -> Message:
         raise ValueError("STUN message length does not match")
 
     attributes = {}
+    integrity_data = None
     pos = HEADER_LENGTH
     while pos <= len(data) - 4:
         attr_type, attr_len = unpack("!HH", data[pos : pos + 4])
@@ -392,23 +436,26 @@ def parse_message(data: bytes, integrity_key: bytes | None = None) -> Message:
         pad_len = padding_length(attr_len)
         if attr_type in ATTRIBUTES_BY_TYPE:
             _, attr_name, attr_pack, attr_unpack = ATTRIBUTES_BY_TYPE[attr_type]
-            if attr_unpack == unpack_xor_address:
-                attributes[attr_name] = attr_unpack(v, transaction_id=transaction_id)
-            else:
-                attributes[attr_name] = attr_unpack(v)
 
-            if attr_name == "FINGERPRINT":
-                if attributes[attr_name] != message_fingerprint(data[0:pos]):
-                    raise ValueError("STUN message fingerprint does not match")
-            elif attr_name == "MESSAGE-INTEGRITY":
-                if integrity_key is not None and attributes[
-                    attr_name
-                ] != message_integrity(data[0:pos], integrity_key):
-                    raise ValueError("STUN message integrity does not match")
+            # Ignore the attributes which follow MESSAGE-INTEGRITY, except
+            # FINGERPRINT, as they are not authenticated (RFC 8489 section 9).
+            if integrity_data is None or attr_name == "FINGERPRINT":
+                if attr_unpack == unpack_xor_address:
+                    attributes[attr_name] = attr_unpack(
+                        v, transaction_id=transaction_id
+                    )
+                else:
+                    attributes[attr_name] = attr_unpack(v)
+
+                if attr_name == "FINGERPRINT":
+                    if attributes[attr_name] != message_fingerprint(data[0:pos]):
+                        raise ValueError("STUN message fingerprint does not match")
+                elif attr_name == "MESSAGE-INTEGRITY":
+                    integrity_data = data[0:pos]
 
         pos += 4 + attr_len + pad_len
 
-    return Message(
+    message = Message(
         # An unknown method raises a `ValueError`.
         message_method=Method(message_type & 0x3EEF),
         # This cast cannot fail, as all 4 possible classes are defined.
@@ -416,3 +463,5 @@ def parse_message(data: bytes, integrity_key: bytes | None = None) -> Message:
         transaction_id=transaction_id,
         attributes=attributes,
     )
+    message._integrity_data = integrity_data
+    return message

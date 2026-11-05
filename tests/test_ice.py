@@ -5,6 +5,7 @@ import functools
 import os
 import unittest
 from collections.abc import Callable, Coroutine, Iterator
+from typing import Any, cast
 from unittest import mock
 
 import ifaddr
@@ -343,9 +344,7 @@ class IceComponentTest(unittest.TestCase):
         )
         request.attributes["USERNAME"] = f"{connection.local_username}:remote-username"
         request.add_message_integrity(connection.local_password.encode("utf8"))
-        connection.request_received(
-            request, ("2.3.4.5", 2345), protocol, bytes(request)
-        )
+        connection.request_received(request, ("2.3.4.5", 2345), protocol)
 
         # The request is answered, but the triggered check is deferred.
         assert protocol.sent_message is not None
@@ -371,15 +370,37 @@ class IceComponentTest(unittest.TestCase):
                 f"{connection.local_username}:remote-username"
             )
             request.add_message_integrity(connection.local_password.encode("utf8"))
-            connection.request_received(
-                request, ("2.3.4.5", 2345), protocol, bytes(request)
-            )
+            connection.request_received(request, ("2.3.4.5", 2345), protocol)
             requests.append(request)
 
         # Only the most recent checks are kept.
         self.assertEqual(
             [early_check[0] for early_check in connection._early_checks],
             requests[1:],
+        )
+
+    @asynctest
+    async def test_request_without_integrity(self) -> None:
+        """
+        A request without MESSAGE-INTEGRITY must be rejected with a 400 error
+        (RFC 8489 section 9.1.3).
+        """
+        connection = ice.Connection(ice_controlling=True)
+        connection.remote_username = "remote-username"
+
+        protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
+
+        request = stun.Message(
+            message_method=stun.Method.BINDING, message_class=stun.Class.REQUEST
+        )
+        request.attributes["USERNAME"] = f"{connection.local_username}:remote-username"
+        connection.request_received(
+            stun.parse_message(bytes(request)), ("2.3.4.5", 2345), protocol
+        )
+        assert protocol.sent_message is not None
+        self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
+        self.assertEqual(
+            protocol.sent_message.attributes["ERROR-CODE"], (400, "Bad Request")
         )
 
     @asynctest
@@ -392,9 +413,7 @@ class IceComponentTest(unittest.TestCase):
             message_method=stun.Method.ALLOCATE, message_class=stun.Class.REQUEST
         )
 
-        connection.request_received(
-            request, ("2.3.4.5", 2345), protocol, bytes(request)
-        )
+        connection.request_received(request, ("2.3.4.5", 2345), protocol)
         assert protocol.sent_message is not None
         self.assertEqual(protocol.sent_message.message_method, stun.Method.ALLOCATE)
         self.assertEqual(protocol.sent_message.message_class, stun.Class.ERROR)
@@ -988,12 +1007,11 @@ class IceConnectionTest(unittest.TestCase):
             message: stun.Message,
             addr: tuple[str, int],
             protocol: ice.StunProtocol,
-            raw_data: bytes,
         ) -> None:
             if "USE-CANDIDATE" in message.attributes:
                 self.respond_error(message, addr, protocol, (500, "Internal Error"))
             else:
-                self.real_request_received(message, addr, protocol, raw_data)  # type: ignore
+                self.real_request_received(message, addr, protocol)  # type: ignore
 
         conn_a = ice.Connection(ice_controlling=True)
         conn_a.remote_is_lite = True
@@ -1001,15 +1019,15 @@ class IceConnectionTest(unittest.TestCase):
         conn_b.real_request_received = conn_b.request_received  # type: ignore
         conn_b.request_received = functools.partial(mock_request_received, conn_b)  # type: ignore
 
-        # invite / accept
+        # Exchange candidates and credentials.
         await invite_accept(conn_a, conn_b)
 
-        # connect
+        # Connect.
         with self.assertRaises(ConnectionError) as cm:
             await asyncio.gather(conn_a.connect(), conn_b.connect())
         self.assertEqual(str(cm.exception), "ICE negotiation failed")
 
-        # close
+        # Close.
         await conn_a.close()
         await conn_b.close()
 
@@ -1285,6 +1303,89 @@ class IceConnectionTest(unittest.TestCase):
             await conn.connect()
         self.assertEqual(str(cm.exception), "ICE negotiation failed")
         await conn.close()
+
+    @asynctest
+    async def test_connect_unauthenticated_response(self) -> None:
+        """
+        A check response, success or error, which is not authenticated with
+        the remote password must be discarded (RFC 8489 section 9.1.4).
+        """
+        # Lower STUN retries.
+        stun.RETRY_MAX = 1
+
+        class Responder(asyncio.DatagramProtocol):
+            """
+            Answer the first Binding request without knowing the remote password.
+            """
+
+            def __init__(
+                self, message_class: stun.Class, integrity_key: bytes | None
+            ) -> None:
+                self.answered = False
+                self.integrity_key = integrity_key
+                self.message_class = message_class
+
+            def connection_made(self, transport: asyncio.BaseTransport) -> None:
+                self.transport = cast(asyncio.DatagramTransport, transport)
+
+            def datagram_received(
+                self, data: bytes | str, addr: tuple[Any, ...]
+            ) -> None:
+                # Leave retransmissions unanswered, so that checks end.
+                if self.answered:
+                    return
+                self.answered = True
+
+                request = stun.parse_message(cast(bytes, data))
+                response = stun.Message(
+                    message_method=stun.Method.BINDING,
+                    message_class=self.message_class,
+                    transaction_id=request.transaction_id,
+                )
+                if self.message_class == stun.Class.ERROR:
+                    response.attributes["ERROR-CODE"] = (487, "Role Conflict")
+                else:
+                    response.attributes["XOR-MAPPED-ADDRESS"] = (addr[0], addr[1])
+                if self.integrity_key is not None:
+                    response.add_message_integrity(self.integrity_key)
+                self.transport.sendto(bytes(response), addr)
+
+        loop = asyncio.get_running_loop()
+        for message_class, integrity_key in [
+            (stun.Class.RESPONSE, None),
+            (stun.Class.RESPONSE, b"wrong-password"),
+            (stun.Class.ERROR, None),
+        ]:
+            with self.subTest(message_class=message_class, integrity_key=integrity_key):
+                conn = ice.Connection(ice_controlling=True, use_ipv6=False)
+                await conn.gather_candidates()
+
+                # Answer checks from an address the remote candidate points to.
+                local_host = conn.local_candidates[0].host
+                transport, _ = await loop.create_datagram_endpoint(
+                    lambda: Responder(message_class, integrity_key),
+                    local_addr=(local_host, 0),
+                )
+                remote_port = transport.get_extra_info("sockname")[1]
+                await conn.add_remote_candidate(
+                    Candidate.from_sdp(
+                        f"1 1 udp 2130706431 {local_host} {remote_port} typ host"
+                    )
+                )
+                await conn.add_remote_candidate(None)
+                conn.remote_username = "foo"
+                conn.remote_password = "bar"
+
+                try:
+                    with self.assertRaises(ConnectionError) as cm:
+                        await conn.connect()
+                    self.assertEqual(str(cm.exception), "ICE negotiation failed")
+
+                    # A forged role conflict must not switch roles.
+                    self.assertTrue(conn.ice_controlling)
+                finally:
+                    await conn.close()
+                    transport.close()
 
     async def start_trickle_with_failed_pairs(
         self, conn: ice.Connection
