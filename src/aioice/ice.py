@@ -1306,14 +1306,17 @@ class Connection:
             return
 
         # Authenticate the request (RFC 8489 section 9.1.3).
-        authenticated = message.check_message_integrity(
-            self.local_password.encode("utf8")
-        )
-        if authenticated and self.remote_username is not None:
-            rx_username = f"{self.local_username}:{self.remote_username}"
-            authenticated = message.attributes.get("USERNAME") == rx_username
-        if not authenticated:
+        if (
+            "MESSAGE-INTEGRITY" not in message.attributes
+            or "USERNAME" not in message.attributes
+        ):
             self.respond_error(message, addr, protocol, (400, "Bad Request"))
+            return
+        if not (
+            self._valid_username(message.attributes["USERNAME"])
+            and message.check_message_integrity(self.local_password.encode("utf8"))
+        ):
+            self.respond_error(message, addr, protocol, (401, "Unauthenticated"))
             return
 
         # Detecting and repairing role conflicts (RFC 8445 section 7.3.1.1).
@@ -1402,6 +1405,21 @@ class Connection:
             ):
                 self.check_state(pair, CandidatePair.State.WAITING)
                 seen_foundations.add(pair.local_candidate.foundation)
+
+    def _valid_username(self, username: str) -> bool:
+        """
+        Check the USERNAME of an incoming request.
+
+        It consists of the local and remote username fragments, separated by
+        a colon. The remote username fragment can only be checked once it is
+        known (RFC 8445 section 7.3).
+        """
+        local_username, colon, remote_username = username.partition(":")
+        return (
+            colon == ":"
+            and local_username == self.local_username
+            and self.remote_username in (None, remote_username)
+        )
 
     def __log_info(self, msg: str, *args: object) -> None:
         logger.info("%s " + msg, self, *args)
