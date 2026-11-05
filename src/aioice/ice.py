@@ -1360,7 +1360,14 @@ class Connection:
             transaction_id=request.transaction_id,
         )
         response.attributes["ERROR-CODE"] = error_code
-        response.add_message_integrity(self.local_password.encode("utf8"))
+
+        # 400 and 401 errors report a request which was not authenticated, so
+        # they are not signed (RFC 8489 section 9.1.3). FINGERPRINT is always
+        # added (RFC 8445 section 7.3).
+        if error_code[0] in (400, 401):
+            response.add_fingerprint()
+        else:
+            response.add_message_integrity(self.local_password.encode("utf8"))
         protocol.send_stun(response, addr)
 
     def sort_check_list(self) -> None:
