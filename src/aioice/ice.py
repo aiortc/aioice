@@ -282,7 +282,7 @@ class StunProtocol(asyncio.DatagramProtocol):
         self.transport = cast(asyncio.DatagramTransport, transport)
 
     def datagram_received(self, data: bytes | str, addr: tuple[Any, ...]) -> None:
-        # force IPv6 four-tuple to a two-tuple
+        # Force an IPv6 four-tuple to a two-tuple.
         addr = (addr[0], addr[1])
         data = cast(bytes, data)
 
@@ -300,7 +300,7 @@ class StunProtocol(asyncio.DatagramProtocol):
             transaction = self.transactions[message.transaction_id]
             transaction.response_received(message, addr)
         elif message.message_class == stun.Class.REQUEST:
-            self.receiver.request_received(message, addr, self, data)
+            self.receiver.request_received(message, addr, self)
 
     def error_received(self, exc: Exception) -> None:
         self.__log_debug("error_received(%s)", exc)
@@ -327,7 +327,11 @@ class StunProtocol(asyncio.DatagramProtocol):
             request.add_message_integrity(integrity_key)
 
         transaction = stun.Transaction(
-            request, addr, self, retransmissions=retransmissions
+            request,
+            addr,
+            self,
+            retransmissions=retransmissions,
+            integrity_key=integrity_key,
         )
         self.transactions[request.transaction_id] = transaction
         try:
@@ -1292,7 +1296,6 @@ class Connection:
         message: stun.Message,
         addr: tuple[str, int],
         protocol: StunProtocol,
-        raw_data: bytes,
     ) -> None:
         # Ignore incoming checks once closing, as they would start new checks.
         if self._closing:
@@ -1302,16 +1305,14 @@ class Connection:
             self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
 
-        # Authenticate the request.
-        try:
-            stun.parse_message(
-                raw_data, integrity_key=self.local_password.encode("utf8")
-            )
-            if self.remote_username is not None:
-                rx_username = f"{self.local_username}:{self.remote_username}"
-                if message.attributes.get("USERNAME") != rx_username:
-                    raise ValueError("Wrong username")
-        except ValueError:
+        # Authenticate the request (RFC 8489 section 9.1.3).
+        authenticated = message.check_message_integrity(
+            self.local_password.encode("utf8")
+        )
+        if authenticated and self.remote_username is not None:
+            rx_username = f"{self.local_username}:{self.remote_username}"
+            authenticated = message.attributes.get("USERNAME") == rx_username
+        if not authenticated:
             self.respond_error(message, addr, protocol, (400, "Bad Request"))
             return
 

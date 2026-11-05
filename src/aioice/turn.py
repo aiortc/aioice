@@ -240,7 +240,15 @@ class TurnClientMixin:
         if self.integrity_key:
             self.__add_authentication(request)
 
-        transaction = stun.Transaction(request, self.server, self)
+        # Responses to an authenticated request must be authenticated with the
+        # same key (RFC 8489 section 9.2.5).
+        transaction = stun.Transaction(
+            request,
+            self.server,
+            self,
+            integrity_key=self.integrity_key,
+            long_term_credential=True,
+        )
         self.transactions[request.transaction_id] = transaction
         try:
             return await transaction.run()
