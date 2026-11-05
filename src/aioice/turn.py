@@ -116,6 +116,11 @@ class TurnClientMixin:
         request.attributes["REQUESTED-TRANSPORT"] = UDP_TRANSPORT
         response, _ = await self.request_with_retry(request)
 
+        # The success response contains these attributes (RFC 8656 section 7.2).
+        for name in ["LIFETIME", "XOR-MAPPED-ADDRESS", "XOR-RELAYED-ADDRESS"]:
+            if name not in response.attributes:
+                raise ConnectionError(f"TURN allocation response is missing {name}")
+
         time_to_expiry = response.attributes["LIFETIME"]
         self.relayed_address = response.attributes["XOR-RELAYED-ADDRESS"]
 
@@ -190,6 +195,11 @@ class TurnClientMixin:
             self.refresh_task.cancel()
             self.refresh_task = None
 
+        # The allocation was already given up, for instance if it could not be
+        # refreshed.
+        if self.transport.is_closing():
+            return
+
         request = stun.Message(
             message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
         )
@@ -220,7 +230,20 @@ class TurnClientMixin:
                 message_method=stun.Method.REFRESH, message_class=stun.Class.REQUEST
             )
             request.attributes["LIFETIME"] = self.lifetime
-            response, _ = await self.request_with_retry(request)
+            try:
+                response, _ = await self.request_with_retry(request)
+
+                # The success response contains LIFETIME (RFC 8656 section 8.2).
+                if "LIFETIME" not in response.attributes:
+                    raise ConnectionError("TURN refresh response is missing LIFETIME")
+            except (ConnectionError, stun.TransactionError) as exc:
+                # The allocation expires unless it is refreshed (RFC 8656 section
+                # 8), so stop using it.
+                logger.info(
+                    "TURN allocation refresh failed %s: %s", self.relayed_address, exc
+                )
+                self.transport.close()
+                return
 
             time_to_expiry = response.attributes["LIFETIME"]
             logger.info(
@@ -436,8 +459,13 @@ class TurnTransport:
 
         This will bind a TURN channel as necessary. If sending fails, the
         protocol's `error_received()` method is called with the exception.
+        Data is ignored once the transport is closed, or the TURN allocation is
+        lost.
         """
-        if self.__close_task is not None:
+        if (
+            self.__close_task is not None
+            or self.__inner_protocol.transport.is_closing()
+        ):
             return
 
         task = asyncio.create_task(self.__inner_protocol.send_data(data, addr))
