@@ -1,11 +1,12 @@
 import asyncio
 import contextlib
+import errno
 import unittest
 from collections.abc import AsyncGenerator
 
 from aioice import mdns
 
-from .utils import RUNNING_ON_MAC_CI, asynctest
+from .utils import RUNNING_ON_MAC_CI, asynctest, multicast_join_fails
 
 
 @contextlib.asynccontextmanager
@@ -25,6 +26,24 @@ async def querier_and_responder() -> AsyncGenerator[
 @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
 class MdnsTest(unittest.TestCase):
     @asynctest
+    async def test_publish_join_failure(self) -> None:
+        hostaddr = "1.2.3.4"
+        hostname = mdns.create_mdns_hostname()
+
+        async with querier_and_responder() as (querier, responder):
+            # Publishing fails if the group cannot be joined.
+            with multicast_join_fails():
+                with self.assertRaises(OSError):
+                    await responder.publish(hostname, hostaddr)
+            result = await querier.resolve(hostname, timeout=0.1)
+            self.assertEqual(result, None)
+
+            # Publishing again joins the group.
+            await responder.publish(hostname, hostaddr)
+            result = await querier.resolve(hostname)
+            self.assertEqual(result, hostaddr)
+
+    @asynctest
     async def test_receive_junk(self) -> None:
         async with querier_and_responder() as (querier, _):
             querier.datagram_received(b"junk", ("1.2.3.4", 5353))
@@ -36,6 +55,20 @@ class MdnsTest(unittest.TestCase):
         async with querier_and_responder() as (querier, _):
             result = await querier.resolve(hostname)
             self.assertEqual(result, None)
+
+    @asynctest
+    async def test_resolve_after_close(self) -> None:
+        hostname = mdns.create_mdns_hostname()
+
+        protocol = await mdns.create_mdns_protocol()
+        await protocol.close()
+
+        # Resolving fails at once, without trying to join the group.
+        with self.assertNoLogs("aioice.mdns"):
+            result = await asyncio.wait_for(
+                protocol.resolve(hostname, timeout=None), timeout=1
+            )
+        self.assertEqual(result, None)
 
     @asynctest
     async def test_resolve_close(self) -> None:
@@ -67,6 +100,32 @@ class MdnsTest(unittest.TestCase):
         async with querier_and_responder() as (querier, responder):
             await responder.publish(hostname, hostaddr)
 
+            result = await querier.resolve(hostname)
+            self.assertEqual(result, hostaddr)
+
+    @asynctest
+    async def test_resolve_join_failure(self) -> None:
+        hostaddr = "1.2.3.4"
+        hostname = mdns.create_mdns_hostname()
+
+        async with querier_and_responder() as (querier, responder):
+            await responder.publish(hostname, hostaddr)
+
+            # The query fails at once if the group cannot be joined.
+            with multicast_join_fails(), self.assertLogs("aioice.mdns") as cm:
+                result = await asyncio.wait_for(
+                    querier.resolve(hostname, timeout=None), timeout=1
+                )
+            self.assertEqual(result, None)
+            self.assertEqual(
+                cm.output,
+                [
+                    "INFO:aioice.mdns:Could not join the mDNS group: "
+                    f"[Errno {errno.ENODEV}] No such device"
+                ],
+            )
+
+            # The next query joins the group.
             result = await querier.resolve(hostname)
             self.assertEqual(result, hostaddr)
 

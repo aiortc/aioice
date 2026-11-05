@@ -1,10 +1,14 @@
 import asyncio
+import contextlib
+import errno
 import functools
 import logging
 import os
+import socket
 import sys
-from collections.abc import Callable, Coroutine
-from typing import ParamSpec
+from collections.abc import Callable, Coroutine, Iterator
+from typing import Any, ParamSpec
+from unittest import mock
 
 from aioice import ice
 
@@ -43,6 +47,24 @@ async def invite_accept(conn_a: ice.Connection, conn_b: ice.Connection) -> None:
     await conn_a.add_remote_candidate(None)
     conn_a.remote_username = conn_b.local_username
     conn_a.remote_password = conn_b.local_password
+
+
+@contextlib.contextmanager
+def multicast_join_fails() -> Iterator[None]:
+    """
+    Make joining a multicast group fail, as on a host without multicast.
+    """
+    setsockopt = socket.socket.setsockopt
+
+    def failing_setsockopt(
+        sock: socket.socket, level: int, option: int, *args: Any
+    ) -> None:
+        if option == socket.IP_ADD_MEMBERSHIP:
+            raise OSError(errno.ENODEV, "No such device")
+        setsockopt(sock, level, option, *args)
+
+    with mock.patch.object(socket.socket, "setsockopt", failing_setsockopt):
+        yield
 
 
 def read_message(name: str) -> bytes:

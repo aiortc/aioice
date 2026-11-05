@@ -1,7 +1,7 @@
 import asyncio
+import logging
 import re
 import socket
-import sys
 import uuid
 from typing import Any, cast
 
@@ -14,6 +14,8 @@ import dns.rdataclass
 import dns.rdataset
 import dns.rdatatype
 import dns.zone
+
+logger = logging.getLogger(__name__)
 
 MDNS_ADDRESS = "224.0.0.251"
 MDNS_PORT = 5353
@@ -31,14 +33,13 @@ def is_mdns_hostname(name: str) -> bool:
 
 
 class MDnsProtocol(asyncio.DatagramProtocol):
-    rx_transport: asyncio.DatagramTransport
+    transport: asyncio.DatagramTransport
 
-    def __init__(self, tx_transport: asyncio.DatagramTransport) -> None:
+    def __init__(self) -> None:
         self.__closed: asyncio.Future[bool] = asyncio.Future()
+        self.__joined = False
         self.zone = dns.zone.Zone("", relativize=False, rdclass=MDNS_RDCLASS)
         self.queries: dict[dns.name.Name, set[asyncio.Future[str]]] = {}
-
-        self.tx_transport = tx_transport
 
     def connection_lost(self, exc: Exception | None) -> None:
         # abort any outstanding queries
@@ -48,17 +49,17 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         self.__closed.set_result(True)
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        self.rx_transport = cast(asyncio.DatagramTransport, transport)
+        self.transport = cast(asyncio.DatagramTransport, transport)
 
     def datagram_received(self, data: bytes | str, addr: tuple[Any, ...]) -> None:
-        # parse message
+        # Parse the message.
         try:
             message = dns.message.from_wire(cast(bytes, data))
         except dns.exception.FormError:
             return
 
         if isinstance(message, dns.message.QueryMessage):
-            # answer question
+            # Answer the questions.
             for question in message.question:
                 rdtypes: list[dns.rdatatype.RdataType] = []
                 if question.rdtype in (
@@ -80,11 +81,9 @@ class MDnsProtocol(asyncio.DatagramProtocol):
                     except KeyError:
                         continue
                 if response.answer:
-                    self.tx_transport.sendto(
-                        response.to_wire(), (MDNS_ADDRESS, MDNS_PORT)
-                    )
+                    self.transport.sendto(response.to_wire(), (MDNS_ADDRESS, MDNS_PORT))
 
-            # handle answer
+            # Handle the answers.
             for answer in message.answer:
                 for item in answer:
                     item = item.to_generic()
@@ -103,11 +102,13 @@ class MDnsProtocol(asyncio.DatagramProtocol):
     # custom
 
     async def close(self) -> None:
-        self.rx_transport.close()
-        self.tx_transport.close()
+        self.transport.close()
         await self.__closed
 
     async def publish(self, hostname: str, addr: str) -> None:
+        # Queries are only received once the group is joined.
+        self.__join()
+
         name = dns.name.from_text(hostname)
         try:
             data = socket.inet_pton(socket.AF_INET, addr)
@@ -120,19 +121,30 @@ class MDnsProtocol(asyncio.DatagramProtocol):
         self.zone.replace_rdataset(name, dns.rdataset.from_rdata(120, rdata))
 
     async def resolve(self, hostname: str, timeout: float | None = 1.0) -> str | None:
+        # A closed protocol can neither send queries nor receive answers.
+        if self.transport.is_closing():
+            return None
+
+        # Answers are only received once the group is joined.
+        try:
+            self.__join()
+        except OSError as exc:
+            logger.info("Could not join the mDNS group: %s", exc)
+            return None
+
         name = dns.name.from_text(hostname)
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
 
         if name in self.queries:
-            # a query for this name is already pending
+            # A query for this name is already pending.
             self.queries[name].add(future)
         else:
-            # no query for this name is pending, send a request
+            # No query for this name is pending, send a request.
             self.queries[name] = {future}
             message = dns.message.make_query(name, rdtype=dns.rdatatype.A)
             message.id = 0
             message.flags = 0
-            self.tx_transport.sendto(message.to_wire(), (MDNS_ADDRESS, MDNS_PORT))
+            self.transport.sendto(message.to_wire(), (MDNS_ADDRESS, MDNS_PORT))
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)
@@ -144,46 +156,40 @@ class MDnsProtocol(asyncio.DatagramProtocol):
                 if not self.queries[name]:
                     del self.queries[name]
 
+    def __join(self) -> None:
+        """
+        Join the mDNS group, unless it is already joined.
+
+        Joining fails on a host without multicast, which may gain it later, so
+        a failed join is retried on the next call.
+        """
+        if not self.__joined:
+            sock = self.transport.get_extra_info("socket")
+            sock.setsockopt(
+                socket.IPPROTO_IP,
+                socket.IP_ADD_MEMBERSHIP,
+                socket.inet_aton(MDNS_ADDRESS) + b"\x00\x00\x00\x00",
+            )
+            self.__joined = True
+
 
 async def create_mdns_protocol() -> MDnsProtocol:
     """
-    Using a single socket works fine on Linux, but on OS X we need to use
-    separate sockets for sending and receiving.
+    Create an mDNS protocol.
+
+    A single socket, bound to the wildcard address, both sends and receives:
+    a socket bound to the group address cannot send on macOS, and Windows
+    does not allow binding to it. The group is joined when the protocol is
+    first used.
     """
     loop = asyncio.get_running_loop()
 
-    # sender
-
-    tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     if hasattr(socket, "SO_REUSEPORT"):
-        tx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    tx_sock.bind(("", MDNS_PORT))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    sock.bind(("", MDNS_PORT))
 
-    tx_transport, _ = await loop.create_datagram_endpoint(
-        lambda: asyncio.DatagramProtocol(),
-        sock=tx_sock,
-    )
-
-    # receiver
-
-    rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if hasattr(socket, "SO_REUSEPORT"):
-        rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    rx_sock.setsockopt(
-        socket.IPPROTO_IP,
-        socket.IP_ADD_MEMBERSHIP,
-        socket.inet_aton(MDNS_ADDRESS) + b"\x00\x00\x00\x00",
-    )
-    if sys.platform == "win32":
-        rx_sock.bind(("", MDNS_PORT))
-    else:
-        rx_sock.bind((MDNS_ADDRESS, MDNS_PORT))
-
-    _, protocol = await loop.create_datagram_endpoint(
-        lambda: MDnsProtocol(tx_transport=tx_transport),
-        sock=rx_sock,
-    )
+    _, protocol = await loop.create_datagram_endpoint(MDnsProtocol, sock=sock)
 
     return protocol
