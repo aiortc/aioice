@@ -1,6 +1,8 @@
 import asyncio
 import ssl
 import unittest
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any
 from unittest import mock
 
@@ -54,6 +56,17 @@ class TurnClientTcpProtocolTest(unittest.TestCase):
         self.assertEqual(repr(self.protocol), "turn/tcp")
 
 
+class DummyDatagramTransport:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+    def is_closing(self) -> bool:
+        return self.closed
+
+
 class TurnClientUdpProtocolTest(unittest.TestCase):
     def setUp(self) -> None:
         self.protocol = turn.TurnClientUdpProtocol(
@@ -63,6 +76,52 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
             lifetime=turn.DEFAULT_ALLOCATION_LIFETIME,
             channel_refresh_time=turn.DEFAULT_CHANNEL_REFRESH_TIME,
         )
+
+    def _respond(
+        self, respond: Callable[[stun.Message], stun.Message | None]
+    ) -> AbstractContextManager[Any]:
+        """
+        Answer each request as soon as it is sent, with the response returned
+        by `respond`, if any.
+        """
+
+        def send_stun(message: stun.Message, addr: tuple[str, int]) -> None:
+            response = respond(message)
+            if response is not None:
+                asyncio.get_running_loop().call_soon(
+                    self.protocol.datagram_received, bytes(response), addr
+                )
+
+        return mock.patch.object(self.protocol, "send_stun", send_stun)
+
+    @asynctest
+    async def test_connect_response_missing_attribute(self) -> None:
+        """
+        An Allocate success response without LIFETIME, XOR-MAPPED-ADDRESS or
+        XOR-RELAYED-ADDRESS fails the allocation (RFC 8656 section 7.2).
+        """
+        for missing in ["LIFETIME", "XOR-MAPPED-ADDRESS", "XOR-RELAYED-ADDRESS"]:
+            with self.subTest(missing=missing):
+
+                def respond(message: stun.Message) -> stun.Message:
+                    response = stun.Message(
+                        message_method=message.message_method,
+                        message_class=stun.Class.RESPONSE,
+                        transaction_id=message.transaction_id,
+                    )
+                    response.attributes["LIFETIME"] = 600
+                    response.attributes["XOR-MAPPED-ADDRESS"] = ("1.2.3.4", 1000)
+                    response.attributes["XOR-RELAYED-ADDRESS"] = ("1.2.3.4", 2000)
+                    del response.attributes[missing]
+                    return response
+
+                with self._respond(respond):
+                    with self.assertRaises(ConnectionError) as cm:
+                        await self.protocol.connect()
+                self.assertEqual(
+                    str(cm.exception), f"TURN allocation response is missing {missing}"
+                )
+                self.assertIsNone(self.protocol.refresh_task)
 
     def _data_indication(
         self, peer_address: tuple[str, int] | None, data: bytes | None
@@ -118,21 +177,17 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
         An error response without ERROR-CODE fails the request.
         """
 
-        def send_stun(message: stun.Message, addr: tuple[str, int]) -> None:
-            # Answer the request as soon as it is sent.
-            response = stun.Message(
+        def respond(message: stun.Message) -> stun.Message:
+            return stun.Message(
                 message_method=message.message_method,
                 message_class=stun.Class.ERROR,
                 transaction_id=message.transaction_id,
-            )
-            asyncio.get_running_loop().call_soon(
-                self.protocol.datagram_received, bytes(response), addr
             )
 
         request = stun.Message(
             message_method=stun.Method.ALLOCATE, message_class=stun.Class.REQUEST
         )
-        with mock.patch.object(self.protocol, "send_stun", send_stun):
+        with self._respond(respond):
             with self.assertRaises(stun.TransactionFailed) as cm:
                 await self.protocol.request_with_retry(request)
         self.assertEqual(str(cm.exception), "STUN transaction failed")
@@ -161,8 +216,7 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
                 integrity_key=integrity_key,
             ):
 
-                def send_stun(message: stun.Message, addr: tuple[str, int]) -> None:
-                    # Answer the request as soon as it is sent.
+                def respond(message: stun.Message) -> stun.Message:
                     response = stun.Message(
                         message_method=message.message_method,
                         message_class=message_class,
@@ -172,9 +226,7 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
                         response.attributes["ERROR-CODE"] = (error_code, "Error")
                     if integrity_key is not None:
                         response.add_message_integrity(integrity_key)
-                    asyncio.get_running_loop().call_soon(
-                        self.protocol.datagram_received, bytes(response), addr
-                    )
+                    return response
 
                 request = stun.Message(
                     message_method=stun.Method.REFRESH,
@@ -183,7 +235,7 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
                 with (
                     mock.patch.object(stun, "RETRY_MAX", 0),
                     mock.patch.object(stun, "RETRY_RTO", 0.1),
-                    mock.patch.object(self.protocol, "send_stun", send_stun),
+                    self._respond(respond),
                 ):
                     if not authenticated:
                         with self.assertRaises(stun.TransactionTimeout):
@@ -193,6 +245,55 @@ class TurnClientUdpProtocolTest(unittest.TestCase):
                             await self.protocol.request(request)
                     else:
                         await self.protocol.request(request)
+
+    @asynctest
+    async def test_refresh_failure(self) -> None:
+        """
+        If the allocation cannot be refreshed, the transport is closed, and no
+        attempt is made to delete the allocation.
+        """
+        for message_class, attributes, error in [
+            (
+                stun.Class.ERROR,
+                {"ERROR-CODE": (437, "Allocation Mismatch")},
+                "STUN transaction failed (437 - Allocation Mismatch)",
+            ),
+            (stun.Class.RESPONSE, {}, "TURN refresh response is missing LIFETIME"),
+        ]:
+            with self.subTest(message_class=message_class, attributes=attributes):
+                transport = DummyDatagramTransport()
+                self.protocol.connection_made(transport)  # type: ignore
+                self.protocol.relayed_address = ("1.2.3.4", 2000)
+                sent: list[stun.Message] = []
+
+                def respond(message: stun.Message) -> stun.Message:
+                    sent.append(message)
+                    return stun.Message(
+                        message_method=message.message_method,
+                        message_class=message_class,
+                        transaction_id=message.transaction_id,
+                        attributes=dict(attributes),
+                    )
+
+                with (
+                    self._respond(respond),
+                    self.assertLogs("aioice.turn", level="INFO") as logs,
+                ):
+                    await self.protocol.refresh(0)
+                self.assertEqual(
+                    logs.output,
+                    [
+                        "INFO:aioice.turn:TURN allocation refresh failed "
+                        f"('1.2.3.4', 2000): {error}"
+                    ],
+                )
+                self.assertTrue(transport.closed)
+                self.assertEqual(len(sent), 1)
+
+                # The allocation is not deleted, as the transport is closed.
+                with self._respond(respond):
+                    await self.protocol.delete()
+                self.assertEqual(len(sent), 1)
 
     def test_repr(self) -> None:
         self.assertEqual(repr(self.protocol), "turn/udp")
@@ -604,6 +705,45 @@ class TurnTest(unittest.TestCase):
                     self.assertEqual(protocol.errors, [])
 
     @asynctest
+    async def test_udp_transport_refresh_failure(self) -> None:
+        """
+        If the allocation cannot be refreshed, the protocol is told that the
+        transport was lost, and later data is not sent.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            turn_transport, protocol = await turn.create_turn_endpoint(
+                DummyClientProtocol,
+                server_addr=turn_server.udp_address,
+                username="foo",
+                password="bar",
+                lifetime=1,
+            )
+            relayed_address = turn_transport.get_extra_info("sockname")
+
+            # Make the server reject the REFRESH request.
+            turn_server.simulated_failure = (437, "Allocation Mismatch")
+            with self.assertLogs("aioice.turn", level="INFO") as logs:
+                await asyncio.wait_for(protocol.closed.wait(), timeout=5)
+            self.assertEqual(
+                logs.output,
+                [
+                    "INFO:aioice.turn:TURN allocation refresh failed "
+                    f"{relayed_address}: STUN transaction failed "
+                    "(437 - Allocation Mismatch)"
+                ],
+            )
+
+            # Data sent afterwards is ignored.
+            with mock.patch.object(
+                turn.TurnClientMixin, "send_data", new_callable=mock.AsyncMock
+            ) as send_data:
+                turn_transport.sendto(b"ping", ("127.0.0.1", 9))
+                await asyncio.sleep(0)
+            send_data.assert_not_called()
+
+            turn_transport.close()
+
+    @asynctest
     async def test_udp_transport_cancelled(self) -> None:
         """
         If the allocation is cancelled while it is being set up (for instance
@@ -711,23 +851,12 @@ class TurnTest(unittest.TestCase):
             turn_transport.close()
             await asyncio.wait_for(protocol.closed.wait(), timeout=5)
 
-    @asynctest
-    async def test_udp_transport_related_address_missing(self) -> None:
-        """
-        Without a mapped address in the Allocate response, the allocation fails.
-        """
-        async with run_turn_server(users={"foo": "bar"}) as turn_server:
-            with self.assertRaises(KeyError):
-                await self._create_turn_endpoint_with_mapped_address(
-                    turn_server.udp_address, None
-                )
-
     async def _create_turn_endpoint_with_mapped_address(
-        self, server_addr: tuple[str, int], mapped_address: tuple[str, int] | None
+        self, server_addr: tuple[str, int], mapped_address: tuple[str, int]
     ) -> tuple[turn.TurnTransport, DummyClientProtocol]:
         """
         Create a TURN endpoint, replacing the mapped address in the Allocate
-        response, or removing it if `mapped_address` is `None`.
+        response.
         """
         real_request_with_retry = turn.TurnClientMixin.request_with_retry
 
@@ -736,9 +865,7 @@ class TurnTest(unittest.TestCase):
         ) -> tuple[stun.Message, tuple[str, int]]:
             response, addr = await real_request_with_retry(self, request)
             if request.message_method == stun.Method.ALLOCATE:
-                del response.attributes["XOR-MAPPED-ADDRESS"]
-                if mapped_address is not None:
-                    response.attributes["XOR-MAPPED-ADDRESS"] = mapped_address
+                response.attributes["XOR-MAPPED-ADDRESS"] = mapped_address
             return response, addr
 
         with mock.patch.object(
