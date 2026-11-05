@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import copy
+import errno
 import functools
 import os
 import unittest
@@ -13,7 +14,12 @@ import ifaddr
 from aioice import Candidate, TransportPolicy, ice, mdns, stun
 
 from .turnserver import run_turn_server
-from .utils import RUNNING_ON_MAC_CI, asynctest, invite_accept
+from .utils import (
+    RUNNING_ON_MAC_CI,
+    asynctest,
+    invite_accept,
+    multicast_join_fails,
+)
 
 RUNNING_ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -2025,6 +2031,37 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(conn_a._remote_candidates_end, False)
 
         # close
+        await conn_a.close()
+
+    @asynctest
+    async def test_add_remote_candidate_mdns_without_multicast(self) -> None:
+        """
+        Add an mDNS candidate when the mDNS group cannot be joined.
+        """
+        conn_a = ice.Connection(ice_controlling=True)
+
+        with multicast_join_fails(), self.assertLogs("aioice.mdns") as cm:
+            await conn_a.add_remote_candidate(
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=1234,
+                    host=mdns.create_mdns_hostname(),
+                    port=1234,
+                    type="host",
+                )
+            )
+        self.assertEqual(len(conn_a.remote_candidates), 0)
+        self.assertEqual(
+            cm.output,
+            [
+                "INFO:aioice.mdns:Could not join the mDNS group: "
+                f"[Errno {errno.ENODEV}] No such device"
+            ],
+        )
+
+        # Close.
         await conn_a.close()
 
     @unittest.skipIf(RUNNING_ON_MAC_CI, "Mac CI has issues with mDNS")
