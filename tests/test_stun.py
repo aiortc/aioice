@@ -13,6 +13,12 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(code, 487)
         self.assertEqual(reason, "Role Conflict")
 
+    def test_unpack_error_code_invalid_utf8(self) -> None:
+        data = bytes.fromhex("00000401ffff556e61757468")
+        code, reason = stun.unpack_error_code(data)
+        self.assertEqual(code, 401)
+        self.assertEqual(reason, "\ufffd\ufffdUnauth")
+
     def test_unpack_error_code_too_short(self) -> None:
         data = bytes.fromhex("000004")
         with self.assertRaises(ValueError) as cm:
@@ -249,6 +255,17 @@ class MessageTest(unittest.TestCase):
 
         message.attributes["ERROR-CODE"] = (487, "Role Conflict")
         self.assertEqual(message.error_code, 487)
+
+    def test_error_code_with_invalid_utf8_reason(self) -> None:
+        message = stun.Message(
+            message_method=stun.Method.ALLOCATE, message_class=stun.Class.ERROR
+        )
+        message.attributes["ERROR-CODE"] = (401, "Unauthorized")
+        data = bytes(message).replace(b"Unauthorized", b"\xffnauthorized")
+
+        message = stun.parse_message(data)
+        self.assertEqual(message.error_code, 401)
+        self.assertEqual(message.attributes["ERROR-CODE"], (401, "\ufffdnauthorized"))
 
     def test_message_body_length_mismatch(self) -> None:
         data = read_message("binding_response.bin") + b"123"
