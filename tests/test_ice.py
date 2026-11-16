@@ -1858,6 +1858,101 @@ class IceConnectionTest(unittest.TestCase):
         await conn_a.close()
         await conn_b.close()
 
+    async def _capture_consent_requests(
+        self, connection: ice.Connection
+    ) -> list[stun.Message]:
+        """
+        Capture Binding requests sent on the nominated pair after connect.
+        """
+        consent_requests: list[stun.Message] = []
+        pair = next(iter(connection._nominated.values()))
+        original_request = pair.protocol.request
+
+        async def capture_request(
+            request: stun.Message,
+            addr: tuple[str, int],
+            integrity_key: bytes | None = None,
+            retransmissions: int | None = None,
+        ) -> tuple[stun.Message, tuple[str, int]]:
+            consent_requests.append(request)
+            return await original_request(
+                request,
+                addr,
+                integrity_key=integrity_key,
+                retransmissions=retransmissions,
+            )
+
+        pair.protocol.request = capture_request  # type: ignore[method-assign]
+        await asyncio.sleep(2)
+        return consent_requests
+
+    @asynctest
+    async def test_consent_controlling_includes_use_candidate(self) -> None:
+        # lower consent timer
+        ice.CONSENT_FAILURES = 1
+        ice.CONSENT_INTERVAL = 1
+
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        await invite_accept(conn_a, conn_b)
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+        self.assertEqual(len(conn_a._nominated), 1)
+
+        consent_requests = await self._capture_consent_requests(conn_a)
+        self.assertTrue(consent_requests)
+        for message in consent_requests:
+            self.assertIn("USE-CANDIDATE", message.attributes)
+            self.assertIn("ICE-CONTROLLING", message.attributes)
+
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
+    async def test_consent_controlling_ice_lite_includes_use_candidate(self) -> None:
+        # Against ICE-lite, connect-time checks use regular nomination, but
+        # post-connect consent should still carry USE-CANDIDATE when controlling.
+        ice.CONSENT_FAILURES = 1
+        ice.CONSENT_INTERVAL = 1
+
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_a.remote_is_lite = True
+        conn_b = ice.Connection(ice_controlling=False)
+
+        await invite_accept(conn_a, conn_b)
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+        self.assertEqual(len(conn_a._nominated), 1)
+
+        consent_requests = await self._capture_consent_requests(conn_a)
+        self.assertTrue(consent_requests)
+        for message in consent_requests:
+            self.assertIn("USE-CANDIDATE", message.attributes)
+
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
+    async def test_consent_controlled_omits_use_candidate(self) -> None:
+        # lower consent timer
+        ice.CONSENT_FAILURES = 1
+        ice.CONSENT_INTERVAL = 1
+
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+
+        await invite_accept(conn_a, conn_b)
+        await asyncio.gather(conn_a.connect(), conn_b.connect())
+        self.assertEqual(len(conn_b._nominated), 1)
+
+        consent_requests = await self._capture_consent_requests(conn_b)
+        self.assertTrue(consent_requests)
+        for message in consent_requests:
+            self.assertNotIn("USE-CANDIDATE", message.attributes)
+            self.assertIn("ICE-CONTROLLED", message.attributes)
+
+        await conn_a.close()
+        await conn_b.close()
+
     @asynctest
     async def test_set_selected_pair(self) -> None:
         conn_a = ice.Connection(ice_controlling=True)
