@@ -1249,10 +1249,6 @@ class Connection:
     async def query_consent(self) -> None:
         """
         Periodically check consent (RFC 7675).
-
-        When controlling, consent Binding requests include USE-CANDIDATE so
-        ICE-lite peers can keep (or re-select) the nominated path, matching
-        common browser behavior for the selected pair.
         """
         # Consent checks only start once connect() has the remote password.
         assert self.remote_password is not None
