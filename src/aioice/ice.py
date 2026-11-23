@@ -13,7 +13,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import ifaddr
 
@@ -400,6 +400,42 @@ class ConnectionClosed(ConnectionEvent):
     pass
 
 
+class UdpMux(Protocol):
+    """
+    UDP sockets shared by several connections, which provide their host
+    candidates.
+
+    When a connection gathers its candidates, it asks the mux for its endpoints
+    instead of binding its own sockets. For each endpoint, the mux creates a
+    protocol by calling `protocol_factory`, then calls the protocol's
+    `connection_made()` with a transport which sends datagrams through the
+    shared socket. The transport's `"sockname"` extra info is the address of
+    the host candidate.
+
+    The mux delivers to the protocol's `datagram_received()`:
+
+    - the STUN requests whose `USERNAME` starts with `local_username` followed
+      by `:`;
+    - the other datagrams from the remote addresses which sent those requests,
+      or to which the transport sent datagrams.
+
+    When several connections use the same remote address, it is up to the mux
+    to choose which one receives its datagrams. Closing the transport stops
+    the delivery, and the mux then calls the protocol's `connection_lost()`.
+    """
+
+    async def create_datagram_endpoints(
+        self,
+        protocol_factory: Callable[[], asyncio.DatagramProtocol],
+        local_username: str,
+    ) -> list[tuple[asyncio.DatagramTransport, asyncio.DatagramProtocol]]:
+        """
+        Create the endpoints of the connection whose local username is
+        `local_username`.
+        """
+        ...
+
+
 class Connection:
     """
     An ICE connection for a single media stream.
@@ -419,6 +455,11 @@ class Connection:
                            will be generated.
     :param local_password: An optional local password, otherwise a random one
                            will be generated.
+    :param udp_mux: An optional :class:`UdpMux` providing the host candidates,
+                    instead of binding a UDP socket on each local address, so
+                    `use_ipv4` and `use_ipv6` do not apply. It requires a
+                    single component, and no server-reflexive candidates are
+                    gathered on its endpoints.
     """
 
     def __init__(
@@ -437,7 +478,12 @@ class Connection:
         transport_policy: TransportPolicy = TransportPolicy.ALL,
         local_username: str | None = None,
         local_password: str | None = None,
+        udp_mux: UdpMux | None = None,
     ) -> None:
+        # The mux routes by local username, which does not tell components apart.
+        if udp_mux is not None and components != 1:
+            raise ValueError("A UDP mux requires a single component")
+
         self.ice_controlling = ice_controlling
 
         if local_username is None:
@@ -492,6 +538,7 @@ class Connection:
         self._query_consent_task: asyncio.Task[None] | None = None
         self._queue: asyncio.Queue[tuple[bytes, int] | None] = asyncio.Queue()
         self._tie_breaker = secrets.randbits(64)
+        self._udp_mux = udp_mux
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
 
@@ -614,7 +661,7 @@ class Connection:
             # Host and server-reflexive candidates are not used with the relay
             # transport policy (RFC 9429 section 3.5.3).
             addresses = []
-            if self._transport_policy == TransportPolicy.ALL:
+            if self._transport_policy == TransportPolicy.ALL and self._udp_mux is None:
                 addresses = get_host_addresses(
                     use_ipv4=self._use_ipv4, use_ipv6=self._use_ipv6
                 )
@@ -1210,20 +1257,20 @@ class Connection:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
             host_protocols.append(protocol)
-
-            # Add the host candidate.
-            candidate_address = protocol.transport.get_extra_info("sockname")
-            protocol.local_candidate = Candidate(
-                foundation=candidate_foundation("host", "udp", candidate_address[0]),
-                component=component,
-                transport="udp",
-                priority=candidate_priority(component, "host"),
-                host=candidate_address[0],
-                port=candidate_address[1],
-                type="host",
-            )
-            candidates.append(protocol.local_candidate)
+            candidates.append(self._set_host_candidate(protocol, component))
         self._protocols += host_protocols
+
+        # Gather host candidates from the UDP mux. They do not query the STUN
+        # server, as the mux could not tell which connection its responses
+        # belong to.
+        if self._udp_mux is not None and self._transport_policy == TransportPolicy.ALL:
+            endpoints = await self._udp_mux.create_datagram_endpoints(
+                lambda: StunProtocol(self), local_username=self.local_username
+            )
+            for _, mux_protocol in endpoints:
+                protocol = cast(StunProtocol, mux_protocol)
+                self._protocols.append(protocol)
+                candidates.append(self._set_host_candidate(protocol, component))
 
         tasks: list[asyncio.Task[tuple[Candidate, StunProtocol | None]]] = []
 
@@ -1468,6 +1515,22 @@ class Connection:
         else:
             response.add_message_integrity(self.local_password.encode("utf8"))
         protocol.send_stun(response, addr)
+
+    def _set_host_candidate(self, protocol: StunProtocol, component: int) -> Candidate:
+        """
+        Set the protocol's host candidate from its transport's address.
+        """
+        candidate_address = protocol.transport.get_extra_info("sockname")
+        protocol.local_candidate = Candidate(
+            foundation=candidate_foundation("host", "udp", candidate_address[0]),
+            component=component,
+            transport="udp",
+            priority=candidate_priority(component, "host"),
+            host=candidate_address[0],
+            port=candidate_address[1],
+            type="host",
+        )
+        return protocol.local_candidate
 
     def sort_check_list(self) -> None:
         sort_candidate_pairs(self._check_list, self.ice_controlling)
