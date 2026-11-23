@@ -3,6 +3,24 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.14.0
+------
+
+ * Only deliver data which comes from the remote address of a candidate
+   pair, or of an authenticated check received before
+   `Connection.connect()`, so that a host which can reach a candidate cannot
+   inject data without the ICE credentials.
+ * Reject STUN integer attributes of the wrong length with a `ValueError`
+   instead of a `struct.error`, and ignore the reserved bits of
+   CHANNEL-NUMBER and REQUESTED-TRANSPORT.
+ * Ignore the reserved bits of the ERROR-CODE class, which caused a TURN 401
+   challenge to be misread when a server set them.
+ * Escape invalid UTF-8 in the ERROR-CODE reason phrase instead of
+   discarding the whole message, which prevented TURN authentication with
+   coturn 4.10.0.
+ * Document how to limit the UDP ports used by ICE.
+ * The arguments of `Connection` are now keyword-only.
+
 0.13.0
 ------
 
