@@ -387,6 +387,7 @@ class Connection:
 
     def __init__(
         self,
+        *,
         ice_controlling: bool,
         components: int = 1,
         stun_server: tuple[str, int] | None = None,
