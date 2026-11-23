@@ -144,6 +144,9 @@ def unpack_error_code(data: bytes) -> tuple[int, str]:
     if len(data) < 4:
         raise ValueError("STUN error code is less than 4 bytes")
     reserved, code_high, code_low = unpack("!HBB", data[0:4])
+    # The class only uses the low 3 bits of its byte, and the reserved bits above
+    # it MUST be ignored (RFC 8489 section 14.8).
+    code_high &= 0x07
     # The reason phrase is only meant for diagnostics, so invalid UTF-8 must not
     # cause the whole message to be discarded (RFC 8489 section 14.8). Escape the
     # invalid bytes so that they remain visible.

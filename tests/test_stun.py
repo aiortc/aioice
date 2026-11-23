@@ -31,6 +31,12 @@ class AttributeTest(unittest.TestCase):
         self.assertEqual(code, 401)
         self.assertEqual(reason, "\\xff\\xffUnauth")
 
+    def test_unpack_error_code_reserved_bits(self) -> None:
+        data = bytes.fromhex("fffffc01556e617574686f72697a6564")
+        code, reason = stun.unpack_error_code(data)
+        self.assertEqual(code, 401)
+        self.assertEqual(reason, "Unauthorized")
+
     def test_unpack_error_code_too_short(self) -> None:
         data = bytes.fromhex("000004")
         with self.assertRaises(ValueError) as cm:
