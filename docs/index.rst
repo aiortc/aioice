@@ -33,5 +33,6 @@ Typical usecases include SIP and WebRTC.
    :maxdepth: 2
 
    api
+   deployment
    changelog
    license
