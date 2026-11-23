@@ -59,6 +59,11 @@ def pack_bytes(value: bytes) -> bytes:
     return value
 
 
+def pack_channel_number(value: int) -> bytes:
+    # The channel number is followed by a 16-bit RFFU field (RFC 8656 section 18.1).
+    return pack_uint32(value << 16)
+
+
 def pack_error_code(value: tuple[int, str]) -> bytes:
     return pack("!HBB", 0, value[0] // 100, value[0] % 100) + value[1].encode("utf8")
 
@@ -67,19 +72,20 @@ def pack_none(value: None) -> bytes:
     return b""
 
 
+def pack_requested_transport(value: int) -> bytes:
+    # The protocol is followed by a 24-bit RFFU field (RFC 8656 section 18.8).
+    return pack_uint32(value << 24)
+
+
 def pack_string(value: str) -> bytes:
     return value.encode("utf8")
 
 
-def pack_unsigned(value: int) -> bytes:
+def pack_uint32(value: int) -> bytes:
     return pack("!I", value)
 
 
-def pack_unsigned_short(value: int) -> bytes:
-    return pack("!H", value) + b"\x00\x00"
-
-
-def pack_unsigned_64(value: int) -> bytes:
+def pack_uint64(value: int) -> bytes:
     return pack("!Q", value)
 
 
@@ -129,6 +135,11 @@ def unpack_bytes(data: bytes) -> bytes:
     return data
 
 
+def unpack_channel_number(data: bytes) -> int:
+    # The RFFU field MUST be ignored on reception (RFC 8656 section 18.1).
+    return unpack_uint32(data) >> 16
+
+
 def unpack_error_code(data: bytes) -> tuple[int, str]:
     if len(data) < 4:
         raise ValueError("STUN error code is less than 4 bytes")
@@ -141,21 +152,25 @@ def unpack_none(data: bytes) -> None:
     return None
 
 
+def unpack_requested_transport(data: bytes) -> int:
+    # The RFFU field MUST be ignored on reception (RFC 8656 section 18.8).
+    return unpack_uint32(data) >> 24
+
+
 def unpack_string(data: bytes) -> str:
     return data.decode("utf8")
 
 
-def unpack_unsigned(data: bytes) -> int:
+def unpack_uint32(data: bytes) -> int:
+    if len(data) != 4:
+        raise ValueError("STUN 32-bit unsigned integer is not 4 bytes")
     value: int = unpack("!I", data)[0]
     return value
 
 
-def unpack_unsigned_short(data: bytes) -> int:
-    value: int = unpack("!H", data[0:2])[0]
-    return value
-
-
-def unpack_unsigned_64(data: bytes) -> int:
+def unpack_uint64(data: bytes) -> int:
+    if len(data) != 8:
+        raise ValueError("STUN 64-bit unsigned integer is not 8 bytes")
     value: int = unpack("!Q", data)[0]
     return value
 
@@ -164,27 +179,32 @@ AttributeEntry = tuple[int, str, Callable[..., bytes], Callable[..., Any]]
 
 ATTRIBUTES: list[AttributeEntry] = [
     (0x0001, "MAPPED-ADDRESS", pack_address, unpack_address),
-    (0x0003, "CHANGE-REQUEST", pack_unsigned, unpack_unsigned),
+    (0x0003, "CHANGE-REQUEST", pack_uint32, unpack_uint32),
     (0x0004, "SOURCE-ADDRESS", pack_address, unpack_address),
     (0x0005, "CHANGED-ADDRESS", pack_address, unpack_address),
     (0x0006, "USERNAME", pack_string, unpack_string),
     (0x0008, "MESSAGE-INTEGRITY", pack_bytes, unpack_bytes),
     (0x0009, "ERROR-CODE", pack_error_code, unpack_error_code),
-    (0x000C, "CHANNEL-NUMBER", pack_unsigned_short, unpack_unsigned_short),
-    (0x000D, "LIFETIME", pack_unsigned, unpack_unsigned),
+    (0x000C, "CHANNEL-NUMBER", pack_channel_number, unpack_channel_number),
+    (0x000D, "LIFETIME", pack_uint32, unpack_uint32),
     (0x0012, "XOR-PEER-ADDRESS", pack_xor_address, unpack_xor_address),
     (0x0013, "DATA", pack_bytes, unpack_bytes),
     (0x0014, "REALM", pack_string, unpack_string),
     (0x0015, "NONCE", pack_bytes, unpack_bytes),
     (0x0016, "XOR-RELAYED-ADDRESS", pack_xor_address, unpack_xor_address),
-    (0x0019, "REQUESTED-TRANSPORT", pack_unsigned, unpack_unsigned),
+    (
+        0x0019,
+        "REQUESTED-TRANSPORT",
+        pack_requested_transport,
+        unpack_requested_transport,
+    ),
     (0x0020, "XOR-MAPPED-ADDRESS", pack_xor_address, unpack_xor_address),
-    (0x0024, "PRIORITY", pack_unsigned, unpack_unsigned),
+    (0x0024, "PRIORITY", pack_uint32, unpack_uint32),
     (0x0025, "USE-CANDIDATE", pack_none, unpack_none),
     (0x8022, "SOFTWARE", pack_string, unpack_string),
-    (0x8028, "FINGERPRINT", pack_unsigned, unpack_unsigned),
-    (0x8029, "ICE-CONTROLLED", pack_unsigned_64, unpack_unsigned_64),
-    (0x802A, "ICE-CONTROLLING", pack_unsigned_64, unpack_unsigned_64),
+    (0x8028, "FINGERPRINT", pack_uint32, unpack_uint32),
+    (0x8029, "ICE-CONTROLLED", pack_uint64, unpack_uint64),
+    (0x802A, "ICE-CONTROLLING", pack_uint64, unpack_uint64),
     (0x802B, "RESPONSE-ORIGIN", pack_address, unpack_address),
     (0x802C, "OTHER-ADDRESS", pack_address, unpack_address),
 ]

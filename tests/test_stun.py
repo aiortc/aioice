@@ -7,6 +7,18 @@ from .utils import asynctest, read_message
 
 
 class AttributeTest(unittest.TestCase):
+    def test_unpack_channel_number(self) -> None:
+        # The RFFU field is ignored.
+        data = bytes.fromhex("4000ffff")
+        self.assertEqual(stun.unpack_channel_number(data), 16384)
+
+    def test_unpack_channel_number_too_short(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_channel_number(bytes.fromhex("4000"))
+        self.assertEqual(
+            str(cm.exception), "STUN 32-bit unsigned integer is not 4 bytes"
+        )
+
     def test_unpack_error_code(self) -> None:
         data = bytes.fromhex("00000457526f6c6520436f6e666c696374")
         code, reason = stun.unpack_error_code(data)
@@ -18,6 +30,32 @@ class AttributeTest(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             stun.unpack_error_code(data)
         self.assertEqual(str(cm.exception), "STUN error code is less than 4 bytes")
+
+    def test_unpack_requested_transport(self) -> None:
+        # The RFFU field is ignored.
+        data = bytes.fromhex("11ffffff")
+        self.assertEqual(stun.unpack_requested_transport(data), 17)
+
+    def test_unpack_uint32_too_long(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_uint32(bytes.fromhex("0000000001"))
+        self.assertEqual(
+            str(cm.exception), "STUN 32-bit unsigned integer is not 4 bytes"
+        )
+
+    def test_unpack_uint32_too_short(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_uint32(bytes.fromhex("0001"))
+        self.assertEqual(
+            str(cm.exception), "STUN 32-bit unsigned integer is not 4 bytes"
+        )
+
+    def test_unpack_uint64_too_short(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            stun.unpack_uint64(bytes.fromhex("00000001"))
+        self.assertEqual(
+            str(cm.exception), "STUN 64-bit unsigned integer is not 8 bytes"
+        )
 
     def test_unpack_xor_address_ipv4(self) -> None:
         transaction_id = bytes.fromhex("b7e7a701bc34d686fa87dfae")
@@ -83,9 +121,17 @@ class AttributeTest(unittest.TestCase):
             stun.unpack_xor_address(bytes.fromhex("0003a147e112a643"), transaction_id)
         self.assertEqual(str(cm.exception), "STUN address has unknown protocol")
 
+    def test_pack_channel_number(self) -> None:
+        data = stun.pack_channel_number(16384)
+        self.assertEqual(data, bytes.fromhex("40000000"))
+
     def test_pack_error_code(self) -> None:
         data = stun.pack_error_code((487, "Role Conflict"))
         self.assertEqual(data, bytes.fromhex("00000457526f6c6520436f6e666c696374"))
+
+    def test_pack_requested_transport(self) -> None:
+        data = stun.pack_requested_transport(17)
+        self.assertEqual(data, bytes.fromhex("11000000"))
 
     def test_pack_xor_address_ipv4(self) -> None:
         transaction_id = bytes.fromhex("b7e7a701bc34d686fa87dfae")
@@ -260,6 +306,17 @@ class MessageTest(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             stun.parse_message(b"123")
         self.assertEqual(str(cm.exception), "STUN message length is less than 20 bytes")
+
+    def test_message_with_short_priority(self) -> None:
+        # A Binding request whose PRIORITY attribute is 2 bytes long.
+        data = bytes.fromhex(
+            "000100082112a442000000000000000000000000" + "0024000200010000"
+        )
+        with self.assertRaises(ValueError) as cm:
+            stun.parse_message(data)
+        self.assertEqual(
+            str(cm.exception), "STUN 32-bit unsigned integer is not 4 bytes"
+        )
 
     def test_message_with_unknown_method(self) -> None:
         with self.assertRaises(ValueError) as cm:
