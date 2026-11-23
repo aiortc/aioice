@@ -737,6 +737,44 @@ class IceConnectionTest(unittest.TestCase):
         self.assertNotIn(unchecked, [p.remote_candidate for p in conn_a._check_list])
 
     @asynctest
+    async def test_connect_ignores_data_from_unpaired_address(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True, use_ipv6=False)
+        conn_b = ice.Connection(ice_controlling=False, use_ipv6=False)
+        await invite_accept(conn_a, conn_b)
+
+        # A host which is not a remote candidate sends data to B before
+        # nomination, which must not reach the application.
+        loop = asyncio.get_running_loop()
+        for candidate in conn_b.local_candidates:
+            transport, _ = await loop.create_datagram_endpoint(
+                asyncio.DatagramProtocol,
+                remote_addr=(candidate.host, candidate.port),
+            )
+            transport.sendto(b"stray")
+            transport.close()
+
+        await self.connect_and_exchange_data(conn_a, conn_b)
+
+    @asynctest
+    async def test_connect_receives_data_before_connect(self) -> None:
+        conn_a = ice.Connection(ice_controlling=True)
+        conn_b = ice.Connection(ice_controlling=False)
+        await invite_accept(conn_a, conn_b)
+
+        # B answers A's checks before calling connect(), so A can nominate a
+        # pair and send data which B must keep.
+        await conn_a.connect()
+        await conn_a.send(b"howdee")
+        await asyncio.sleep(0.1)
+
+        await conn_b.connect()
+        data = await asyncio.wait_for(conn_b.recv(), 5)
+        self.assertEqual(data, b"howdee")
+
+        await conn_a.close()
+        await conn_b.close()
+
+    @asynctest
     async def test_connect_close(self) -> None:
         conn_a = ice.Connection(ice_controlling=True)
         conn_b = ice.Connection(ice_controlling=False)

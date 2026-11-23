@@ -290,7 +290,10 @@ class StunProtocol(asyncio.DatagramProtocol):
             message = stun.parse_message(data)
             self.__log_debug("< %s %s", addr, message)
         except ValueError:
-            self.receiver.data_received(data, self.local_candidate.component)
+            # Discard data which does not come from a remote candidate paired
+            # with this local candidate, as no ICE check vouches for it.
+            if self.receiver.is_paired(self, addr):
+                self.receiver.data_received(data, self.local_candidate.component)
             return
 
         if (
@@ -1276,6 +1279,18 @@ class Connection:
 
     def data_received(self, data: bytes, component: int) -> None:
         self._queue.put_nowait((data, component))
+
+    def is_paired(self, protocol: StunProtocol, addr: tuple[str, int]) -> bool:
+        # Also accept the authenticated checks received before connect(), which
+        # it will pair, and a pair selected with set_selected_pair(), which is
+        # not in the check list.
+        pairs = itertools.chain(self._check_list, self._nominated.values())
+        return any(
+            pair.protocol == protocol and pair.remote_addr == addr for pair in pairs
+        ) or any(
+            check_protocol == protocol and check_addr == addr
+            for _, check_addr, check_protocol in self._early_checks
+        )
 
     def protocol_lost(self, protocol: StunProtocol) -> None:
         # Only a nominated pair carries data, so losing any other
