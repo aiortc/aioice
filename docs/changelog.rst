@@ -3,6 +3,11 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.14.1
+------
+
+ * Publish releases using PyPI trusted publishing, with attestations.
+
 0.14.0
 ------
 
