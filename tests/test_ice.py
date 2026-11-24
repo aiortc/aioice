@@ -1929,9 +1929,21 @@ class IceConnectionTest(unittest.TestCase):
         self.assertEqual(stats.consent_requests_sent, 0)
 
         # check consent
-        await asyncio.sleep(2)
+        consent_checked = asyncio.Event()
+        pair_request = conn_a._pair_request
+
+        async def mock_pair_request(
+            *args: Any, **kwargs: Any
+        ) -> tuple[stun.Message, tuple[str, int]]:
+            result = await pair_request(*args, **kwargs)
+            if kwargs.get("consent"):
+                consent_checked.set()
+            return result
+
+        with mock.patch.object(conn_a, "_pair_request", mock_pair_request):
+            await asyncio.wait_for(consent_checked.wait(), timeout=5)
         self.assertEqual(len(conn_a._nominated), 1)
-        self.assertGreater(stats.consent_requests_sent, 0)
+        self.assertEqual(stats.consent_requests_sent, 1)
         self.assertEqual(stats.requests_sent, requests_sent)
         self.assertEqual(
             stats.responses_received, responses_received + stats.consent_requests_sent
