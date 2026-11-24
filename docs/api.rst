@@ -9,6 +9,7 @@ API Reference
       .. automethod:: add_remote_candidate
       .. automethod:: gather_candidates
       .. automethod:: get_default_candidate
+      .. automethod:: get_statistics
       .. automethod:: connect
       .. automethod:: close
       .. automethod:: recv
@@ -23,4 +24,7 @@ API Reference
       .. automethod:: to_sdp
 
    .. autoclass:: TransportPolicy()
+      :members:
+
+   .. autoclass:: CandidatePairStats()
       :members:

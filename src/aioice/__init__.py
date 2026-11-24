@@ -1,9 +1,15 @@
 import logging
 
 from .candidate import Candidate
-from .ice import Connection, ConnectionClosed, TransportPolicy
+from .ice import CandidatePairStats, Connection, ConnectionClosed, TransportPolicy
 
-__all__ = ["Candidate", "Connection", "ConnectionClosed", "TransportPolicy"]
+__all__ = [
+    "Candidate",
+    "CandidatePairStats",
+    "Connection",
+    "ConnectionClosed",
+    "TransportPolicy",
+]
 __version__ = "0.14.1"
 
 # Set default logging handler to avoid "No handler found" warnings.
