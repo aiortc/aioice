@@ -29,6 +29,9 @@ ICE_FAILED = 2
 CONSENT_FAILURES = 6
 CONSENT_INTERVAL = 5
 
+# When true, controlling agents include USE_CANDIDATE on consent binding requests
+CONSENT_USE_CANDIDATE = False
+
 # Maximum number of early checks kept until connect(). The RFCs set no such
 # limit, so use the one on connectivity checks (RFC 8445 section 19.5.1).
 MAX_EARLY_CHECKS = 100
@@ -1305,7 +1308,8 @@ class Connection:
             await asyncio.sleep(CONSENT_INTERVAL * (0.8 + 0.4 * random.random()))
 
             for pair in self._nominated.values():
-                request = self.build_request(pair, nominate=False)
+                nominate = self.ice_controlling and CONSENT_USE_CANDIDATE
+                request = self.build_request(pair, nominate=nominate)
                 try:
                     await self._pair_request(pair, request, consent=True)
                     failures = 0
