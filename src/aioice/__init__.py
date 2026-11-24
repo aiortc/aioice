@@ -10,7 +10,7 @@ __all__ = [
     "ConnectionClosed",
     "TransportPolicy",
 ]
-__version__ = "0.14.1"
+__version__ = "0.15.0"
 
 # Set default logging handler to avoid "No handler found" warnings.
 logging.getLogger(__name__).addHandler(logging.NullHandler())
