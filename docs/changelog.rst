@@ -3,6 +3,16 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.15.0
+------
+
+ * Add `Connection.get_statistics()`, which returns a `CandidatePairStats`
+   for each candidate pair. These follow the WebRTC candidate pair
+   statistics: the pair's state, whether it is nominated or selected, the
+   STUN requests and responses sent and received, the consent requests
+   sent, the data packets and bytes sent and received, and the current and
+   total round trip time.
+
 0.14.1
 ------
 
