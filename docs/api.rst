@@ -28,3 +28,7 @@ API Reference
 
    .. autoclass:: CandidatePairStats()
       :members:
+
+   .. autoclass:: UdpMux()
+
+      .. automethod:: create_datagram_endpoints

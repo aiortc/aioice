@@ -14,6 +14,7 @@ import ifaddr
 from aioice import Candidate, TransportPolicy, ice, mdns, stun
 
 from .turnserver import run_turn_server
+from .udpmux import run_udp_mux
 from .utils import (
     RUNNING_ON_MAC_CI,
     asynctest,
@@ -1209,6 +1210,68 @@ class IceConnectionTest(unittest.TestCase):
         # Close.
         await conn_a.close()
         await conn_b.close()
+
+    @asynctest
+    async def test_connect_udp_mux(self) -> None:
+        address = ice.get_host_addresses(use_ipv4=True, use_ipv6=False)[0]
+        async with run_udp_mux(address) as mux:
+            mux_address = mux.transport.get_extra_info("sockname")
+
+            # Two connections share the mux, each with its own peer.
+            pairs = []
+            for i in range(2):
+                conn_a = ice.Connection(ice_controlling=True, use_ipv6=False)
+                conn_b = ice.Connection(ice_controlling=False, udp_mux=mux)
+                await invite_accept(conn_a, conn_b)
+                self.assertEqual(
+                    [(c.type, c.host, c.port) for c in conn_b.local_candidates],
+                    [("host", mux_address[0], mux_address[1])],
+                )
+                pairs.append((conn_a, conn_b))
+
+            await asyncio.gather(
+                *[self.connect_and_exchange_data(a, b) for a, b in pairs]
+            )
+
+            # Closing the connections removes them from the mux.
+            self.assertEqual(mux.by_username, {})
+            self.assertEqual(mux.by_addr, {})
+
+    @asynctest
+    async def test_gather_candidates_udp_mux_relay_only(self) -> None:
+        address = ice.get_host_addresses(use_ipv4=True, use_ipv6=False)[0]
+        async with run_udp_mux(address) as mux:
+            conn = ice.Connection(
+                ice_controlling=True,
+                transport_policy=TransportPolicy.RELAY,
+                udp_mux=mux,
+            )
+            await conn.gather_candidates()
+
+            # The mux provides no relayed candidates, so it is not used.
+            self.assertEqual(conn.local_candidates, [])
+            self.assertEqual(mux.by_username, {})
+            await conn.close()
+
+    @asynctest
+    async def test_gather_candidates_udp_mux_with_stun_server(self) -> None:
+        address = ice.get_host_addresses(use_ipv4=True, use_ipv6=False)[0]
+        async with run_turn_server() as stun_server, run_udp_mux(address) as mux:
+            conn = ice.Connection(
+                ice_controlling=True,
+                stun_server=stun_server.udp_address,
+                udp_mux=mux,
+            )
+            await conn.gather_candidates()
+
+            # The mux's endpoints do not query the STUN server.
+            self.assertCandidateTypes(conn, set(["host"]))
+            await conn.close()
+
+    def test_udp_mux_requires_single_component(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            ice.Connection(ice_controlling=False, components=2, udp_mux=mock.Mock())
+        self.assertEqual(str(cm.exception), "A UDP mux requires a single component")
 
     @unittest.skipIf(RUNNING_ON_CI, "CI lacks ipv6")
     @asynctest

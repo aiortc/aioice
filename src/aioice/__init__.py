@@ -1,7 +1,13 @@
 import logging
 
 from .candidate import Candidate
-from .ice import CandidatePairStats, Connection, ConnectionClosed, TransportPolicy
+from .ice import (
+    CandidatePairStats,
+    Connection,
+    ConnectionClosed,
+    TransportPolicy,
+    UdpMux,
+)
 
 __all__ = [
     "Candidate",
@@ -9,6 +15,7 @@ __all__ = [
     "Connection",
     "ConnectionClosed",
     "TransportPolicy",
+    "UdpMux",
 ]
 __version__ = "0.15.1"
 
