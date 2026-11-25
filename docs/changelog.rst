@@ -3,6 +3,12 @@ Changelog
 
 .. currentmodule:: aioice
 
+0.15.1
+------
+
+ * When several pairs of a component are nominated, use the one with the
+   highest priority, so that both agents send on the same pair.
+
 0.15.0
 ------
 
