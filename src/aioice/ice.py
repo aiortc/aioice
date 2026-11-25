@@ -925,7 +925,12 @@ class Connection:
 
         if pair.state == CandidatePair.State.SUCCEEDED:
             if pair.nominated:
-                self._nominated[pair.component] = pair
+                # Several pairs may be nominated: use the highest-priority one
+                # (RFC 8445 section 8.1.1).
+                current = self._nominated.get(pair.component)
+                pairs = [current, pair] if current else [pair]
+                sort_candidate_pairs(pairs, self.ice_controlling)
+                self._nominated[pair.component] = pairs[0]
 
                 # Remove the component's pairs which have not been checked yet,
                 # cancelling any check already scheduled for them (RFC 8445

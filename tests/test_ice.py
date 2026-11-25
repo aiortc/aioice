@@ -326,6 +326,38 @@ class IceComponentTest(unittest.TestCase):
         self.assertEqual(asyncio.all_tasks(), {asyncio.current_task()})
 
     @asynctest
+    async def test_nomination_keeps_highest_priority_pair(self) -> None:
+        connection = ice.Connection(ice_controlling=False)
+
+        def nominate(priority: int) -> ice.CandidatePair:
+            protocol = ProtocolMock(connection, response_addr=("2.3.4.5", 2345))
+            pair = ice.CandidatePair(
+                protocol,
+                Candidate(
+                    foundation="some-foundation",
+                    component=1,
+                    transport="udp",
+                    priority=priority,
+                    host="2.3.4.5",
+                    port=priority,
+                    type="host",
+                ),
+            )
+            pair.state = ice.CandidatePair.State.SUCCEEDED
+            pair.nominated = True
+            connection._check_list.append(pair)
+            connection.check_complete(pair)
+            return pair
+
+        nominate(1000)
+        high = nominate(3000)
+        nominate(2000)
+        self.assertEqual(
+            [s.remote_candidate for s in connection.get_statistics() if s.selected],
+            [high.remote_candidate],
+        )
+
+    @asynctest
     async def test_request_before_remote_credentials(self) -> None:
         connection = ice.Connection(ice_controlling=True)
 
