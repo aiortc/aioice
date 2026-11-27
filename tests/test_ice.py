@@ -11,7 +11,7 @@ from unittest import mock
 
 import ifaddr
 
-from aioice import Candidate, TransportPolicy, ice, mdns, stun
+from aioice import Candidate, TransportPolicy, ice, mdns, stun, turn
 
 from .turnserver import run_turn_server
 from .utils import (
@@ -51,6 +51,29 @@ async def add_mdns_candidates(
 async def delay(coro: Callable[[], Coroutine[None, None, None]]) -> None:
     await asyncio.sleep(1)
     await coro()
+
+
+@contextlib.contextmanager
+def hold_turn_allocations(
+    on_allocated: Callable[[], object] = lambda: None,
+) -> Iterator[asyncio.Queue[asyncio.Event]]:
+    """
+    Hold each TURN allocation until the event queued for it is set, and call
+    `on_allocated` once the allocation succeeds.
+    """
+    held: asyncio.Queue[asyncio.Event] = asyncio.Queue()
+    real_connect = turn.TurnClientMixin.connect
+
+    async def connect(self: turn.TurnClientMixin) -> tuple[str, int]:
+        proceed = asyncio.Event()
+        held.put_nowait(proceed)
+        await proceed.wait()
+        relayed_address = await real_connect(self)
+        on_allocated()
+        return relayed_address
+
+    with mock.patch.object(turn.TurnClientMixin, "connect", connect):
+        yield held
 
 
 @contextlib.contextmanager
@@ -2712,6 +2735,87 @@ class IceConnectionTest(unittest.TestCase):
         )
         self.assertEqual(len(conn_a.remote_candidates), 0)
         self.assertEqual(conn_a._remote_candidates_end, False)
+
+    @asynctest
+    async def test_gather_candidates_cancel_after_turn_allocation(self) -> None:
+        """
+        Cancelling candidate gathering just after a TURN allocation succeeds
+        keeps the relay, so closing the connection deletes the allocation.
+        """
+        loop = asyncio.get_running_loop()
+
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+
+            # Cancel gathering before it handles the allocation's result.
+            with hold_turn_allocations(
+                on_allocated=lambda: loop.call_soon(gather_task.cancel)
+            ) as held:
+                gather_task = asyncio.create_task(conn.gather_candidates())
+                (await held.get()).set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await gather_task
+            self.assertEqual(len(turn_server.allocations), 1)
+
+            await conn.close()
+            self.assertEqual(turn_server.allocations, {})
+
+    @asynctest
+    async def test_gather_candidates_cancel_with_turn_server(self) -> None:
+        """
+        Cancelling candidate gathering while a TURN allocation is pending
+        closes the socket connected to the TURN server.
+        """
+        loop = asyncio.get_running_loop()
+
+        # Run a TURN server which never responds.
+        turn_server, _ = await loop.create_datagram_endpoint(
+            asyncio.DatagramProtocol, local_addr=("127.0.0.1", 0)
+        )
+        turn_address = turn_server.get_extra_info("sockname")
+
+        # Capture the transport connected to the TURN server.
+        real_create_datagram_endpoint = loop.create_datagram_endpoint
+        turn_transports: list[asyncio.BaseTransport] = []
+        turn_connecting = asyncio.Event()
+
+        async def spy_create_datagram_endpoint(
+            *args: Any, **kwargs: Any
+        ) -> tuple[asyncio.BaseTransport, asyncio.BaseProtocol]:
+            transport, protocol = await real_create_datagram_endpoint(*args, **kwargs)
+            if kwargs.get("remote_addr") == turn_address:
+                turn_transports.append(transport)
+                turn_connecting.set()
+            return transport, protocol
+
+        conn = ice.Connection(
+            ice_controlling=True,
+            turn_server=turn_address,
+            turn_username="foo",
+            turn_password="bar",
+        )
+        with mock.patch.object(
+            loop, "create_datagram_endpoint", spy_create_datagram_endpoint
+        ):
+            gather_task = asyncio.create_task(conn.gather_candidates())
+            await turn_connecting.wait()
+
+            # Cancel gathering, for instance when the application times out.
+            gather_task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await gather_task
+
+        await conn.close()
+        turn_server.close()
+
+        # Allow the transport to finish closing.
+        await asyncio.sleep(0)
+        self.assertTrue(turn_transports[0].is_closing())
 
     @mock.patch("asyncio.base_events.BaseEventLoop.create_datagram_endpoint")
     @asynctest

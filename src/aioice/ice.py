@@ -1258,15 +1258,19 @@ class Connection:
 
         # Run tasks in parallel and handle exceptions.
         if len(tasks):
-            done, pending = await asyncio.wait(tasks, timeout=timeout)
-            for task in done:
-                if task.exception() is None:
-                    candidate, relay_protocol = task.result()
-                    candidates.append(candidate)
-                    if relay_protocol is not None:
-                        self._protocols.append(relay_protocol)
-            for task in pending:
-                task.cancel()
+            try:
+                await asyncio.wait(tasks, timeout=timeout)
+            finally:
+                # Keep the candidates obtained and cancel the other tasks, also
+                # when gathering is cancelled, so close() releases every relay.
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                    elif task.exception() is None:
+                        candidate, relay_protocol = task.result()
+                        candidates.append(candidate)
+                        if relay_protocol is not None:
+                            self._protocols.append(relay_protocol)
 
         return candidates
 
