@@ -345,7 +345,9 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     async def close(self) -> None:
         self.transport.close()
-        await self.__closed
+        # Several callers may wait for the protocol to close, so a cancelled
+        # caller must not cancel the shared future.
+        await asyncio.shield(self.__closed)
 
     async def request(
         self,
@@ -627,9 +629,16 @@ class Connection:
                 self.get_component_candidates(component=component, addresses=addresses)
                 for component in self._components
             ]
-            for candidates in await asyncio.gather(*coros):
-                self._local_candidates += candidates
-            self._local_candidates_end = True
+            try:
+                for candidates in await asyncio.gather(*coros):
+                    self._local_candidates += candidates
+                self._local_candidates_end = True
+            finally:
+                # If the connection was closed meanwhile, release the sockets and
+                # TURN allocations obtained since, also when gathering is cancelled.
+                if self._closing:
+                    await self._close_protocols()
+                    self._local_candidates.clear()
 
     def get_default_candidate(self, component: int) -> Candidate | None:
         """
@@ -741,9 +750,7 @@ class Connection:
         await unref_mdns_protocol(self)
 
         self._nominated.clear()
-        for protocol in self._protocols:
-            await protocol.close()
-        self._protocols.clear()
+        await self._close_protocols()
         self._local_candidates.clear()
 
         # Wake up any pending recv().
@@ -1144,6 +1151,11 @@ class Connection:
         """
         self.__log_info("Check %s %s -> %s", pair, pair.state, state)
         pair.state = state
+
+    async def _close_protocols(self) -> None:
+        for protocol in self._protocols:
+            await protocol.close()
+        self._protocols.clear()
 
     def _emit_event(self, event: ConnectionEvent) -> None:
         if self._event_waiter is not None:

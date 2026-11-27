@@ -77,6 +77,42 @@ def hold_turn_allocations(
 
 
 @contextlib.contextmanager
+def hold_turn_deletions() -> Iterator[tuple[asyncio.Event, asyncio.Event]]:
+    """
+    Hold every TURN allocation deletion until the second event is set. The
+    first event is set when a deletion starts.
+    """
+    deleting = asyncio.Event()
+    proceed = asyncio.Event()
+    real_delete = turn.TurnClientMixin.delete
+
+    async def delete(self: turn.TurnClientMixin) -> None:
+        deleting.set()
+        await proceed.wait()
+        await real_delete(self)
+
+    with mock.patch.object(turn.TurnClientMixin, "delete", delete):
+        yield deleting, proceed
+
+
+@contextlib.contextmanager
+def signal_component_gathered(conn: ice.Connection) -> Iterator[asyncio.Event]:
+    """
+    Set the event each time the candidates of a component have been gathered.
+    """
+    gathered = asyncio.Event()
+    real_get_component_candidates = conn.get_component_candidates
+
+    async def get_component_candidates(**kwargs: Any) -> list[Candidate]:
+        candidates = await real_get_component_candidates(**kwargs)
+        gathered.set()
+        return candidates
+
+    with mock.patch.object(conn, "get_component_candidates", get_component_candidates):
+        yield gathered
+
+
+@contextlib.contextmanager
 def spy_send_stun() -> Iterator[mock.Mock]:
     """
     Record the STUN messages sent by all protocols, while still sending them.
@@ -2766,6 +2802,59 @@ class IceConnectionTest(unittest.TestCase):
             self.assertEqual(turn_server.allocations, {})
 
     @asynctest
+    async def test_gather_candidates_cancel_while_closing(self) -> None:
+        """
+        Cancelling candidate gathering while it waits for a protocol to close,
+        as close() does, does not interrupt close().
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn = ice.Connection(
+                ice_controlling=True,
+                components=2,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            with (
+                hold_turn_allocations() as held,
+                hold_turn_deletions() as (deleting, proceed_deletion),
+                signal_component_gathered(conn) as component_gathered,
+            ):
+                gather_task = asyncio.create_task(conn.gather_candidates())
+                proceed_1 = await held.get()
+                proceed_2 = await held.get()
+
+                # Let the first component complete, then close the connection,
+                # which waits for the first allocation to be deleted.
+                proceed_1.set()
+                await component_gathered.wait()
+                close_task = asyncio.create_task(conn.close())
+                async with asyncio.timeout(1):
+                    await deleting.wait()
+
+                # Let the second component complete, and cancel gathering once
+                # its cleanup waits for the same allocation to be deleted.
+                cleaning_up = asyncio.Event()
+                real_close_protocols = conn._close_protocols
+
+                async def close_protocols() -> None:
+                    cleaning_up.set()
+                    await real_close_protocols()
+
+                with mock.patch.object(conn, "_close_protocols", close_protocols):
+                    proceed_2.set()
+                    await cleaning_up.wait()
+                    gather_task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await gather_task
+
+                proceed_deletion.set()
+                await asyncio.wait([close_task])
+                self.assertFalse(close_task.cancelled())
+
+            self.assertEqual(turn_server.allocations, {})
+
+    @asynctest
     async def test_gather_candidates_cancel_with_turn_server(self) -> None:
         """
         Cancelling candidate gathering while a TURN allocation is pending
@@ -2816,6 +2905,143 @@ class IceConnectionTest(unittest.TestCase):
         # Allow the transport to finish closing.
         await asyncio.sleep(0)
         self.assertTrue(turn_transports[0].is_closing())
+
+    @asynctest
+    async def test_gather_candidates_close_then_cancel_during_cleanup(self) -> None:
+        """
+        Closing the connection again after candidate gathering was cancelled
+        during its cleanup deletes the TURN allocations left.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn = ice.Connection(
+                ice_controlling=True,
+                components=2,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            with (
+                hold_turn_allocations() as held,
+                hold_turn_deletions() as (deleting, proceed_deletion),
+            ):
+                gather_task = asyncio.create_task(conn.gather_candidates())
+                proceed_1 = await held.get()
+                proceed_2 = await held.get()
+
+                # Close the connection, let the allocations complete, and cancel
+                # gathering while its cleanup deletes the first allocation.
+                await conn.close()
+                proceed_1.set()
+                proceed_2.set()
+                async with asyncio.timeout(1):
+                    await deleting.wait()
+                gather_task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await gather_task
+                self.assertEqual(len(turn_server.allocations), 2)
+
+                proceed_deletion.set()
+                close_task = asyncio.create_task(conn.close())
+                await asyncio.wait([close_task])
+                self.assertFalse(close_task.cancelled())
+
+            self.assertEqual(turn_server.allocations, {})
+            self.assertEqual(conn.local_candidates, [])
+
+    @asynctest
+    async def test_gather_candidates_close_then_cancel_with_turn_server(
+        self,
+    ) -> None:
+        """
+        Cancelling candidate gathering after the connection is closed deletes
+        the TURN allocation which succeeded meanwhile.
+        """
+        loop = asyncio.get_running_loop()
+
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+
+            # Close the connection, let the allocation succeed, and cancel
+            # gathering before it handles the allocation's result.
+            with hold_turn_allocations(
+                on_allocated=lambda: loop.call_soon(gather_task.cancel)
+            ) as held:
+                gather_task = asyncio.create_task(conn.gather_candidates())
+                proceed = await held.get()
+                await conn.close()
+                proceed.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await gather_task
+
+            self.assertEqual(turn_server.allocations, {})
+            self.assertEqual(conn.local_candidates, [])
+
+    @asynctest
+    async def test_gather_candidates_close_then_cancel_with_two_components(
+        self,
+    ) -> None:
+        """
+        Cancelling candidate gathering after the connection is closed deletes
+        the TURN allocation of a component which completed meanwhile.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn = ice.Connection(
+                ice_controlling=True,
+                components=2,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            with (
+                hold_turn_allocations() as held,
+                signal_component_gathered(conn) as component_gathered,
+            ):
+                gather_task = asyncio.create_task(conn.gather_candidates())
+                proceed_1 = await held.get()
+                await held.get()
+
+                # Close the connection, let the first component complete, then
+                # cancel gathering while the second one is still allocating.
+                await conn.close()
+                proceed_1.set()
+                await component_gathered.wait()
+                self.assertEqual(len(turn_server.allocations), 1)
+                gather_task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await gather_task
+
+            self.assertEqual(turn_server.allocations, {})
+            self.assertEqual(conn.local_candidates, [])
+
+    @asynctest
+    async def test_gather_candidates_close_with_turn_server(self) -> None:
+        """
+        Closing the connection while a TURN allocation is pending deletes the
+        allocation once it completes.
+        """
+        async with run_turn_server(users={"foo": "bar"}) as turn_server:
+            conn = ice.Connection(
+                ice_controlling=True,
+                turn_server=turn_server.udp_address,
+                turn_username="foo",
+                turn_password="bar",
+            )
+            with hold_turn_allocations() as held:
+                gather_task = asyncio.create_task(conn.gather_candidates())
+                proceed = await held.get()
+
+                # Close the connection, then let the allocation complete.
+                await conn.close()
+                proceed.set()
+                await gather_task
+
+            self.assertEqual(turn_server.allocations, {})
+            self.assertEqual(conn.local_candidates, [])
 
     @mock.patch("asyncio.base_events.BaseEventLoop.create_datagram_endpoint")
     @asynctest
