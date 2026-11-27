@@ -1222,6 +1222,9 @@ class Connection:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
             host_protocols.append(protocol)
+            # Register the protocol at once, so close() releases it if gathering
+            # is cancelled.
+            self._protocols.append(protocol)
 
             # Add the host candidate.
             candidate_address = protocol.transport.get_extra_info("sockname")
@@ -1235,7 +1238,6 @@ class Connection:
                 type="host",
             )
             candidates.append(protocol.local_candidate)
-        self._protocols += host_protocols
 
         tasks: list[asyncio.Task[tuple[Candidate, StunProtocol | None]]] = []
 

@@ -2802,6 +2802,44 @@ class IceConnectionTest(unittest.TestCase):
             self.assertEqual(turn_server.allocations, {})
 
     @asynctest
+    async def test_gather_candidates_cancel_while_binding(self) -> None:
+        """
+        Cancelling candidate gathering while it binds a host socket closes the
+        sockets bound before, once the connection is closed.
+        """
+        loop = asyncio.get_running_loop()
+        real_create_datagram_endpoint = loop.create_datagram_endpoint
+        transports: list[asyncio.BaseTransport] = []
+
+        async def create_datagram_endpoint(
+            *args: Any, **kwargs: Any
+        ) -> tuple[asyncio.BaseTransport, asyncio.BaseProtocol]:
+            # Cancel gathering while the second host socket is being bound.
+            if transports:
+                gather_task.cancel()
+            transport, protocol = await real_create_datagram_endpoint(*args, **kwargs)
+            transports.append(transport)
+            return transport, protocol
+
+        conn = ice.Connection(ice_controlling=True)
+        with (
+            mock.patch(
+                "aioice.ice.get_host_addresses",
+                return_value=["127.0.0.1", "127.0.0.1"],
+            ),
+            mock.patch.object(
+                loop, "create_datagram_endpoint", create_datagram_endpoint
+            ),
+        ):
+            gather_task = asyncio.create_task(conn.gather_candidates())
+            with self.assertRaises(asyncio.CancelledError):
+                await gather_task
+        self.assertEqual(len(transports), 1)
+
+        await conn.close()
+        self.assertTrue(transports[0].is_closing())
+
+    @asynctest
     async def test_gather_candidates_cancel_while_closing(self) -> None:
         """
         Cancelling candidate gathering while it waits for a protocol to close,
