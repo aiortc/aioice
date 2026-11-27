@@ -345,7 +345,9 @@ class StunProtocol(asyncio.DatagramProtocol):
 
     async def close(self) -> None:
         self.transport.close()
-        await self.__closed
+        # Several callers may wait for the protocol to close, so a cancelled
+        # caller must not cancel the shared future.
+        await asyncio.shield(self.__closed)
 
     async def request(
         self,
@@ -627,9 +629,16 @@ class Connection:
                 self.get_component_candidates(component=component, addresses=addresses)
                 for component in self._components
             ]
-            for candidates in await asyncio.gather(*coros):
-                self._local_candidates += candidates
-            self._local_candidates_end = True
+            try:
+                for candidates in await asyncio.gather(*coros):
+                    self._local_candidates += candidates
+                self._local_candidates_end = True
+            finally:
+                # If the connection was closed meanwhile, release the sockets and
+                # TURN allocations obtained since, also when gathering is cancelled.
+                if self._closing:
+                    await self._close_protocols()
+                    self._local_candidates.clear()
 
     def get_default_candidate(self, component: int) -> Candidate | None:
         """
@@ -741,9 +750,7 @@ class Connection:
         await unref_mdns_protocol(self)
 
         self._nominated.clear()
-        for protocol in self._protocols:
-            await protocol.close()
-        self._protocols.clear()
+        await self._close_protocols()
         self._local_candidates.clear()
 
         # Wake up any pending recv().
@@ -1145,6 +1152,11 @@ class Connection:
         self.__log_info("Check %s %s -> %s", pair, pair.state, state)
         pair.state = state
 
+    async def _close_protocols(self) -> None:
+        for protocol in self._protocols:
+            await protocol.close()
+        self._protocols.clear()
+
     def _emit_event(self, event: ConnectionEvent) -> None:
         if self._event_waiter is not None:
             waiter = self._event_waiter
@@ -1210,6 +1222,9 @@ class Connection:
                 self.__log_info("Could not bind to %s - %s", address, exc)
                 continue
             host_protocols.append(protocol)
+            # Register the protocol at once, so close() releases it if gathering
+            # is cancelled.
+            self._protocols.append(protocol)
 
             # Add the host candidate.
             candidate_address = protocol.transport.get_extra_info("sockname")
@@ -1223,7 +1238,6 @@ class Connection:
                 type="host",
             )
             candidates.append(protocol.local_candidate)
-        self._protocols += host_protocols
 
         tasks: list[asyncio.Task[tuple[Candidate, StunProtocol | None]]] = []
 
@@ -1258,15 +1272,19 @@ class Connection:
 
         # Run tasks in parallel and handle exceptions.
         if len(tasks):
-            done, pending = await asyncio.wait(tasks, timeout=timeout)
-            for task in done:
-                if task.exception() is None:
-                    candidate, relay_protocol = task.result()
-                    candidates.append(candidate)
-                    if relay_protocol is not None:
-                        self._protocols.append(relay_protocol)
-            for task in pending:
-                task.cancel()
+            try:
+                await asyncio.wait(tasks, timeout=timeout)
+            finally:
+                # Keep the candidates obtained and cancel the other tasks, also
+                # when gathering is cancelled, so close() releases every relay.
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                    elif task.exception() is None:
+                        candidate, relay_protocol = task.result()
+                        candidates.append(candidate)
+                        if relay_protocol is not None:
+                            self._protocols.append(relay_protocol)
 
         return candidates
 
